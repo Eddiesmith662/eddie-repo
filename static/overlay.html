@@ -122,6 +122,24 @@
           background: linear-gradient(90deg, var(--cc) 0 100%); font-size: 17px; letter-spacing: 1.5px; text-transform: uppercase;
           transition: transform .55s cubic-bezier(.3,.8,.3,1); box-shadow: inset 0 -2px 0 rgba(0,0,0,.25); }
   .chdr .cc { font-family: var(--light); font-weight: 300; font-size: 13px; letter-spacing: 1px; opacity: .85; }
+  /* qualifying: cars on a flying lap get a green wash, and an ON TRACK panel under the ticker shows their live delta to pole */
+  .row.hot .bg { background: linear-gradient(90deg, rgba(34,197,94,.30), rgba(34,197,94,.06) 70%), var(--grey80); }
+  #tQual { overflow: hidden; }
+  #tQual .qh { background: var(--black); display: flex; align-items: center; gap: 8px; padding: 5px 12px; font-size: 13px; letter-spacing: 2px; border-top: 3px solid var(--green); }
+  #tQual .qh i { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: qPulse 1s ease-in-out infinite alternate; }
+  @keyframes qPulse { from { opacity: 1; } to { opacity: .3; } }
+  #tQual .qr { display: flex; align-items: center; height: var(--row); font-size: 18px; background: var(--grey80b); }
+  #tQual .qr + .qr { border-top: 1px solid rgba(255,255,255,.06); }
+  #tQual .qn { width: 42px; text-align: center; color: var(--midgrey); font-size: 17px; }
+  #tQual .qd { flex: 1; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 4px; }
+  #tQual .qt { width: 84px; text-align: right; font-family: var(--light); font-weight: 300; font-size: 18px; font-variant-numeric: tabular-nums; }
+  #tQual .qt.ahead { color: var(--green); font-family: var(--semi); font-weight: 600; }
+  #tQual .qt.behind { color: #ffd166; }
+  #tQual .qp { width: 52px; text-align: center; font-size: 16px; color: #ddd; }
+  #tQual .qr.done .qt { color: #aaa; }                     /* lap finished, but slower than their best */
+  #tQual .qr.done.best { background: linear-gradient(90deg, rgba(255,13,64,.35), rgba(17,17,17,.89) 70%); }
+  #tQual .qr.done.best .qt { font-family: var(--semi); font-weight: 600; color: #fff; }
+  #tQual .qr.done.best .qp { color: #fff; }
   #tRows.paged::after { content: ""; position: absolute; left: 0; right: 0; height: 2px; top: calc(var(--fixed) * 34px - 1px); background: var(--red); z-index: 2; }
 
   /* ---------- Lower third (focused driver) ---------- */
@@ -271,6 +289,7 @@
   <div class="sub"><span id="tSub"></span><span class="flag" id="tFlag"></span></div>
   <div class="cbar" id="tCbar"><span>Caution</span></div>
   <div class="rows" id="tRows"><div class="cwipe" id="tCwipe"></div></div>
+  <div id="tQual"></div>
   <div class="pits" id="tPits"></div>
 </div>
 
@@ -603,13 +622,35 @@ function renderTower() {
     el.children[4].textContent = tickerName(c.name);
     const inClass = !!S.classFilter || split;
     const g = S.towerMode === 'leader' ? (inClass ? c.classGap : c.gap) : (inClass ? c.classInterval : c.interval);
-    el.children[6].textContent = (g === 'LEADER' ? (L.isRace ? 'LEADER' : '') : g) || '';
+    el.children[6].textContent = (g === 'LEADER' ? (L.isRace ? 'LEADER' : '') : (g === 'NO TIME' && isQual() ? '—' : g)) || '';
+    el.classList.toggle('hot', !!(c.qual && c.qual.hot));
   });
   for (const [key, el] of rowEls) if (!seen.has(key)) { el.remove(); rowEls.delete(key); }
   rowsEl.style.height = y + 'px';
   renderPits(items.filter(it => it.c));
+  renderQual();
 }
 const HDR_H = 30;
+/* ---------- qualifying: ON TRACK panel under the ticker ---------- */
+function isQual() { return !!L && !L.isRace && /qual/i.test(L.sessionType || L.sessionName || ''); }
+function renderQual() {
+  const box = $('tQual');
+  if (!isQual()) { if (box.innerHTML) box.innerHTML = ''; return; }
+  const fmtD = d => (d < 0 ? '−' : '+') + Math.abs(d).toFixed(3);
+  const hot = (L.cars || []).filter(c => (c.qual && c.qual.hot) || c.qualDone);
+  // just finished first (lap time + where it puts them), then flying laps, closest to pole first
+  hot.sort((a, b) => (!!b.qualDone - !!a.qualDone) || ((a.qual && a.qual.delta != null ? a.qual.delta : 99) - (b.qual && b.qual.delta != null ? b.qual.delta : 99)));
+  const rows = hot.slice(0, 3).map(c => {
+    if (c.qualDone) {   // lap just finished: show the time and the position it gives them
+      return `<div class="qr done ${c.qualDone.improved ? 'best' : ''}"><span class="qn">${esc(c.num)}</span><span class="qd">${esc(tickerName(c.name))}</span><span class="qt">${c.qualDone.time.toFixed(3)}</span><span class="qp">P${c.pos}</span></div>`;
+    }
+    const q = c.qual, d = q.delta;
+    const cls = d == null ? '' : d < 0 ? 'ahead' : 'behind';
+    return `<div class="qr"><span class="qn">${esc(c.num)}</span><span class="qd">${esc(tickerName(c.name))}</span><span class="qt ${cls}">${d == null ? 'ON LAP' : fmtD(d)}</span><span class="qp">${q.proj ? 'P' + q.proj : ''}</span></div>`;
+  }).join('');
+  const html = rows ? `<div class="qh"><i></i>ON TRACK</div>${rows}` : '';
+  if (box._h !== html) { box._h = html; box.innerHTML = html; }
+}
 function textOn(hex) {   // black or white text, whichever reads better on the class color
   const m = /^#?([0-9a-f]{6})$/i.exec(hex || ''); if (!m) return '#fff';
   const n = parseInt(m[1], 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;

@@ -459,6 +459,13 @@ class IRacingSource:
                 cars.append(c)
 
             cars = order_cars(cars, is_race, state, self.info.get("qualOrder", []))
+            try:
+                est_raw = ir["CarIdxEstTime"] or []
+            except Exception:
+                est_raw = []
+            qual_track(cars, self.__dict__.setdefault("qual_store", {}), now_s,
+                       {c["idx"]: est_raw[c["idx"]] for c in cars if c["idx"] < len(est_raw) and est_raw[c["idx"]]},
+                       "qual" in stype and not replaying)
             compute_gaps(cars, is_race, racing)
             compute_class_gaps(cars, is_race, racing)
             finalize_positions(cars)
@@ -599,6 +606,76 @@ def compute_class_gaps(cars, is_race, racing):
 
 REPAIR_FLAG = 0x00100000   # irsdk_repair: the meatball (black flag with orange circle)
 BLACK_FLAG = 0x00010000    # irsdk_black: a penalty to serve (iRacing doesn't say what for)
+
+
+QUAL_ABORT = 2.0   # seconds off pole pace at which a lap no longer counts as a flying lap
+
+
+def qual_track(cars, store, now, est_at, is_qual):
+    """Qualifying: follow each car's laps so the ticker can show who's on a flying lap, their live
+    delta to the pole time and where that pace would put them.
+    est_at = {idx: iRacing's estimate of the seconds a car of that class needs to reach where it is on the lap}."""
+    if not is_qual:
+        store.clear()
+        for c in cars:
+            c["qual"] = c["qualDone"] = None
+        return
+    timed = [c for c in cars if (c.get("best") or 0) > 0]
+    pole = min(timed, key=lambda c: c["best"]) if timed else None
+    for c in cars:
+        idx = c["idx"]
+        st = store.setdefault(idx, {"lap": None, "start": None, "hot": False, "splits": [], "bestSplits": None, "bestT": None, "done": None})
+        prog = c.get("progress")
+        c["qual"] = c["qualDone"] = None
+        if prog is None:
+            st.update(lap=None, start=None, hot=False, splits=[])
+            continue
+        lapn = int(prog)
+        frac = prog - lapn
+        if st["lap"] is None or lapn < st["lap"] or lapn > st["lap"] + 1:   # first sight, tow, reset or replay jump
+            st.update(lap=lapn, start=None, hot=False, splits=[])
+        elif lapn == st["lap"] + 1:                                        # crossed the line
+            if st["hot"] and st["start"] is not None:
+                lt = now - st["start"]
+                st["done"] = {"time": lt, "t": now}
+                if st["splits"] and (st["bestT"] is None or lt < st["bestT"]):
+                    st["bestSplits"], st["bestT"] = st["splits"], lt
+            st.update(lap=lapn, start=now, hot=not c.get("pit"), splits=[])
+        if c.get("pit"):
+            st["hot"] = False
+        if st["start"] is not None:                                        # time at each 1% of the lap
+            k = min(99, int(frac * 100))
+            while len(st["splits"]) <= k:
+                st["splits"].append(now - st["start"])
+        if st["done"] and now - st["done"]["t"] < 6:
+            lt = round(c.get("last") or st["done"]["time"], 3)
+            c["qualDone"] = {"time": lt, "improved": bool(c.get("best")) and lt <= c["best"] + 0.002}   # did it beat their best?
+        if not (st["hot"] and st["start"] is not None):
+            continue
+        c["qual"] = {"hot": True, "delta": None, "proj": None}
+        if not pole:                       # nobody has a time yet: on a flying lap, but nothing to compare with
+            continue
+        elapsed = now - st["start"]
+        ref = None
+        ps = (store.get(pole["idx"]) or {}).get("bestSplits")
+        if ps and len(ps) >= 90:                                            # the pole lap's own timing, if we saw it
+            i = min(frac * 100, len(ps) - 1.001)
+            a = int(i)
+            ref = ps[a] + (ps[min(a + 1, len(ps) - 1)] - ps[a]) * (i - a)
+            ref *= pole["best"] / (store[pole["idx"]]["bestT"] or pole["best"])   # match the official pole time
+        elif est_at.get(idx) and (c.get("est") or 0) > 0:                  # otherwise iRacing's reference lap, scaled to pole
+            ref = est_at[idx] / c["est"] * pole["best"]
+        q = {"hot": True, "delta": None, "proj": None}
+        if ref is not None and frac > 0.04:
+            delta = elapsed - ref
+            if delta > QUAL_ABORT:            # way off pole pace: an in lap or an aborted run, stop showing it
+                st["hot"] = False
+                c["qual"] = None
+                continue
+            proj_time = pole["best"] + delta
+            q["delta"] = round(delta, 3)
+            q["proj"] = 1 + sum(1 for o in timed if o["idx"] != idx and o["best"] < proj_time)
+        c["qual"] = q
 
 
 def track_meters(text):
@@ -854,6 +931,78 @@ class DemoSource:
         return True
 
 
+class DemoQualSource(DemoSource):
+    """Demo qualifying session: cars go out a few at a time for an out lap, two timed laps and an in lap."""
+    def __init__(self, multiclass=False):
+        super().__init__(multiclass)
+        self.state = 4
+        self.length = 600
+        for i, c in enumerate(self.cars):
+            c.update(progress=0.0, phase="pit", runAt=self.t0 + 4 + i * 16, runs=0, last=0.0, best=0.0)
+
+    def tick(self):
+        now = time.time()
+        dt = now - self.last_t
+        self.last_t = now
+        for c in self.cars:
+            lap_t = self.base * c["skill"]
+            if c["phase"] == "pit":
+                if now >= c["runAt"] and c["runs"] < 2:
+                    c["phase"], c["laps"] = "out", 0
+                    c["progress"] = math.floor(c["progress"]) + 0.08     # pit exit
+                continue
+            before = c["progress"]
+            speed = 1.0 / (lap_t * (1.35 if c["phase"] in ("out", "in") else random.uniform(0.997, 1.006)))
+            c["progress"] += speed * dt
+            if math.floor(c["progress"]) > math.floor(before):           # crossed the line
+                if c["phase"] == "hot":
+                    lt = now - c["lapStart"]
+                    c["last"] = lt
+                    if not c["best"] or lt < c["best"]:
+                        c["best"] = lt
+                    c["laps"] += 1
+                    if c["laps"] >= 2:
+                        c["phase"] = "in"
+                elif c["phase"] == "out":
+                    c["phase"] = "hot"
+                c["lapStart"] = now
+            if c["phase"] == "in" and c["progress"] - math.floor(c["progress"]) > 0.92:
+                c["phase"], c["runs"] = "pit", c["runs"] + 1
+                c["runAt"] = now + 70 + random.uniform(0, 40)
+        timed = sorted((c for c in self.cars if c["best"]), key=lambda c: c["best"])
+        rank = {c["idx"]: i + 1 for i, c in enumerate(timed)}
+        cars = []
+        for c in self.cars:
+            p = c["progress"]
+            frac = p - math.floor(p)
+            on_pit = c["phase"] == "pit" or (c["phase"] == "out" and frac < 0.14) or (c["phase"] == "in" and frac > 0.86)
+            cars.append({
+                "idx": c["idx"], "num": c["num"], "name": c["name"], "abbrev": c["abbrev"],
+                "team": c["team"], "cls": c["cls"], "clsColor": c["clsColor"], "est": c["est"],
+                "car": c["car"], "carFull": c["carFull"], "custId": c["custId"], "irating": c["irating"],
+                "officialPos": rank.get(c["idx"], 0), "classPosOfficial": 0, "lapsCompleted": max(0, int(p)),
+                "progress": p, "pit": on_pit, "onTrack": True, "pitState": None, "pitTime": None,
+                "last": c["last"], "best": c["best"], "meatball": False, "blackFlag": False,
+            })
+        cars = order_cars(cars, False, 4, [])
+        est_at = {c["idx"]: (c["progress"] - math.floor(c["progress"])) * c["est"] for c in cars}
+        qual_track(cars, self.__dict__.setdefault("qual_store", {}), now, est_at, True)
+        compute_gaps(cars, False, True)
+        compute_class_gaps(cars, False, True)
+        finalize_positions(cars)
+        add_extras(cars, False, [], {}, self.__dict__.setdefault("speed_store", {}), now, 2414.0)
+        left = max(0, self.length - (now - self.t0))
+        return {
+            "connected": True, "source": "demo", "track": "Demo Speedway",
+            "sessionName": "QUALIFY", "sessionType": "lone qualify", "isRace": False,
+            "sessionState": 4, "lap": 0, "totalLaps": 0, "timeRemain": fmt_clock(left), "flag": "green",
+            "isReplay": False, "replaySpeed": 1, "replaySlow": False, "uiHidden": False, "camLap": 1,
+            "camCarIdx": self.cam, "camGroup": self.camGroup,
+            "camGroups": [{"num": 9, "name": "TV1"}, {"num": 10, "name": "TV2"}, {"num": 3, "name": "Cockpit"}],
+            "grid": [], "cars": cars, "classes": sorted({c["cls"] for c in cars}), "t": now,
+        }
+
+
 SOURCE = None
 SOURCE_LOCK = threading.Lock()
 
@@ -908,10 +1057,10 @@ def penalty_command(data):
     return {"ok": True}
 
 
-def telemetry_loop(demo, multiclass=False):
+def telemetry_loop(demo, multiclass=False, qual=False):
     global SOURCE
     if demo:
-        SOURCE = DemoSource(multiclass)
+        SOURCE = DemoQualSource(multiclass) if qual else DemoSource(multiclass)
     else:
         try:
             SOURCE = IRacingSource()
@@ -1869,13 +2018,14 @@ def main():
     ap = argparse.ArgumentParser(description="VSPEED broadcast overlay server")
     ap.add_argument("--demo", action="store_true", help="run a fake race instead of reading iRacing")
     ap.add_argument("--multiclass", action="store_true", help="demo race with GTP and GT3 classes")
+    ap.add_argument("--qual", action="store_true", help="demo qualifying session instead of a race")
     ap.add_argument("--port", type=int, default=8765)
     args = ap.parse_args()
 
     standings.init()
     standings.autopull(on_done=STATE.notify)
     threading.Thread(target=update_watch, daemon=True).start()
-    threading.Thread(target=telemetry_loop, args=(args.demo, args.multiclass), daemon=True).start()
+    threading.Thread(target=telemetry_loop, args=(args.demo, args.multiclass, args.qual), daemon=True).start()
     server = QuietServer(("0.0.0.0", args.port), Handler)
     ip = local_ip()
     print("=" * 60)
