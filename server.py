@@ -52,6 +52,7 @@ DEFAULT_SETTINGS = {
         "lowerthird": True,    # focused driver info
         "flags": True,         # automatic flag banners
         "board": False,        # starting grid / results board
+        "movers": False,       # biggest movers: top 5 positions gained since the start
     },
     "raceName": "VSPEED SIM RACING",
     "leagueLogo": "league_logo.png",

@@ -166,6 +166,26 @@
   #board .r .bg2, #board .sh .bg2 { width: 120px; text-align: right; padding-right: 16px; font-family: var(--light); font-weight: 300; }
   #board .col + .col { border-left: 2px solid rgba(0,0,0,.5); }
 
+  /* ---------- Biggest movers (bottom right, about the size of the race info box) ---------- */
+  #movers { right: 40px; bottom: 40px; width: 520px; box-shadow: 0 10px 40px rgba(0,0,0,.5); }
+  #movers .h { background: var(--grey); font-size: 24px; padding: 10px 18px 12px; position: relative; overflow: hidden; text-transform: uppercase; letter-spacing: .5px; }
+  #movers .h::after { content: ""; position: absolute; left: 0; bottom: 0; height: 4px; width: 45%; background: var(--red); transform-origin: left; }
+  #movers .h small { float: right; font-family: var(--light); font-weight: 300; font-size: 15px; margin-top: 7px; letter-spacing: 1px; }
+  #movers .sh { display: flex; background: var(--black); font-family: var(--light); font-weight: 300; font-size: 12px; padding: 5px 0; letter-spacing: 1px; }
+  #movers .r { display: flex; align-items: center; height: 42px; font-size: 19px; background: var(--grey80); }
+  #movers .r:nth-child(odd) { background: var(--grey80b); }
+  #movers .c1 { width: 46px; text-align: center; }
+  #movers .r .c1 { background: var(--poscol); height: 100%; display: flex; align-items: center; justify-content: center; }
+  #movers .cc { width: 4px; align-self: stretch; }
+  #movers .c2 { width: 48px; text-align: center; color: var(--midgrey); }
+  #movers .sh .c2 { color: #fff; }
+  #movers .c3 { flex: 1; padding-left: 4px; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #movers .c4, #movers .c5 { width: 62px; text-align: center; }
+  #movers .r .c4 { color: var(--midgrey); font-family: var(--light); font-weight: 300; }
+  #movers .c6 { width: 92px; text-align: center; }
+  #movers .r .c6 { background: rgba(34,197,94,.18); height: 100%; display: flex; align-items: center; justify-content: center; color: var(--green); font-size: 21px; }
+  #movers .none { background: var(--grey80); font-family: var(--light); font-weight: 300; font-size: 17px; padding: 14px 18px; color: #ddd; }
+
   /* ---------- Drive graphic (ready-made PNG / WebM from the Google Drive folder) ---------- */
   #gfx { left: 960px; top: 540px; transform: translate(-50%, -50%); }
   #gfx img, #gfx video { display: block; max-width: none; }
@@ -245,6 +265,7 @@
   <div class="info" id="lInfo"></div>
 </div>
 
+<div id="movers" class="widget off"><div class="h"><span>Biggest movers</span><small id="mvSub">SINCE THE START</small></div><div id="mvBody"></div></div>
 <div id="board" class="widget off">
   <div class="h"><span id="bTitle"></span><small id="bSub"></small></div>
   <div class="cols" id="bCols"></div>
@@ -347,6 +368,14 @@ const IN = {
     anim(q('lower', '.info'), dropIn, { duration: 450, delay: 600 });
     shineOn(nm, 800);
     return 1650;
+  },
+  movers(el) {
+    const h = q('movers', '.h');
+    anim(h, wipeIn, { duration: 600 });
+    anim(h, lineIn, { duration: 750, delay: 400, pseudoElement: '::after' });
+    anim($('mvBody'), dropIn, { duration: 650, delay: 400, easing: 'cubic-bezier(.3,.6,.3,1)' });
+    shineOn(h, 700);
+    return 1300;
   },
   board(el) {
     const h = q('board', '.h');
@@ -652,6 +681,27 @@ function renderBoard() {
   $('bCols').innerHTML = col(cars.slice(0, per)) + (cars.length > per ? col(cars.slice(per)) : '');
 }
 
+/* ---------- biggest movers: top 5 positions gained since the start ---------- */
+function renderMovers() {
+  const on = S.show.movers && L.connected && L.cars.length && (L.isRace || LAYOUT_MODE);
+  show('movers', on);
+  if (!on) return;
+  const multi = (L.classes || []).length > 1 && !S.classFilter;
+  const inClass = multi || !!S.classFilter;
+  const list = filteredCars()
+    .map(c => ({ c, g: LAYOUT_MODE ? (c.gained ?? (12 - c.pos)) : (inClass ? c.classGained : c.gained),
+                 now: inClass ? c.classPos : c.pos }))
+    .filter(x => x.g != null && x.g > 0)
+    .sort((a, b) => b.g - a.g || a.now - b.now)
+    .slice(0, 5);
+  $('mvSub').textContent = multi ? 'IN CLASS · SINCE THE START' : 'SINCE THE START';
+  const html = list.length
+    ? `<div class="sh"><span class="c1"></span>${multi ? '<span class="cc"></span>' : ''}<span class="c2">#</span><span class="c3">DRIVER</span><span class="c4">START</span><span class="c5">NOW</span><span class="c6">GAINED</span></div>` +
+      list.map((x, i) => `<div class="r"><span class="c1">${i + 1}</span>${multi ? `<span class="cc" style="background:${x.c.clsColor || 'transparent'}"></span>` : ''}<span class="c2">${esc(x.c.num)}</span><span class="c3">${esc(tickerName(x.c.name))}</span><span class="c4">P${x.now + x.g}</span><span class="c5">P${x.now}</span><span class="c6">▲ ${x.g}</span></div>`).join('')
+    : '<div class="none">No one has gained positions yet.</div>';
+  if ($('mvBody').innerHTML !== html) $('mvBody').innerHTML = html;
+}
+
 /* ---------- flag banner ---------- */
 const FLAG_TEXT = { green: 'GREEN FLAG', caution: 'CAUTION', white: 'WHITE FLAG · FINAL LAP', checkered: 'CHECKERED FLAG', red: 'RED FLAG' };
 function flashFlag(f) {
@@ -955,6 +1005,7 @@ const WIDGETS = {
   tower:     { name: 'Ticker',         el: 'tower',      from: [40, 120] },
   lower:     { name: 'Driver info',    el: 'lower',      from: [420, 1040] },
   board:     { name: 'Results',        el: 'board',      from: [960, 120] },
+  movers:    { name: 'Biggest movers', el: 'movers',     from: [1880, 1040] },
   grid:      { name: 'Grid',           el: 'grid',       from: [960, 1010] },
   standings: { name: 'Standings',      el: 'fStandings', from: [80, 100],   to: [410, 170],   s: 0.82, frame: true },
   info:      { name: 'Race info',      el: 'fAnalysis',  from: [1840, 960], to: [1880, 1040], s: 0.70, frame: true },
@@ -1035,7 +1086,7 @@ function onScreen() {
   if (GR.on) duck.grid = now + 1100;
   return Object.keys(duck).filter(k => duck[k] > now);
 }
-const SHOW_KEY = { logo: 'logo', league: 'league', tower: 'tower', lower: 'lowerthird', flag: 'flags', board: 'board' };
+const SHOW_KEY = { logo: 'logo', league: 'league', tower: 'tower', lower: 'lowerthird', flag: 'flags', board: 'board', movers: 'movers' };
 
 /* ---------- layout mode (/overlay?layout=1): everything on screen with sample data, for positioning ---------- */
 function sampleLive() {
@@ -1072,7 +1123,7 @@ function render() {
   S = Object.assign({}, RAW, { show: vis }, LAYOUT_MODE ? { lowerThirdMode: 'always' } : {});
   const realL = L;
   if (LAYOUT_MODE && !(L.connected && L.cars && L.cars.length)) L = sampleLive();
-  renderChrome(); renderTower(); renderLower(); renderBoard(); renderGfx(); renderGrid(); renderSponsor();
+  renderChrome(); renderTower(); renderLower(); renderBoard(); renderMovers(); renderGfx(); renderGrid(); renderSponsor();
   if (LAYOUT_MODE && FLAG_BANNERS) { const fl = $('flag'); Object.keys(FLAG_TEXT).forEach(k => fl.classList.toggle(k, k === 'green')); $('flagText').textContent = 'GREEN FLAG'; show('flag', true); } else renderFlag();
   L = realL;
 }

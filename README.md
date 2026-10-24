@@ -12,6 +12,7 @@ A custom iRacing overlay for broadcasting software, built to the VSPEED Brand St
 | Driver info | Bottom | Follows whichever car the iRacing camera is on. In multi-class races the line under the name takes the class color and grows into a small class label |
 | Flag banners | Top center | Switched off for now; the ticker shows flags instead (flag square, flag wipes and the CAUTION / WHITE FLAG / CHECKERED band) |
 | Results board | Center | Live running order with gaps, from iRacing |
+| **Biggest movers** | Bottom right | Top 5 drivers by positions gained since the start (start, now, gained); within each class in multi-class races. Turn it on with the Biggest movers tile; it steps aside while race info is up |
 | **Grid** | Bottom | Starting grid from qualifying, one row (two cars) at a time: position tabs, ROW n, car render, car name, driver, qualifying time and number |
 | **Standings** | Center | Championship points from Xtreme Scoring (top 20, two columns), playoff cutoff line, playoff bracket |
 | **Race info** | Bottom right | The race analysis box (title + 5 lines) |
