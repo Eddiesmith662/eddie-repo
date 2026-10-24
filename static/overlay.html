@@ -710,7 +710,7 @@ function renderBoard() {
   $('bCols').innerHTML = col(cars.slice(0, per)) + (cars.length > per ? col(cars.slice(per)) : '');
 }
 
-/* ---------- penalty box: one black flag at a time, 8 seconds each, queued ---------- */
+/* ---------- penalty box: shown when Show is pressed in the live timing window; 8 seconds each, queued ---------- */
 const PN = { seen: new Map(), queue: [], cur: null, until: 0, next: 0, hide: null, ready: false };
 const PN_SHOW = 8000;
 function renderPenalty() {
@@ -719,16 +719,16 @@ function renderPenalty() {
     $('pnNum').textContent = '42'; $('pnName').textContent = 'R. CARTER'; $('pnPos').textContent = 'P5'; $('pnWhy').textContent = 'SPEEDING';
     show('penalty', true); return;
   }
-  for (const ev of list) {   // a new penalty, or Show again pressed: queue it
+  for (const ev of list) {   // Show pressed for a penalty: queue it
     if (PN.seen.get(ev.id) === ev.show) continue;
     PN.seen.set(ev.id, ev.show);
-    if (PN.ready && S.show.penalty && !PN.queue.includes(ev.id) && PN.cur !== ev.id) PN.queue.push(ev.id);
-    else if (PN.ready && PN.cur === ev.id) PN.until = now + PN_SHOW;   // shown again while up: just keep it up longer
+    if (!ev.show || !PN.ready) continue;
+    if (PN.cur === ev.id) PN.until = now + PN_SHOW;   // pressed again while it's up: keep it up longer
+    else if (!PN.queue.includes(ev.id)) PN.queue.push(ev.id);
   }
   if (PN.hide === null) PN.hide = P.hide;
   if (P.hide !== PN.hide) { PN.hide = P.hide; PN.queue = []; if (PN.cur) { PN.cur = null; PN.next = now + 900; } }
   PN.ready = true;
-  if (!S.show.penalty) { PN.queue = []; if (PN.cur) { PN.cur = null; PN.next = now + 900; } }
   if (PN.cur && now >= PN.until) { PN.cur = null; PN.next = now + 900; }
   if (!PN.cur && PN.queue.length && now >= PN.next) {
     PN.cur = PN.queue.shift(); PN.until = now + PN_SHOW;

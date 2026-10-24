@@ -53,7 +53,6 @@ DEFAULT_SETTINGS = {
         "flags": True,         # automatic flag banners
         "board": False,        # starting grid / results board
         "movers": False,       # biggest movers: top 5 positions gained since the start
-        "penalty": True,       # penalty box pops up on its own when a driver gets a black flag
     },
     "raceName": "VSPEED SIM RACING",
     "leagueLogo": "league_logo.png",
@@ -864,7 +863,8 @@ PEN_REASONS = ["SPEEDING", "PASSING UNDER YELLOW"]   # picked in the live timing
 
 
 def track_penalties(live):
-    """A car's black flag switching on = a new penalty (shown by the penalty box). Flags already
+    """A car's black flag switching on = a new penalty in the live timing window's list (the penalty
+    box only shows it when the producer presses Show). Flags already
     out when the overlay starts, and anything seen during a replay, don't count."""
     cars = live.get("cars") or []
     multi = len(live.get("classes") or []) > 1
@@ -880,7 +880,7 @@ def track_penalties(live):
                 PEN["seq"] += 1
                 events.append({"id": PEN["seq"], "idx": idx, "num": c.get("num", ""), "name": c.get("name", ""),
                                "pos": c.get("classPos") if multi else c.get("pos"), "reason": "",
-                               "active": True, "t": now, "show": now})
+                               "active": True, "t": now, "show": 0})   # shown only when Show is pressed
             elif was and not on:
                 for e in reversed(events):
                     if e["idx"] == idx and e["active"]:
