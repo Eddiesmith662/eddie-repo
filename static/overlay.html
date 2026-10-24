@@ -723,7 +723,7 @@ function renderChrome() {
   $('logo').classList.toggle('straight', S.logoStyle === 'straight');
   show('logo', S.show.logo);
   show('league', S.show.league);
-  const src = '/static/assets/' + (S.leagueLogo || 'league_logo.png');
+  const src = '/logos/' + (S.leagueLogo || 'league_logo.png');
   if (src !== leagueSrc) {
     leagueSrc = src;
     const img = $('leagueImg');

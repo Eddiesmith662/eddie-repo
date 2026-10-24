@@ -16,6 +16,8 @@
   .dot.on { background: var(--green); } .dot.demo { background: var(--blue); }
   .pill { background: rgba(0,0,0,.35); padding: 4px 10px; border-radius: 4px; white-space: nowrap; }
   .pill.air { background: var(--red); }
+  .pill.ver { color: var(--dim); }
+  .pill.ver.upd { background: var(--blue); color: #fff; }
   nav { display: flex; gap: 2px; padding: 0 12px; overflow-x: auto; }
   nav button { background: transparent; border: 0; border-bottom: 3px solid transparent; border-radius: 0; padding: 10px 14px; margin-bottom: -3px; text-transform: uppercase; letter-spacing: 1px; font-size: 13px; color: #ccc; white-space: nowrap; }
   nav button.on { color: #fff; border-bottom-color: #fff; }
@@ -213,6 +215,7 @@
       <span class="pill" id="sess">—</span>
       <span class="pill" id="lapPill">—</span>
       <span class="pill" id="flagPill">—</span>
+      <span class="pill ver" id="verPill" title="Program version"></span>
     </div>
   </div>
   <nav id="nav">
@@ -248,7 +251,7 @@
   <section>
     <h2><span class="t">Broadcast text</span></h2>
     <label>Race name (ticker header)</label><input id="raceName">
-    <label>League logo (file in static/assets)</label><select id="leagueLogo"></select>
+    <label>League logo (image in the data\logos folder)</label><select id="leagueLogo"></select>
     <button class="save" data-save="text">Update text</button>
   </section>
 
@@ -513,7 +516,7 @@
 
 <script>
 const $ = id => document.getElementById(id);
-let S = null, L = null, SD = null, filled = false, sFilled = false, pullBusy = false;
+let APP = {}, S = null, L = null, SD = null, filled = false, sFilled = false, pullBusy = false;
 const TILES = [
   ['logo', 'VSPEED logo', 'top left'], ['league', 'League + live tag', 'top right'],
   ['tower', 'Ticker', 'timing tower'], ['lowerthird', 'Driver info', 'camera car'],
@@ -1121,6 +1124,8 @@ function render() {
   $('sess').textContent = L.connected ? `${L.sessionName || ''} · ${L.track || ''}` : '—';
   $('lapPill').textContent = L.connected ? (L.totalLaps ? `Lap ${Math.max(1, L.lap)} / ${L.totalLaps}` : (L.timeRemain || `Lap ${L.lap || 0}`)) + (replay ? ' · REPLAY' : ' · LIVE') : '—';
   $('flagPill').textContent = 'Flag: ' + (L.flag || 'none');
+  const up = APP.update, vt = up ? `Update v${up.version} ready · restart the overlay to install` : (APP.version ? 'v' + APP.version : '');
+  if ($('verPill').textContent !== vt) { $('verPill').textContent = vt; $('verPill').classList.toggle('upd', !!up); }
 
   const classes = L.classes || [];
   const clsSel = $('classFilter'), clsKey = classes.join('|') + '#' + S.classFilter;
@@ -1174,7 +1179,7 @@ function render() {
 
 function connect() {
   const es = new EventSource('/events');
-  es.onmessage = e => { const d = JSON.parse(e.data); S = d.settings; L = d.live; SD = d.standings; render(); };
+  es.onmessage = e => { const d = JSON.parse(e.data); S = d.settings; L = d.live; SD = d.standings; APP = d.app || APP; render(); };
   es.onerror = () => { es.close(); $('conn').textContent = 'Server offline'; $('dot').className = 'dot'; setTimeout(connect, 2000); };
 }
 connect();

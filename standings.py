@@ -17,7 +17,8 @@ import time
 import urllib.request
 from datetime import datetime
 
-CONFIG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "standings")
+import datafiles
+CONFIG_DIR = datafiles.STANDINGS_DIR
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 DATA_PATH = os.path.join(CONFIG_DIR, "standings.json")
 BRACKET_PATH = os.path.join(CONFIG_DIR, "bracket.json")

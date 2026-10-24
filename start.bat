@@ -1,9 +1,6 @@
 @echo off
 title VSPEED Overlay (iRacing)
 cd /d "%~dp0"
-python -c "import irsdk" 2>nul || (
-  echo Installing pyirsdk...
-  python -m pip install pyirsdk
-)
-python server.py
-pause
+rem The last line runs, pauses and exits in one go on purpose: an update may replace this file while it runs.
+where python >nul 2>nul || (echo Python was not found. Install it from python.org and tick "Add Python to PATH". & pause & exit /b 1)
+python run.py %* & pause & exit /b

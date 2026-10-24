@@ -27,9 +27,8 @@ The **control panel** (Prerace, Race, Standings, Layout and Setup tabs; race inf
 
 1. Install Python 3.10 or newer from python.org. Tick **"Add Python to PATH"** during install.
 2. Put this folder anywhere, for example `C:\VSPEED\vspeed-overlay`.
-3. Drop your files into `static\assets`:
-   - `league_logo.png`: the league/series logo for the top right (transparent PNG). Add more logos with any name and pick them in the panel.
-4. Double-click **`start.bat`**. The first run installs `pyirsdk` automatically.
+3. Double-click **`start.bat`**. The first run installs `pyirsdk` automatically and creates the `data` folder.
+4. Put your league/series logo for the top right into `data\logos` (transparent PNG, e.g. `league_logo.png`). Add more logos with any name and pick them on the Prerace tab.
 5. In vMix: **Add Input → Web Browser**
    - URL: `http://localhost:8765/overlay`
    - Size: 1920 × 1080
@@ -42,11 +41,11 @@ The **control panel** (Prerace, Race, Standings, Layout and Setup tabs; race inf
 
 **Grid:** on the Race tab, press **Show from row 1** (or the Grid tile). Set *Next row* to **Automatic** (steps every *Seconds per row*) or **Manual** (only moves when you press **Next row**). After the last row it hides or starts over. **Previous / Next row** work in both modes. Car renders come from iRacing: the overlay asks iRacing's local service for each car with its paint scheme and the custom paint in your iRacing paint folder (Documents\iRacing\paint by default). The render setup is saved; the test and paint tools live in the **Setup** tab under *Car renders*.
 
-**Sponsors:** in the Race tab's Sponsors section, press **Load image…** on a slot and pick the sponsor's picture. Sponsors play full screen, exactly as the image is, so make them 1920 × 1080 PNGs with a transparent background (smaller images are centered). It's saved in the `sponsors` folder next to the server and stays loaded for next time. **Show** puts it on air (Show on another slot swaps it in), **Hide** or **Hide sponsor** takes it off. Set *Hide by itself after* if you want it to drop off on its own. Showing a sponsor also turns the driver info off; it stays off afterwards until you turn it back on with the Driver info tile.
+**Sponsors:** in the Race tab's Sponsors section, press **Load image…** on a slot and pick the sponsor's picture. Sponsors play full screen, exactly as the image is, so make them 1920 × 1080 PNGs with a transparent background (smaller images are centered). It's saved in the `data\sponsors` folder and stays loaded for next time. **Show** puts it on air (Show on another slot swaps it in), **Hide** or **Hide sponsor** takes it off. Set *Hide by itself after* if you want it to drop off on its own. Showing a sponsor also turns the driver info off; it stays off afterwards until you turn it back on with the Driver info tile.
 
 **Standings:** open the Standings tab in the control panel, paste your Xtreme Scoring widget link and press **Pull standings now**. It also pulls by itself every time the overlay starts.
 
-**Moving over from Standings Control:** close the old program first, since both use port 8765. To keep your saved title, logo, bracket and team/race-info text, copy `config.json`, `standings.json`, `bracket.json` and your `logo.*` file from the old program's folder into this folder's `standings` folder (create it if it isn't there yet). Old vMix inputs for `/analysis` and `/team` keep working; the standings graphic itself is now at `/standings` (or just use the single `/overlay` input).
+**Moving over from Standings Control:** close the old program first, since both use port 8765. To keep your saved title, logo, bracket and team/race-info text, copy `config.json`, `standings.json`, `bracket.json` and your `logo.*` file from the old program's folder into this folder's `data\standings` folder (create it if it isn't there yet). Old vMix inputs for `/analysis` and `/team` keep working; the standings graphic itself is now at `/standings` (or just use the single `/overlay` input).
 
 **No iRacing handy?** Double-click **`start-demo.bat`** to run a fake 24-car race so you can test the look in vMix.
 
@@ -69,7 +68,20 @@ The overlay uses **Bahnschrift** (SemiBold for headers, Light for sub-text; the 
 - **Lapped cars:** the ticker shows +1 LAP, +2 LAPS… for any car that's a lap or more down, in both Interval and To leader mode.
 - **Driver info mode:** "Always on" or "8s on camera cut" if you want it to pop in only after each switch.
 - **Multi-class:** with two or more classes the ticker groups by class, IMSA style: a header bar in each class color, fastest class first, class positions and gaps within the class. Set the rows for the two classes on the Race tab: the two boxes are labeled with the classes in the current session (fastest first, default 5 and 15); extra cars page through at the bottom of their group. Switch to *One combined list* if you prefer, or pick a single class to show only that class. To try it without iRacing: `python server.py --demo --multiclass`.
-- Settings and text are saved to `settings.json`, so they survive restarts.
+- Settings and text are saved to `data\settings.json`, so they survive restarts and updates.
+
+## Updates
+
+The overlay updates itself from GitHub. Each time you start it, it checks for a newer version (a second or two; if there's no internet it just starts):
+
+- If there is one, the console window shows what's new and asks **Install it now? [Y/N]**. Press **Y** to update, or **N** to start the version you have. With no answer it starts the current version after 30 seconds, so it never waits forever.
+- It only ever updates at startup, never while a broadcast is running. If an update comes out while the overlay is already running, the control panel shows *Update ready · restart the overlay to install*.
+- Your own files are never touched by an update: everything in the `data` folder (settings, layout, standings, sponsors, logos) stays as it is.
+- The version you're on is shown at the top of the control panel and in the console window.
+
+**Something wrong after an update?** Double-click **`restore-previous.bat`** to go back to the version you had before. The last few versions are kept in `data\backup`. It will offer the newer version again next start; press N to stay on the older one.
+
+**Moving to a new PC:** copy the whole folder, or install fresh and copy just the `data` folder over.
 
 ## Known limits (first version)
 
@@ -80,16 +92,25 @@ The overlay uses **Bahnschrift** (SemiBold for headers, Light for sub-text; the 
 ## Files
 
 ```
+start.bat            run against iRacing (checks for updates first)
+start-demo.bat       run the fake race
+restore-previous.bat go back to the version before the last update
+data/                YOUR files, never touched by updates (created on first run):
+  settings.json        panel settings and layout
+  standings/           saved standings data, bracket, team and race info, standings logo
+  sponsors/            sponsor images loaded from the Race tab
+  logos/               league logos for the top right
+  backup/              the last few versions, for restore-previous.bat
 server.py            bridge: reads iRacing, serves the pages (port 8765, change with --port)
 standings.py         standings, bracket, race info and team (ported from Standings Control)
-sponsors/            sponsor images loaded from the Race tab (created on first load)
-standings/           saved standings data, settings and logo (created on first run)
-static/standings-graphic.html  your standings / race info / team graphic
+run.py               starts everything: update check, then the server
+update.py            the updater
+datafiles.py         where the data folder lives (moves an older install's files into it)
+VERSION              the version number
 static/overlay.html  the vMix overlay
 static/control.html  the control panel
-static/assets/       logos, preview background
-start.bat            run against iRacing
-start-demo.bat       run the fake race
+static/standings-graphic.html  the standings / race info / team graphic
+static/assets/       built-in images (VSPEED logo, preview background)
 ```
 
 ## License

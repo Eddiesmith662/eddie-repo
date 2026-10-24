@@ -29,12 +29,15 @@ from urllib.parse import urlparse, parse_qs, unquote, quote
 import urllib.request
 import urllib.error
 
+import datafiles   # first: moves an older install's files into the data folder
 import standings
+import update
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT = datafiles.ROOT
 STATIC = os.path.join(ROOT, "static")
-SETTINGS_FILE = os.path.join(ROOT, "settings.json")
-SPONSOR_DIR = os.path.join(ROOT, "sponsors")   # sponsor images loaded from the Race tab
+SETTINGS_FILE = datafiles.SETTINGS_FILE
+SPONSOR_DIR = datafiles.SPONSOR_DIR            # sponsor images loaded from the Race tab
+LOGO_DIR = datafiles.LOGO_DIR                  # league logos (top right)
 SPONSOR_SLOTS = ["green", "restart", "white", "read1", "read2", "read3"]
 SPONSOR_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
 
@@ -87,6 +90,22 @@ def deep_merge(base, patch):
     return base
 
 
+APP = {"version": update.local_version(), "update": None}   # shown in the control panel
+
+
+def update_watch():
+    """Look for a newer release now and then, so the panel can say an update is waiting.
+    Installing only ever happens at startup (run.py), never while the server is running."""
+    time.sleep(5)
+    while True:
+        info = update.check_latest(timeout=8)
+        if info and (APP["update"] or {}).get("version") != info["version"]:
+            APP["update"] = {"version": info["version"], "name": info["name"]}
+            print("Update v%s is available: restart the overlay to install it." % info["version"])
+            STATE.notify()
+        time.sleep(6 * 3600)
+
+
 class State:
     def __init__(self):
         self.lock = threading.Condition()
@@ -121,7 +140,7 @@ class State:
             self.bump()
 
     def snapshot(self):
-        return json.dumps({"settings": self.settings, "live": self.live, "standings": standings.summary()})
+        return json.dumps({"settings": self.settings, "live": self.live, "standings": standings.summary(), "app": APP})
 
     def notify(self):
         with self.lock:
@@ -1015,6 +1034,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/paintcheck":
             drivers = getattr(SOURCE, "drivers", {}) if SOURCE else {}
             return self.send_json({"paintDir": paint_dir(), "drivers": paint_check(drivers)})
+        if path.startswith("/logos/"):
+            return self.send_graphic(unquote(path[len("/logos/"):]), base=LOGO_DIR)
         if path.startswith("/sponsor/"):
             return self.send_graphic(unquote(path[len("/sponsor/"):]), base=SPONSOR_DIR)
         if path.startswith("/gfx/"):
@@ -1723,8 +1744,10 @@ def gfx_command(d):
 
 def list_assets():
     out = {"logos": []}
-    adir = os.path.join(STATIC, "assets")
-    out["logos"] = sorted(f for f in os.listdir(adir) if os.path.splitext(f)[1].lower() in IMAGE_EXT)
+    try:
+        out["logos"] = sorted(f for f in os.listdir(LOGO_DIR) if os.path.splitext(f)[1].lower() in IMAGE_EXT)
+    except OSError:
+        pass
     return out
 
 
@@ -1781,11 +1804,12 @@ def main():
 
     standings.init()
     standings.autopull(on_done=STATE.notify)
+    threading.Thread(target=update_watch, daemon=True).start()
     threading.Thread(target=telemetry_loop, args=(args.demo, args.multiclass), daemon=True).start()
     server = QuietServer(("0.0.0.0", args.port), Handler)
     ip = local_ip()
     print("=" * 60)
-    print(" VSPEED Broadcast Overlay  (%s mode)" % ("DEMO" if args.demo else "iRacing"))
+    print(" VSPEED Broadcast Overlay v%s  (%s mode)" % (APP["version"], "DEMO" if args.demo else "iRacing"))
     print("  vMix overlay :  http://localhost:%d/overlay" % args.port)
     print("  Control panel:  http://localhost:%d/control" % args.port)
     print("  Standings only: http://localhost:%d/standings  (also /analysis and /team)" % args.port)
