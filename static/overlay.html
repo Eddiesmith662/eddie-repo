@@ -701,6 +701,10 @@ function renderLower() {
   if (L.isRace && car.pos > 1 && car.gap && car.gap !== 'LEADER') parts.push(`<span><b>GAP</b>${esc(car.gap)}</span>`);
   if (car.lastStr) parts.push(`<span><b>LAST</b>${esc(car.lastStr)}</span>`);
   if (car.bestStr) parts.push(`<span><b>BEST</b>${esc(car.bestStr)}</span>`);
+  if (isQual()) {   // qualifying: the pole time everyone is chasing
+    const pole = (L.cars || []).filter(c => c.best > 0).sort((a, b) => a.best - b.best)[0];
+    if (pole) parts.push(`<span><b>TIME TO BEAT</b>${esc(pole.bestStr)}</span>`);
+  }
   if (car.pit) parts.push(`<span><b>PIT ROAD</b></span>`);
   if (!parts.length && car.car) parts.push(`<span>${esc(car.car)}</span>`);
   renderLowerQual(car);
