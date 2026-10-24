@@ -122,24 +122,8 @@
           background: linear-gradient(90deg, var(--cc) 0 100%); font-size: 17px; letter-spacing: 1.5px; text-transform: uppercase;
           transition: transform .55s cubic-bezier(.3,.8,.3,1); box-shadow: inset 0 -2px 0 rgba(0,0,0,.25); }
   .chdr .cc { font-family: var(--light); font-weight: 300; font-size: 13px; letter-spacing: 1px; opacity: .85; }
-  /* qualifying: cars on a flying lap get a green wash, and an ON TRACK panel under the ticker shows their live delta to pole */
+  /* qualifying: cars on a flying lap get a green wash on the ticker */
   .row.hot .bg { background: linear-gradient(90deg, rgba(34,197,94,.30), rgba(34,197,94,.06) 70%), var(--grey80); }
-  #tQual { overflow: hidden; }
-  #tQual .qh { background: var(--black); display: flex; align-items: center; gap: 8px; padding: 5px 12px; font-size: 13px; letter-spacing: 2px; border-top: 3px solid var(--green); }
-  #tQual .qh i { width: 8px; height: 8px; border-radius: 50%; background: var(--green); animation: qPulse 1s ease-in-out infinite alternate; }
-  @keyframes qPulse { from { opacity: 1; } to { opacity: .3; } }
-  #tQual .qr { display: flex; align-items: center; height: var(--row); font-size: 18px; background: var(--grey80b); }
-  #tQual .qr + .qr { border-top: 1px solid rgba(255,255,255,.06); }
-  #tQual .qn { width: 42px; text-align: center; color: var(--midgrey); font-size: 17px; }
-  #tQual .qd { flex: 1; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 4px; }
-  #tQual .qt { width: 84px; text-align: right; font-family: var(--light); font-weight: 300; font-size: 18px; font-variant-numeric: tabular-nums; }
-  #tQual .qt.ahead { color: var(--green); font-family: var(--semi); font-weight: 600; }
-  #tQual .qt.behind { color: #ffd166; }
-  #tQual .qp { width: 52px; text-align: center; font-size: 16px; color: #ddd; }
-  #tQual .qr.done .qt { color: #aaa; }                     /* lap finished, but slower than their best */
-  #tQual .qr.done.best { background: linear-gradient(90deg, rgba(255,13,64,.35), rgba(17,17,17,.89) 70%); }
-  #tQual .qr.done.best .qt { font-family: var(--semi); font-weight: 600; color: #fff; }
-  #tQual .qr.done.best .qp { color: #fff; }
   #tRows.paged::after { content: ""; position: absolute; left: 0; right: 0; height: 2px; top: calc(var(--fixed) * 34px - 1px); background: var(--red); z-index: 2; }
 
   /* ---------- Lower third (focused driver) ---------- */
@@ -157,6 +141,15 @@
   #lower.mc .nm .nt { transform: translateY(-7px); }
   #lower .nm .nt { transition: transform .45s cubic-bezier(.2,.8,.2,1); }
   #lower { overflow: hidden; }
+  /* qualifying: live gap to pole for the car on camera (or its lap time just after the line) */
+  #lower .qd { width: 200px; background: var(--black); display: flex; flex-direction: column; justify-content: center; align-items: flex-end; padding: 0 18px; border-left: 4px solid var(--green); }
+  #lower .qd[hidden] { display: none; }
+  #lower .qd .ql { font-family: var(--light); font-weight: 300; font-size: 14px; letter-spacing: 1.5px; color: #ccc; white-space: nowrap; }
+  #lower .qd .qv { font-size: 32px; line-height: 1.05; font-variant-numeric: tabular-nums; }
+  #lower .qd.ahead .qv { color: var(--green); }
+  #lower .qd.behind .qv { color: #ffd166; }
+  #lower .qd.done { border-left-color: var(--midgrey); }
+  #lower .qd.done.best { border-left-color: var(--red); background: linear-gradient(90deg, rgba(255,13,64,.35), var(--black)); }
   #lower .info { display: flex; background: var(--grey80b); font-family: var(--light); font-weight: 300; font-size: 19px; text-transform: uppercase; letter-spacing: .5px; }
   #lower .info span { padding: 8px 18px; border-right: 1px solid rgba(255,255,255,.15); white-space: nowrap; }
   #lower .info span:last-child { border-right: 0; }
@@ -289,12 +282,11 @@
   <div class="sub"><span id="tSub"></span><span class="flag" id="tFlag"></span></div>
   <div class="cbar" id="tCbar"><span>Caution</span></div>
   <div class="rows" id="tRows"><div class="cwipe" id="tCwipe"></div></div>
-  <div id="tQual"></div>
   <div class="pits" id="tPits"></div>
 </div>
 
 <div id="lower" class="widget off">
-  <div class="top"><div class="p" id="lP"></div><div class="n" id="lN"></div><div class="nm"><span class="nt" id="lName"></span><div class="cline"><span id="lCls"></span></div></div></div>
+  <div class="top"><div class="p" id="lP"></div><div class="n" id="lN"></div><div class="nm"><span class="nt" id="lName"></span><div class="cline"><span id="lCls"></span></div></div><div class="qd" id="lQ" hidden><span class="ql" id="lQl"></span><span class="qv" id="lQv"></span></div></div>
   <div class="info" id="lInfo"></div>
 </div>
 
@@ -628,29 +620,9 @@ function renderTower() {
   for (const [key, el] of rowEls) if (!seen.has(key)) { el.remove(); rowEls.delete(key); }
   rowsEl.style.height = y + 'px';
   renderPits(items.filter(it => it.c));
-  renderQual();
 }
 const HDR_H = 30;
-/* ---------- qualifying: ON TRACK panel under the ticker ---------- */
 function isQual() { return !!L && !L.isRace && /qual/i.test(L.sessionType || L.sessionName || ''); }
-function renderQual() {
-  const box = $('tQual');
-  if (!isQual()) { if (box.innerHTML) box.innerHTML = ''; return; }
-  const fmtD = d => (d < 0 ? '−' : '+') + Math.abs(d).toFixed(3);
-  const hot = (L.cars || []).filter(c => (c.qual && c.qual.hot) || c.qualDone);
-  // just finished first (lap time + where it puts them), then flying laps, closest to pole first
-  hot.sort((a, b) => (!!b.qualDone - !!a.qualDone) || ((a.qual && a.qual.delta != null ? a.qual.delta : 99) - (b.qual && b.qual.delta != null ? b.qual.delta : 99)));
-  const rows = hot.slice(0, 3).map(c => {
-    if (c.qualDone) {   // lap just finished: show the time and the position it gives them
-      return `<div class="qr done ${c.qualDone.improved ? 'best' : ''}"><span class="qn">${esc(c.num)}</span><span class="qd">${esc(tickerName(c.name))}</span><span class="qt">${c.qualDone.time.toFixed(3)}</span><span class="qp">P${c.pos}</span></div>`;
-    }
-    const q = c.qual, d = q.delta;
-    const cls = d == null ? '' : d < 0 ? 'ahead' : 'behind';
-    return `<div class="qr"><span class="qn">${esc(c.num)}</span><span class="qd">${esc(tickerName(c.name))}</span><span class="qt ${cls}">${d == null ? 'ON LAP' : fmtD(d)}</span><span class="qp">${q.proj ? 'P' + q.proj : ''}</span></div>`;
-  }).join('');
-  const html = rows ? `<div class="qh"><i></i>ON TRACK</div>${rows}` : '';
-  if (box._h !== html) { box._h = html; box.innerHTML = html; }
-}
 function textOn(hex) {   // black or white text, whichever reads better on the class color
   const m = /^#?([0-9a-f]{6})$/i.exec(hex || ''); if (!m) return '#fff';
   const n = parseInt(m[1], 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;
@@ -731,8 +703,29 @@ function renderLower() {
   if (car.bestStr) parts.push(`<span><b>BEST</b>${esc(car.bestStr)}</span>`);
   if (car.pit) parts.push(`<span><b>PIT ROAD</b></span>`);
   if (!parts.length && car.car) parts.push(`<span>${esc(car.car)}</span>`);
+  renderLowerQual(car);
   $('lInfo').innerHTML = parts.join('');
   $('lInfo').style.display = parts.length ? 'flex' : 'none';
+}
+
+function renderLowerQual(car) {
+  const box = $('lQ');
+  const q = isQual() ? car.qual : null, done = isQual() ? car.qualDone : null;
+  let label = '', value = '', cls = '';
+  if (done) {                                   // just crossed the line: lap time and the position it gives them
+    label = 'LAP TIME · P' + car.pos; value = done.time.toFixed(3); cls = 'done' + (done.improved ? ' best' : '');
+  } else if (q && q.hot) {
+    if (q.delta == null) { label = 'FLYING LAP'; value = '—'; }
+    else {
+      label = 'TO POLE' + (q.proj ? ' · PACE P' + q.proj : '');
+      value = (q.delta < 0 ? '−' : '+') + Math.abs(q.delta).toFixed(3);
+      cls = q.delta < 0 ? 'ahead' : 'behind';
+    }
+  }
+  box.hidden = !label;
+  box.className = 'qd ' + cls;
+  if ($('lQl').textContent !== label) $('lQl').textContent = label;
+  if ($('lQv').textContent !== value) $('lQv').textContent = value;
 }
 
 /* ---------- board ---------- */
