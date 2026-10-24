@@ -1,6 +1,6 @@
 # VSPEED Broadcast Overlay
 
-A custom iRacing overlay for vMix, built to the VSPEED Brand Style Guide V1.
+A custom iRacing overlay for broadcasting software, built to the VSPEED Brand Style Guide V1.
 
 ## What's included
 
@@ -29,13 +29,13 @@ The **control panel** (Prerace, Race, Standings, Layout and Setup tabs; race inf
 2. Put this folder anywhere, for example `C:\VSPEED\vspeed-overlay`.
 3. Double-click **`start.bat`**. The first run installs `pyirsdk` automatically and creates the `data` folder.
 4. Put your league/series logo for the top right into `data\logos` (transparent PNG, e.g. `league_logo.png`). Add more logos with any name and pick them on the Prerace tab.
-5. In vMix: **Add Input → Web Browser**
+5. In your broadcasting software, add a **web browser (browser source) input**
    - URL: `http://localhost:8765/overlay`
    - Size: 1920 × 1080
-   - Put it on an overlay channel above your iRacing capture. The page is transparent.
+   - Put it on a layer above your iRacing capture. The page is transparent.
 6. Open the control panel at `http://localhost:8765/control`. The console window also prints a link for your phone.
 
-**Moving things around:** the control panel's **Layout** tab shows a preview of the screen with every graphic on it. Drag any graphic to move it and use the sliders to resize it. It updates live in vMix as you go and is saved for next time. While standings, race info or the team box are on air, any live graphic they overlap steps aside on its own.
+**Moving things around:** the control panel's **Layout** tab shows a preview of the screen with every graphic on it. Drag any graphic to move it and use the sliders to resize it. It updates live in your broadcasting software as you go and is saved for next time. While standings, race info or the team box are on air, any live graphic they overlap steps aside on its own.
 
 **Track graphic:** in the **Prerace** tab's Track graphic section, press **Browse…** and pick the folder with your track graphics in the Windows folder window (from a phone or another PC, Browse shows an in-page folder list instead) (any folder on the PC, including a Google Drive for desktop folder), or paste its path and press Save. Pick tonight's track from the list, then use **Show track** / **Hide** or the Track graphic tile. Tip: right-click the folder in File Explorer and choose **Offline access → Available offline**, so nothing has to download at the moment you hit Show.
 
@@ -45,15 +45,15 @@ The **control panel** (Prerace, Race, Standings, Layout and Setup tabs; race inf
 
 **Standings:** open the Standings tab in the control panel, paste your Xtreme Scoring widget link and press **Pull standings now**. It also pulls by itself every time the overlay starts.
 
-**Moving over from Standings Control:** close the old program first, since both use port 8765. To keep your saved title, logo, bracket and team/race-info text, copy `config.json`, `standings.json`, `bracket.json` and your `logo.*` file from the old program's folder into this folder's `data\standings` folder (create it if it isn't there yet). Old vMix inputs for `/analysis` and `/team` keep working; the standings graphic itself is now at `/standings` (or just use the single `/overlay` input).
+**Moving over from Standings Control:** close the old program first, since both use port 8765. To keep your saved title, logo, bracket and team/race-info text, copy `config.json`, `standings.json`, `bracket.json` and your `logo.*` file from the old program's folder into this folder's `data\standings` folder (create it if it isn't there yet). Old browser inputs for `/analysis` and `/team` keep working; the standings graphic itself is now at `/standings` (or just use the single `/overlay` input).
 
-**No iRacing handy?** Double-click **`start-demo.bat`** to run a fake 24-car race so you can test the look in vMix.
+**No iRacing handy?** Double-click **`start-demo.bat`** to run a fake 24-car race so you can test the look in your broadcasting software.
 
 To check the layout in a normal browser over a sample background, open `http://localhost:8765/overlay?preview`.
 
 ## Fonts
 
-The overlay uses **Bahnschrift** (SemiBold for headers, Light for sub-text; the brand guide spells it "Bahnscrift"), which comes with Windows 10/11, so vMix picks it up automatically. It falls back to Arial per the brand guide.
+The overlay uses **Bahnschrift** (SemiBold for headers, Light for sub-text; the brand guide spells it "Bahnscrift"), which comes with Windows 10/11, so your broadcasting software picks it up automatically. It falls back to Arial per the brand guide.
 
 ## Race night tips
 
@@ -62,7 +62,7 @@ The overlay uses **Bahnschrift** (SemiBold for headers, Light for sub-text; the 
   - Click a driver to put the camera on them; **right-click** (or press and hold on a tablet) to pick which camera to cut to.
   - The **Cameras** list on the left switches camera group for the current driver (it spreads into 2–3 columns when a track has lots of cameras).
   - Replay controls underneath: ⏮ Start, rewind / fast-forward (press again to go faster), play, pause, **Live**, speeds ×0.25–×4, **Sim UI** (show/hide iRacing's own UI), **◀ LAP ▶** (jump to the start of the previous / next lap of the car on camera), **↻ REPLAY** (jump back the set number of seconds and play) and **◀ On Track / On Track ▶** (camera to the car behind / ahead on track).
-- **Replays:** the tag flips to REPLAY on its own. Still run the VSPEED Instant Replay stinger in vMix before and after, per the guide. The **Live** button in the live timing window sends iRacing back to the live point.
+- **Replays:** the tag flips to REPLAY on its own. Still run the VSPEED Instant Replay stinger in your broadcasting software before and after, per the guide. The **Live** button in the live timing window sends iRacing back to the live point.
 - **Caution, white and checkered flags:** when iRacing throws one of these, the ticker's rows flash solid in the flag (yellow, white, or a checkered pattern) for about 2 seconds, then the running order fades back in, and a matching CAUTION / WHITE FLAG / CHECKERED band stays under the lap line while that flag is out.
 - **Meatball flag:** when iRacing gives a driver the meatball (repair) flag, their row on the ticker gets a pulsing orange outline and a meatball flag (black flag, orange disc) pops out to the right for 10 seconds (it replaces a PIT tag for that time).
 - **Lapped cars:** the ticker shows +1 LAP, +2 LAPS… for any car that's a lap or more down, in both Interval and To leader mode.
@@ -86,7 +86,7 @@ The overlay updates itself from GitHub. Each time you start it, it checks for a 
 ## Known limits (first version)
 
 - Gaps are estimated from track position and the leader's last lap time, the same approach most overlay tools use. They're accurate to a few tenths and settle after the first lap.
-- iRacing must be running on the same PC as this server, since the SDK only works locally. vMix can be on another PC: use `http://<this-pc-ip>:8765/overlay`.
+- iRacing must be running on the same PC as this server, since the SDK only works locally. Your broadcasting software can be on another PC: use `http://<this-pc-ip>:8765/overlay`.
 - Built and tested against the iRacing data format without a live session. Expect some tuning after the first real race; send notes on anything that looks off.
 
 ## Files
@@ -107,7 +107,7 @@ run.py               starts everything: update check, then the server
 update.py            the updater
 datafiles.py         where the data folder lives (moves an older install's files into it)
 VERSION              the version number
-static/overlay.html  the vMix overlay
+static/overlay.html  the broadcast overlay
 static/control.html  the control panel
 static/standings-graphic.html  the standings / race info / team graphic
 static/assets/       built-in images (VSPEED logo, preview background)

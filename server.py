@@ -2,7 +2,7 @@
 VSPEED Broadcast Overlay - bridge server
 
 Reads live data from iRacing (via pyirsdk) and serves:
-  /overlay   -> full 1920x1080 transparent overlay for a vMix Web Browser input
+  /overlay   -> full 1920x1080 transparent overlay for a web browser input in your broadcasting software
   /control   -> producer control panel (works from any device on your network)
 
 Run:   python server.py            (live iRacing, falls back to "waiting" until the sim is running)
@@ -1155,7 +1155,7 @@ def sponsor_upload(query, headers, rfile, length):
     fname = slot + ext
     with open(os.path.join(SPONSOR_DIR, fname), "wb") as f:
         f.write(body)
-    ref = "%s?v=%d" % (fname, int(time.time() * 1000))   # new address each time, so vMix never shows a cached old picture
+    ref = "%s?v=%d" % (fname, int(time.time() * 1000))   # new address each time, so the broadcasting software never shows a cached old picture
     STATE.update_settings({"sponsor": {"files": {slot: ref}}})
     return {"ok": True, "file": ref, "name": name}
 
@@ -1752,7 +1752,7 @@ def list_assets():
 
 
 class QuietServer(ThreadingHTTPServer):
-    """vMix and browsers drop idle connections all the time (closing a tab, reloading an input).
+    """Broadcasting software and browsers drop idle connections all the time (closing a tab, reloading an input).
     That's normal, so don't print a traceback for it."""
     daemon_threads = True
 
@@ -1810,7 +1810,7 @@ def main():
     ip = local_ip()
     print("=" * 60)
     print(" VSPEED Broadcast Overlay v%s  (%s mode)" % (APP["version"], "DEMO" if args.demo else "iRacing"))
-    print("  vMix overlay :  http://localhost:%d/overlay" % args.port)
+    print("  Overlay      :  http://localhost:%d/overlay  (browser input in your broadcasting software)" % args.port)
     print("  Control panel:  http://localhost:%d/control" % args.port)
     print("  Standings only: http://localhost:%d/standings  (also /analysis and /team)" % args.port)
     print("  From a phone :  http://%s:%d/control" % (ip, args.port))
