@@ -748,7 +748,7 @@ class DemoSource:
 
         if self.state == 4 and now > self.__dict__.get("next_black", self.t0 + 25):   # demo: a black flag every ~45s
             self.next_black = now + 45
-            random.choice(self.cars[2:18])["blackUntil"] = now + 30
+            random.choice(self.cars[2:18])["blackUntil"] = now + 60
         if self.state == 4 and now > self.__dict__.get("next_meat", self.t0 + 40):   # demo: a meatball flag every ~50s
             self.next_meat = now + 50
             random.choice(self.cars[3:15])["meatUntil"] = now + 18

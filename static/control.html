@@ -922,7 +922,7 @@ setInterval(() => { if (S) sponsorRender(); }, 1000);
 const reasonLabel = r => r.charAt(0) + r.slice(1).toLowerCase();
 function pensRender() {
   const now = PEN.now || Date.now() / 1000;
-  const list = (PEN.list || []).filter(e => e.active || now - e.t < 180).slice().reverse();   // active ones, plus the last 3 minutes
+  const list = (PEN.list || []).filter(e => now - e.t < 30).slice().reverse();   // each penalty stays in the list for 30 seconds, served or not
   const box = $('pens');
   box.hidden = !list.length;
   const html = !list.length ? '' : `<div class="ph"><span>Penalties · pick a reason, then Show to put it on screen</span><button data-pcmd="hide">Hide box</button></div>` +
