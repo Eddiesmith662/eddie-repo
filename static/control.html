@@ -371,6 +371,11 @@
       <div><label>After the last row</label><div class="seg" id="grEnd"><button data-v="hide">Hide</button><button data-v="loop">Start over</button></div></div>
     </div>
     <label>Text under the logo</label><input id="grSite" placeholder="vspeedsim.com">
+    <label>Pole Award</label>
+    <div class="sprow" style="margin-top:2px"><div class="thumb" id="paThumb">no badge</div>
+      <div><div class="nm">Pole Award badge</div><div class="fn" id="paInfo">Shows on Row 1 over the pole sitter</div></div>
+      <div class="bt"><button id="paLoad">Load badge…</button><button class="go" id="paShow">Show</button><button id="paHide">Hide</button></div></div>
+    <input type="file" id="paFile" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" hidden>
     <p class="hint">Starting grid from qualifying, two cars per row, with each car rendered by iRacing in the driver's custom paint. Render tools are on the Setup tab.</p>
   </section>
 
@@ -870,10 +875,25 @@ setInterval(() => { if ($('trackSel').offsetParent) gLoad(); }, 10000);
 
 // ---------- grid ----------
 const gw = () => (S && S.gridw) || {};
-$('grShow').onclick = () => set({ gridw: { visible: true, t: Date.now() } });
-$('grHide').onclick = () => set({ gridw: { visible: false } });
-$('grPrev').onclick = () => set({ gridw: { step: { n: Date.now(), dir: -1 } } });
-$('grNext').onclick = () => set({ gridw: { step: { n: Date.now(), dir: 1 } } });
+const POLE_OFF = { on: false };   // anything that leaves Row 1 takes the Pole Award away
+$('grShow').onclick = () => set({ gridw: { visible: true, t: Date.now(), pole: POLE_OFF } });
+$('grHide').onclick = () => set({ gridw: { visible: false, pole: POLE_OFF } });
+$('grPrev').onclick = () => set({ gridw: { step: { n: Date.now(), dir: -1 }, pole: POLE_OFF } });
+$('grNext').onclick = () => set({ gridw: { step: { n: Date.now(), dir: 1 }, pole: POLE_OFF } });
+$('paLoad').onclick = () => { $('paFile').value = ''; $('paFile').click(); };
+$('paFile').onchange = async () => {
+  const f = $('paFile').files[0]; if (!f) return;
+  try {
+    const r = await (await fetch('/api/sponsor/upload?slot=pole', { method: 'POST', headers: { 'X-Filename': encodeURIComponent(f.name), 'Content-Type': 'application/octet-stream' }, body: f })).json();
+    toast(r.ok ? 'Badge loaded' : (r.error || 'Could not load the badge'));
+  } catch (e) { toast('Server not reachable'); }
+};
+$('paShow').onclick = () => {
+  if (!((S.sponsor || {}).files || {}).pole) return toast('Load the Pole Award badge first');
+  if (!(S.gridw && S.gridw.visible)) toast('It shows once the Grid is on Row 1');
+  set({ gridw: { pole: { on: true, t: Date.now() } } });
+};
+$('paHide').onclick = () => set({ gridw: { pole: POLE_OFF } });
 $('grSec').onchange = () => set({ gridw: { rowSec: Math.max(2, +$('grSec').value || 6) } });
 $('grEnd').onclick = e => { const b = e.target.closest('button'); if (b) set({ gridw: { end: b.dataset.v } }); };
 $('grMode').onclick = e => { const b = e.target.closest('button'); if (b) set({ gridw: { mode: b.dataset.v } }); };
@@ -907,7 +927,7 @@ function sponsorRender() {
   const sp = S.sponsor || {}, files = sp.files || {};
   const live = !!sp.active && !!files[sp.active] && !(+sp.hold > 0 && Date.now() - (sp.t || 0) > sp.hold * 1000);
   air('spAir', live);
-  document.querySelectorAll('.sprow').forEach(row => {
+  document.querySelectorAll('.sprow[data-sp]').forEach(row => {
     const k = row.dataset.sp, f = files[k] || '', th = row.querySelector('.thumb');
     row.classList.toggle('on', live && sp.active === k);
     const bg = f ? `url("/sponsor/${f}")` : '';
@@ -945,6 +965,11 @@ $('pens').onclick = e => {
 function gridRender() {
   const g = gw();
   air('grAir', g.visible);
+  const pf = ((S.sponsor || {}).files || {}).pole || '', th = $('paThumb'), bg = pf ? `url("/sponsor/${pf}")` : '';
+  if (th.dataset.bg !== bg) { th.dataset.bg = bg; th.style.backgroundImage = bg; th.textContent = pf ? '' : 'no badge'; }
+  const paOn = !!(g.pole && g.pole.on);
+  $('paInfo').textContent = paOn ? (g.visible ? 'On air (Next row takes it away)' : 'Waiting for the Grid') : (pf ? 'Shows on Row 1 over the pole sitter' : 'Load the sponsor badge first');
+  $('paShow').classList.toggle('on', paOn);
   segOn('grEnd', g.end || 'hide'); segOn('grMode', g.mode || 'auto');
   $('grSec').disabled = g.mode === 'manual'; $('grSec').parentElement.style.opacity = g.mode === 'manual' ? .45 : 1;
   if (document.activeElement !== $('grSec')) $('grSec').value = g.rowSec || 6;

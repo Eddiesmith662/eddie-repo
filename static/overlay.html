@@ -252,6 +252,19 @@
   #grid .gside.r .gnum { margin: 0 20px 0 14px; }
   #grid .gside.empty .gin { visibility: hidden; }
   #grid .gline { height: 7px; background: var(--red); }
+  /* Pole Award on Row 1: POLE tab, red wash + white frame on the pole sitter's side, the badge in the car spot */
+  #grid .gtop { position: relative; }
+  #grid .gpole { position: absolute; top: 0; height: 100%; width: 160px; background: var(--red); display: none; align-items: center; justify-content: center; font-size: 30px; letter-spacing: .5px; }
+  #grid .gwash, #grid .gframe, #grid .gaw { position: absolute; display: none; pointer-events: none; }
+  #grid.aw .gpole { display: flex; }
+  #grid.aw .gwash, #grid.aw .gframe { display: block; }
+  #grid.aw .gaw { display: flex; }
+  #grid .gwash { inset: 0; background: linear-gradient(90deg, rgba(255,13,64,.34), rgba(255,13,64,.06) 75%); }
+  #grid .gframe { inset: 0; width: 100%; height: 100%; overflow: visible; }
+  #grid .gframe rect { fill: none; stroke: #fff; stroke-width: 4px; vector-effect: non-scaling-stroke; }
+  #grid .gaw { left: 18px; top: 6px; bottom: 8px; width: 270px; flex-direction: column; align-items: center; justify-content: flex-end; overflow: hidden; }
+  #grid .gaw img { height: 112px; margin: 0 auto auto; filter: drop-shadow(0 4px 8px rgba(0,0,0,.6)); }
+  #grid .gawc { font-size: 15px; letter-spacing: 3px; white-space: nowrap; }
 
   /* ---------- Flag banner ---------- */
   #flag { top: 34px; left: 50%; transform: translateX(-50%); display: flex; height: 64px; box-shadow: 0 6px 24px rgba(0,0,0,.45); }
@@ -302,8 +315,8 @@
 <iframe class="sframe" id="fTeam" allowtransparency="true"></iframe>
 
 <div id="grid" class="widget off">
-  <div class="gtop"><div class="gp" id="gpL"></div><div class="gr" id="gRow">ROW 1</div><div class="gp" id="gpR"></div></div>
-  <div class="gbar"><div class="gside l"><div class="gin"><div class="gcar"><img class="none" alt=""><div class="gcn"></div></div><div class="gtxt"><div class="gname"></div><div class="gtime"></div></div><div class="gnum"></div></div></div><div class="gmid"><img src="/static/assets/vspeed_logo.png" alt=""><div id="gSite">vspeedsim.com</div></div><div class="gside r"><div class="gin"><div class="gnum"></div><div class="gtxt"><div class="gname"></div><div class="gtime"></div></div><div class="gcar"><img class="none" alt=""><div class="gcn"></div></div></div></div></div>
+  <div class="gtop"><div class="gpole" id="gPole">POLE</div><div class="gp" id="gpL"></div><div class="gr" id="gRow">ROW 1</div><div class="gp" id="gpR"></div></div>
+  <div class="gbar"><div class="gside l"><div class="gwash"></div><svg class="gframe" preserveAspectRatio="none"><rect x="0" y="0" width="100%" height="100%" pathLength="100"></rect></svg><div class="gaw"><img id="gawImg" alt=""><div class="gawc">POLE AWARD WINNER</div></div><div class="gin"><div class="gcar"><img class="none" alt=""><div class="gcn"></div></div><div class="gtxt"><div class="gname"></div><div class="gtime"></div></div><div class="gnum"></div></div></div><div class="gmid"><img src="/static/assets/vspeed_logo.png" alt=""><div id="gSite">vspeedsim.com</div></div><div class="gside r"><div class="gin"><div class="gnum"></div><div class="gtxt"><div class="gname"></div><div class="gtime"></div></div><div class="gcar"><img class="none" alt=""><div class="gcn"></div></div></div></div></div>
   <div class="gline"></div>
 </div>
 
@@ -1053,6 +1066,39 @@ OUT.grid = () => {
   anim(q('grid', '.gbar'), [{ clipPath: 'inset(0 0 0 0)' }, { clipPath: 'inset(0 50% 0 50%)' }], { duration: 500, delay: 250, easing: EASE_IN, fill: 'forwards' });
   return 800;
 };
+/* Pole Award: shown on Row 1 when Show Pole Award is pressed; Next row (or anything that leaves Row 1) takes it away */
+const AW = { on: false };
+function gridAward() {
+  const w = (RAW && RAW.gridw) || {}, pa = w.pole || {}, file = ((RAW && RAW.sponsor) || {}).files ? RAW.sponsor.files.pole || '' : '';
+  if (file && $('gawImg').dataset.f !== file) { $('gawImg').dataset.f = file; $('gawImg').src = '/sponsor/' + file; }
+  const want = !LAYOUT_MODE && !!pa.on && !!file && GR.on && GR.row === 0 && GR.shownRow === 0 && !!(VIS.grid && VIS.grid.on);
+  if (want) GR.at = Date.now();            // automatic mode waits on Row 1 while the award is up
+  if (want && !AW.on) awardIn(); else if (!want && AW.on) awardOut();
+}
+function awardIn() {
+  AW.on = true;
+  const g = $('grid'), side = q('grid', '.gside.l'), rect = side.querySelector('.gframe rect');
+  side.querySelectorAll('.gwash, .gframe, .gaw, .gaw *, .gcar').forEach(e => e.getAnimations().forEach(a => a.cancel()));
+  $('gPole').style.left = $('gpL').offsetLeft + 'px';
+  g.classList.add('aw');
+  anim($('gPole'), [{ clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0 0 0)' }], { duration: 380 });
+  anim(side.querySelector('.gwash'), [{ clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0 0 0)' }], { duration: 550, delay: 200 });
+  anim(rect, [{ strokeDasharray: '100', strokeDashoffset: '100' }, { strokeDasharray: '100', strokeDashoffset: '0' }], { duration: 750, delay: 200, fill: 'both' });
+  anim(side.querySelector('.gcar'), [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateX(-30px)' }], { duration: 350, delay: 400, fill: 'forwards' });
+  anim($('gawImg'), [{ opacity: 0, transform: 'scale(.55)' }, { opacity: 1, transform: 'scale(1.08)', offset: .7 }, { opacity: 1, transform: 'scale(1)' }], { duration: 550, delay: 600, easing: 'cubic-bezier(.2,.8,.3,1)' });
+  anim(side.querySelector('.gawc'), wipeIn, { duration: 450, delay: 900 });
+  shineOn(side.querySelector('.gaw'), 1000);
+}
+function awardOut() {
+  AW.on = false;
+  const g = $('grid'), side = q('grid', '.gside.l');
+  const fade = [{ opacity: 1 }, { opacity: 0 }];
+  [side.querySelector('.gaw'), side.querySelector('.gwash'), side.querySelector('.gframe'), $('gPole')].forEach(e => anim(e, fade, { duration: 250, easing: 'ease-in', fill: 'forwards' }));
+  const car = side.querySelector('.gcar');
+  car.getAnimations().forEach(a => a.cancel());
+  anim(car, [{ opacity: 0 }, { opacity: 1 }], { duration: 300, delay: 150 });
+  setTimeout(() => { if (AW.on) return; g.classList.remove('aw'); side.querySelectorAll('.gwash, .gframe, .gaw, .gaw *').forEach(e => e.getAnimations().forEach(a => a.cancel())); $('gPole').getAnimations().forEach(a => a.cancel()); }, 300);
+}
 function renderGrid() {
   const w = (RAW && RAW.gridw) || {};
   const grid = (L && L.grid) || [];
@@ -1226,7 +1272,7 @@ function render() {
   S = Object.assign({}, RAW, { show: vis }, LAYOUT_MODE ? { lowerThirdMode: 'always' } : {});
   const realL = L;
   if (LAYOUT_MODE && !(L.connected && L.cars && L.cars.length)) L = sampleLive();
-  renderChrome(); renderTower(); renderLower(); renderBoard(); renderMovers(); renderGfx(); renderGrid(); renderSponsor(); renderPenalty();
+  renderChrome(); renderTower(); renderLower(); renderBoard(); renderMovers(); renderGfx(); renderGrid(); gridAward(); renderSponsor(); renderPenalty();
   if (LAYOUT_MODE && FLAG_BANNERS) { const fl = $('flag'); Object.keys(FLAG_TEXT).forEach(k => fl.classList.toggle(k, k === 'green')); $('flagText').textContent = 'GREEN FLAG'; show('flag', true); } else renderFlag();
   L = realL;
 }

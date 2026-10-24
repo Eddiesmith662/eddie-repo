@@ -38,7 +38,7 @@ STATIC = os.path.join(ROOT, "static")
 SETTINGS_FILE = datafiles.SETTINGS_FILE
 SPONSOR_DIR = datafiles.SPONSOR_DIR            # sponsor images loaded from the Race tab
 LOGO_DIR = datafiles.LOGO_DIR                  # league logos (top right)
-SPONSOR_SLOTS = ["green", "restart", "white", "read1", "read2", "read3"]
+SPONSOR_SLOTS = ["green", "restart", "white", "read1", "read2", "read3", "pole"]   # "pole" = the Pole Award badge (Grid)
 SPONSOR_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
 
 # --------------------------------------------------------------------------
@@ -67,7 +67,8 @@ DEFAULT_SETTINGS = {
     "classFilter": "",         # "" = all classes, otherwise class short name
     "lowerThirdMode": "always",  # always | oncut (show 8s after each camera change)
     "boardTitle": "",            # empty = RESULTS
-    "gridw": {"visible": False, "t": 0, "rowSec": 6, "end": "hide", "step": {"n": 0, "dir": 1}},   # Grid widget
+    "gridw": {"visible": False, "t": 0, "rowSec": 6, "end": "hide", "step": {"n": 0, "dir": 1},
+              "pole": {"on": False, "t": 0}},   # Grid widget; pole = Pole Award shown over the pole sitter on Row 1
     "paintDir": "",            # iRacing paint folder; empty = Documents\\iRacing\\paint
     # address of iRacing's car render. {placeholders} are filled from the session's driver info
     "renderCustNum": "",       # extra render setting for custom-number paints (found by the Test button)
