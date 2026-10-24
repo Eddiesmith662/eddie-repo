@@ -1,0 +1,750 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>Top 20 Standings</title>
+<style>
+  /* Font for the title (both views). The font must be installed on the vMix computer. */
+  /* VSPEED Brand Style Guide V1: red #FF0D40, dark grey #383839 (92% grey), 50% grey #939598, light blue #33A1FF, white.
+     Headers: ALL CAPS Bahnschrift SemiBold, white on dark grey, small red accent underneath.
+     Sub-headers: Bahnschrift Light on black. Sections below: 80% opacity dark grey, white text. */
+  :root { --head-font: "Bahnschrift SemiBold", "Bahnschrift", Arial, sans-serif;
+          --red: #FF0D40; --grey: #383839; --grey80: rgba(0,0,0,.74); --grey80b: rgba(17,17,17,.89); --poscol: rgba(0,0,0,.88); --midgrey: #939598; --blue: #33A1FF; }
+  html, body { margin: 0; width: 1920px; height: 1080px; background: transparent; overflow: hidden;
+    font-family: "Bahnschrift Light", "Bahnschrift", Arial, sans-serif; font-weight: 300; color: #fff; }
+  #panel { position: absolute; left: 80px; top: 100px; width: 1760px; }
+  #head { background: var(--grey); padding: 18px 30px; display: flex; align-items: stretch; justify-content: space-between; gap: 30px; transform: translateY(-30px); opacity: 0;
+    transition: transform .5s cubic-bezier(.2,.8,.2,1), opacity .4s; }
+  #title { font-family: var(--head-font); font-style: normal; text-transform: uppercase; font-size: 64px; font-weight: 600; letter-spacing: 1px; line-height: 1.1; }
+  #err { display: none; font-size: 20px; color: #ffd23f; margin-top: 6px; }
+  #logo { align-self: center; transition: max-height .25s, max-width .25s; display: none; max-height: 192px; max-width: 540px; width: auto; height: auto; object-fit: contain; flex: 0 0 auto; }
+  .grid > :nth-child(4) { padding-right: 16px; }
+  .grid > :nth-child(5) { padding-right: 22px; text-align: center; }
+  .grid > :nth-child(6) { display: flex; justify-content: center; white-space: nowrap; }
+  .grid { display: grid; grid-template-columns: 62px 82px 1fr 96px 166px 54px 56px; align-items: center;
+    height: 62px; padding: 0 20px; box-sizing: border-box; font-size: 28px; font-variant-numeric: tabular-nums; }
+  .colhead { background: #000; height: 42px; font-size: 22px; font-weight: 300; letter-spacing: 2px; color: #fff;
+    opacity: 0; transition: opacity .4s .1s; }
+  .row { position: relative; background-color: var(--grey80); opacity: 0; transform: translateX(-70px);
+    transition: transform .5s cubic-bezier(.2,.8,.2,1), opacity .4s, background-color .5s, box-shadow .5s; }
+  .row:nth-child(even) { background-color: var(--grey80b); }
+  /* darker position column */
+  .row { background-image: linear-gradient(to right, rgba(0,0,0,.55) 82px, transparent 82px); }
+  #cols { display: flex; gap: 0; position: relative; }
+  #cols::after { content: ''; position: absolute; left: 50%; top: 0; bottom: 0; width: 2px; margin-left: -1px;
+    background: #FF0D40; opacity: 0; transform: scaleY(0); transform-origin: top;
+    transition: opacity .3s, transform .6s cubic-bezier(.2,.8,.2,1) .2s; }
+  .show #cols::after { opacity: 1; transform: scaleY(1); }
+  .col { flex: 1; min-width: 0; }
+  .col.right .row { transform: translateX(70px); }
+  #headtext, #bheadtext { position: relative; display: flex; flex-direction: column; justify-content: center; }
+  /* red underline along the bottom of the banner, from its left edge to just past the title */
+  .uline { position: absolute; left: -30px; bottom: -18px; width: calc(100% + 36px); height: 8px; background: #FF0D40;
+    transform: scaleX(0); transform-origin: left; transition: transform .3s ease-in; }
+  .show #head .uline, #bracket.show .uline { transform: scaleX(1); transition: transform .8s cubic-bezier(.2,.8,.2,1) .45s; }
+  .show #head, .show .colhead { opacity: 1; transform: none; }
+  .show .col.right .row { transform: none; }
+  .show .row { opacity: 1; transform: none; }
+  .pos { font-weight: 300; }
+  .num { color: var(--midgrey); font-weight: 300; }
+  .name { font-weight: 300; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; text-transform: uppercase; }
+  .r { text-align: right; }
+  .pts { font-weight: 300; }
+  .gap { color: var(--midgrey); white-space: nowrap; transform-origin: right center; }
+  .gaphead { white-space: nowrap; }
+  .playoff .gap { color: #fff; }
+  .playoff .gap.neg { color: var(--red); }
+  .playoff .gap.lock { font-size: 16px; letter-spacing: 1.5px; color: #fff; }
+  .chg { text-align: center; font-size: 18px; font-weight: 300; }
+  .up { color: #3ddc84; } .down { color: var(--red); }
+  .top3 .pos { color: #FF0D40; }
+  .playoff .row.qual { background-color: rgba(5,62,3,.97); box-shadow: inset 6px 0 0 #3ddc84; }
+  .playoff .row.qual > div { font-weight: 400; text-shadow: 0 1px 2px rgba(0,0,0,.45); }
+  .playoff .row.qual:nth-child(even) { background-color: rgba(5,62,3,.97); }   /* one solid green above the cutoff, no alternating */
+  .playoff .row.qual .pos { color: #fff; }
+  .playoff .row.qual .num { color: #fff; }
+  .playoff .row.qual .gap { color: #fff; }
+  .cutline { display: none; position: absolute; left: 0; right: 0; bottom: -2px; height: 4px; background: #FF0D40;
+    transform: scaleX(0); transform-origin: left; transition: transform .6s cubic-bezier(.2,.8,.2,1); z-index: 1; }
+  .cutlabel { display: none; position: absolute; left: 50%; bottom: -14px; transform: translateX(-50%);
+    height: 28px; line-height: 28px; padding: 0 16px; background: #FF0D40; color: #fff; font-size: 15px; font-weight: 400;
+    letter-spacing: 3px; white-space: nowrap; text-shadow: none; opacity: 0; transition: opacity .4s; z-index: 2; }
+  .row.cutoff-after .cutline, .row.cutoff-after .cutlabel { display: block; }
+  .playoff .row.cutoff-after .cutline { transform: scaleX(1); transition-delay: .1s; }
+  .playoff .row.cutoff-after .cutlabel { opacity: 1; transition-delay: .4s; }
+  /* ---- Playoff bracket view ---- */
+  #bracket { position: absolute; left: 80px; top: 100px; width: 1760px; }
+  #bhead { background: var(--grey); padding: 18px 30px; display: flex; align-items: stretch; justify-content: space-between; gap: 30px;
+    transform: translateY(-30px); opacity: 0; transition: transform .5s cubic-bezier(.2,.8,.2,1), opacity .4s; }
+  #btitle { font-family: var(--head-font); font-style: normal; text-transform: uppercase; font-size: 64px; font-weight: 600; letter-spacing: 1px; line-height: 1.1; }
+  #logo2 { align-self: center; transition: max-height .25s, max-width .25s; display: none; max-height: 192px; max-width: 540px; width: auto; height: auto; object-fit: contain; flex: 0 0 auto; }
+  #bcols { display: flex; justify-content: space-between; margin-top: 18px; }
+  .bcol { position: relative; flex: 0 0 auto; }
+  .bh { height: 44px; line-height: 44px; background: #000; color: #fff; font-size: 24px; font-weight: 300; letter-spacing: 3px; padding: 0 16px;
+    opacity: 0; transition: opacity .4s; }
+  .bslots { position: relative; height: 648px; margin-top: 6px; }
+  .slot { position: absolute; left: 0; right: 0; display: flex; align-items: center; overflow: hidden; box-sizing: border-box;
+    background: var(--grey80); opacity: 0; transform: translateY(24px) scale(.96);
+    transition: transform .55s cubic-bezier(.2,.8,.2,1), opacity .4s; }
+  .slot .seed { flex: 0 0 56px; height: 100%; display: flex; align-items: center; justify-content: center; background: #FF0D40;
+    font-family: var(--head-font); font-size: 26px; font-weight: 600; }
+  .slot .car { flex: 0 0 92px; text-align: center; color: var(--midgrey); font-size: 28px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .slot .nm { flex: 1 1 auto; min-width: 0; padding-right: 14px; font-size: 27px; font-weight: 300; text-transform: uppercase;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .slot.tbd { background: rgba(0,0,0,.45); outline: 2px dashed rgba(255,255,255,.3); outline-offset: -2px; justify-content: center; }
+  .slot.tbd .tbdtxt { color: rgba(255,255,255,.45); font-size: 22px; letter-spacing: 4px; }
+  .slot.champ { outline: 3px solid var(--red); background: var(--grey80); }
+  .slot.champ .tbdtxt { color: #fff; font-size: 28px; font-weight: 600; letter-spacing: 6px; }
+  .bchev { flex: 0 0 auto; align-self: center; width: 26px; text-align: center; color: #FF0D40; font-size: 64px; line-height: 1;
+    opacity: 0; transform: translateX(-12px); transition: transform .4s, opacity .4s; }
+  .slot.champ:not(.tbd) .nm { font-size: 30px; font-weight: 600; }
+  .slot.champ:not(.tbd) .car { font-size: 30px; }
+  #bracket.show #bhead { opacity: 1; transform: none; }
+  #bracket.show .bh { opacity: 1; }
+  #bracket.show .slot { opacity: 1; transform: none; }
+  #bracket.show .bchev { opacity: 1; transform: none; }
+  /* ---- Race analysis box (its own page: /analysis) ---- */
+  body.amode #panel, body.amode #bracket { display: none; }
+  #analysis { position: absolute; left: 80px; bottom: 120px; display: inline-block; min-width: 780px; max-width: 1700px;
+    visibility: hidden; overflow: hidden; }
+  #ahead { position: relative; background: var(--grey); padding: 16px 44px 24px; }
+  #atitle { font-family: var(--head-font); font-style: normal; font-size: 56px; font-weight: 600; letter-spacing: 1px; line-height: 1.1;
+    text-transform: uppercase; white-space: nowrap; }
+  #auline { position: absolute; left: 0; bottom: 0; width: 64%; height: 8px; background: #FF0D40; transform-origin: left; }
+  #alines { background: var(--grey80); padding: 22px 44px 26px; }
+  .aline { font-size: 46px; line-height: 1.38; letter-spacing: .5px; text-transform: uppercase; white-space: nowrap;
+    overflow: hidden; text-overflow: ellipsis; }
+  #ashine { position: absolute; top: 0; bottom: 0; left: 0; width: 160px; pointer-events: none; opacity: 0;
+    background: linear-gradient(100deg, transparent, rgba(255,255,255,.22), transparent); }
+  /* ---- Broadcast team box (its own page: /team) ---- */
+  #team { position: absolute; left: 458px; bottom: 80px; width: 1074px; visibility: hidden; overflow: hidden; transition: width .5s cubic-bezier(.2,.8,.2,1), left .5s cubic-bezier(.2,.8,.2,1); }
+  #thead { position: relative; background: var(--grey); height: 82px; box-sizing: border-box; padding: 0 33px; display: flex; align-items: center; }
+  #ttitle { font-family: var(--head-font); font-weight: 600; font-size: 46px; letter-spacing: 1px; text-transform: uppercase; white-space: nowrap; line-height: 1; }
+  #tuline { position: absolute; left: 0; bottom: 0; width: 70%; height: 7px; background: #FF0D40; transform-origin: left; }
+  #tbody { background: var(--grey80); height: 200px; display: flex; box-sizing: border-box; }
+  .tm { flex: 1 1 0; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 12px 24px; }
+  .tdiv { flex: 0 0 4px; margin: 14px 0; background: var(--midgrey); transform-origin: center; }
+  .tm-name { font-family: var(--head-font); font-weight: 600; font-size: 37px; letter-spacing: 1px; text-transform: uppercase; line-height: 1.5; white-space: nowrap; }
+  .tm-role { font-weight: 300; font-size: 35px; letter-spacing: .5px; line-height: 1.5; white-space: nowrap; }
+  #tbar { height: 13px; background: #FF0D40; transform-origin: left; }
+  #tshine { position: absolute; top: 0; bottom: 0; left: 0; width: 140px; pointer-events: none; opacity: 0;
+    background: linear-gradient(100deg, transparent, rgba(255,255,255,.2), transparent); }
+</style>
+</head>
+<body>
+<div id="panel">
+  <div id="head"><div id="headtext"><div id="title"></div><div id="err"></div><div class="uline"></div></div><img id="logo" alt=""></div>
+  <div id="cols">
+    <div class="col"><div class="grid colhead"><div>POS</div><div>#</div><div>DRIVER</div><div class="r">PTS</div><div class="r gaphead">TO LDR</div><div class="r">WINS</div><div></div></div><div id="rowsL"></div></div>
+    <div class="col right"><div class="grid colhead"><div>POS</div><div>#</div><div>DRIVER</div><div class="r">PTS</div><div class="r gaphead">TO LDR</div><div class="r">WINS</div><div></div></div><div id="rowsR"></div></div>
+  </div>
+</div>
+
+<div id="analysis">
+  <div id="ahead"><div id="atitle"></div><div id="auline"></div></div>
+  <div id="alines"></div>
+  <div id="ashine"></div>
+</div>
+
+<div id="team">
+  <div id="thead"><div id="ttitle"></div><div id="tuline"></div></div>
+  <div id="tbody"></div>
+  <div id="tbar"></div>
+  <div id="tshine"></div>
+</div>
+
+<div id="bracket">
+  <div id="bhead"><div id="bheadtext"><div id="btitle"></div><div class="uline"></div></div><img id="logo2" alt=""></div>
+  <div id="bcols"></div>
+</div>
+
+<script>
+// ---- SETTINGS (edit these, or override the CSV link with ?csv=... in the vMix URL) ----
+const CONFIG = {
+  csvUrl: '',                       // optional backup CSV link (no longer used: the overlay server pulls Xtreme Scoring)
+  title: 'ALEXANDER PCS ARCA SERIES',
+  topN: 20,
+  bracketCount: 12,                 // drivers shown in the bracket (top N from the standings)
+  perColumn: 10,                    // rows in the left column; the rest go in the right column
+  controlUrl: 'http://127.0.0.1:8765',  // the VSPEED overlay server
+  autoplay: true,                   // animate in as soon as the page loads
+  holdSeconds: 0                    // >0 = animate out automatically after this many seconds
+};
+
+const DEMO = `Pos,Chg,#,Driver,Pts,To Ldr,Wins
+1,0,85,Jake Ham,237,0,2
+2,0,38,Trevor Dyer,220,-17,1
+3,0,25,Joshua Thornton,214,-23,1
+4,0,41,David Calbert,213,-24,1
+5,0,16,Jamie Libke,202,-35,1
+6,0,74,Jake Bustos,201,-36,0
+7,0,904,Cameron Falcone,187,-50,0
+8,0,08,Thadeeus Freel Jr,187,-50,0
+9,0,53,Shawn Lobos,185,-52,0
+10,0,43,Brock Price,166,-71,0
+11,0,00,Allen Smith,160,-77,0
+12,0,75,Chuck Felts,160,-77,0
+13,0,69,Ronnie Morrison,152,-85,0
+14,0,124,Caiden Hiner,151,-86,0
+15,0,27,Jake Ellingson,148,-89,0
+16,0,71,Daniel Parks,146,-91,1
+17,0,14,Dylan Simmons,143,-94,0
+18,0,7,Charles Abert,141,-96,0
+19,0,52,Matt Wiebers,141,-96,0
+20,0,771,Jordan Johnson,139,-98,0`;
+
+const panel = document.getElementById('panel');
+const rowsL = document.getElementById('rowsL');
+const rowsR = document.getElementById('rowsR');
+document.getElementById('title').textContent = CONFIG.title;
+document.getElementById('title').textContent = CONFIG.title;
+document.getElementById('btitle').textContent = CONFIG.title;
+const bracketEl = document.getElementById('bracket');
+
+function parseCSV(text) {
+  const out = []; let row = [], cur = '', q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"') { if (text[i+1] === '"') { cur += '"'; i++; } else q = false; } else cur += c; }
+    else if (c === '"') q = true;
+    else if (c === ',') { row.push(cur); cur = ''; }
+    else if (c === '\n') { row.push(cur); out.push(row); row = []; cur = ''; }
+    else if (c !== '\r') cur += c;
+  }
+  if (cur !== '' || row.length) { row.push(cur); out.push(row); }
+  return out;
+}
+
+async function loadData() {
+  const grab = async u => {
+    const r = await fetch(u + (u.includes('?') ? '&' : '?') + 't=' + Date.now(), { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    return r.text();
+  };
+  const backup = new URLSearchParams(location.search).get('csv') || CONFIG.csvUrl;
+  let text = null, appErr = '';
+  // 1) the Standings Control app (when the page is loaded with ?control=1)
+  if (CONTROL_URL) {
+    try { text = await grab(CONTROL_URL + '/standings.csv'); }
+    catch (e) { appErr = e.message; }
+  }
+  // 2) the optional backup CSV link
+  if (text === null && backup) {
+    try { text = await grab(backup); }
+    catch (e) { throw new Error(e.message + (appErr ? ' | app: ' + appErr : '')); }
+  }
+  if (text === null) {
+    // Demo data is only for testing the page on its own. With the app connected, never show made-up standings.
+    if (CONTROL_URL) throw new Error(appErr.indexOf('404') >= 0
+      ? 'no standings in the app yet - press Pull Standings Now'
+      : 'cannot reach the Standings Control app (' + appErr + ')');
+    text = DEMO;
+  }
+  return parseCSV(text);
+}
+
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function render(table) {
+  const head = table[0].map(h => h.trim().toLowerCase());
+  const col = n => head.indexOf(n);
+  if (col('driver') < 0) throw new Error('no Driver column in the data');
+  const g = (r, n) => { const i = col(n); return i < 0 ? '' : (r[i] || '').trim(); };
+  const data = table.slice(1).filter(r => r.length > 1).slice(0, CONFIG.topN);
+  const mk = (r, idx) => {
+    const chg = parseInt(g(r, 'chg'), 10);
+    const chgHtml = chg > 0 ? `<span class="up">▲${chg}</span>` : chg < 0 ? `<span class="down">▼${-chg}</span>` : '';
+    const gap = g(r, 'to ldr');
+    const gapTxt = (idx === 0 || gap === '0' || gap === '') ? '—' : gap;
+    return `<div class="grid row${idx < 3 ? ' top3' : ''}" data-i="${idx}" data-wins="${esc(g(r, 'wins'))}" data-pos="${esc(g(r, 'pos'))}">
+      <div class="pos">${esc(g(r, 'pos'))}</div>
+      <div class="num">${esc(g(r, '#'))}</div>
+      <div class="name">${esc(g(r, 'driver'))}</div>
+      <div class="r pts" data-v="${esc(g(r, 'pts'))}">${esc(g(r, 'pts'))}</div>
+      <div class="r gap" data-orig="${esc(gapTxt)}">${esc(gapTxt)}</div>
+      <div class="r">${esc(g(r, 'wins'))}</div>
+      <div class="chg">${chgHtml}</div><div class="cutline"></div><div class="cutlabel">PLAYOFF CUTOFF LINE</div></div>`;
+  };
+  rowsL.innerHTML = data.slice(0, CONFIG.perColumn).map((r, i) => mk(r, i)).join('');
+  rowsR.innerHTML = data.slice(CONFIG.perColumn).map((r, i) => mk(r, CONFIG.perColumn + i)).join('');
+  // With the control app the bracket is filled by hand from the app. Without it, show the top N as a demo.
+  if (!CONTROL_URL) renderBracket([data.slice(0, CONFIG.bracketCount).map((r, i) => ({ seed: i + 1, num: g(r, '#'), name: g(r, 'driver') })), [], [], []]);
+  applyPlayoff(false);
+}
+
+let playoffOn = false, playoffCut = 16, dramaticTimer;
+// Playoff field: every driver with a win is locked in; the remaining spots (cutoff minus winners)
+// go to the highest non-winners on points. The cutoff line sits under the last non-winner who is in.
+function applyPlayoff(stagger) {
+  panel.classList.toggle('playoff', playoffOn);
+  const rows = [...document.querySelectorAll('.row')].sort((a, b) => a.dataset.i - b.dataset.i);
+  const wins = rows.map(r => (parseInt(r.dataset.wins, 10) || 0) > 0);
+  const spots = Math.max(0, playoffCut - wins.filter(Boolean).length);
+  let taken = 0, lastIn = null, firstOut = null;
+  const status = rows.map((r, k) => {
+    if (wins[k]) return 'lock';
+    if (taken < spots) { taken++; lastIn = k; return 'in'; }
+    if (firstOut === null) firstOut = k;
+    return 'out';
+  });
+  const pts = rows.map(r => parseFloat(r.querySelector('.pts').dataset.v));
+
+  // Display order: every driver with a win goes to the top (keeping points order), then everyone else.
+  // The green block is therefore winners first, then the best non-winners, and the cutoff line falls under its last row.
+  let order = rows.map((r, k) => k);
+  if (playoffOn) {
+    const w = [], n = [];
+    rows.forEach((r, k) => (status[k] === 'lock' ? w : n).push(k));
+    order = w.concat(n);
+  }
+  const rankOf = {};
+  order.forEach((k, j) => { rankOf[k] = j + 1; });
+
+  // Move the rows (sliding them if the graphic is on screen).
+  const shown = panel.classList.contains('show');
+  const before = shown ? new Map(rows.map(r => [r, r.getBoundingClientRect()])) : null;
+  [rowsL, rowsR].forEach((col, b) => {
+    const want = b === 0 ? order.slice(0, CONFIG.perColumn) : order.slice(CONFIG.perColumn);
+    want.forEach((k, j) => {
+      const node = rows[k];
+      if (col.children[j] !== node) col.insertBefore(node, col.children[j] || null);
+    });
+  });
+  let lineAt = 0;
+  const movers = [];
+  if (before) {
+    rows.forEach((r, k) => {
+      const a = before.get(r), b = r.getBoundingClientRect();
+      const dx = a.left - b.left, dy = a.top - b.top;
+      if (dx || dy) movers.push({ r, dx, dy, hero: status[k] === 'lock' && lastIn !== null && k > lastIn });
+    });
+    // The cutoff line and its label wait until every name has finished moving (and the LOCKED IN labels have popped).
+    const moveEnd = movers.length ? (movers.some(m => m.hero) ? 1700 : 1450) : 0;
+    const nWins = wins.filter(Boolean).length;
+    const popEnd = playoffOn && nWins ? 500 + nWins * 45 + 520 : 0;
+    lineAt = Math.max(moveEnd, popEnd, 600) + 150;
+  }
+
+  rows.forEach((r, k) => {
+    r.classList.toggle('qual', status[k] !== 'out');
+    r.classList.toggle('cutoff-after', k === lastIn);
+    r.querySelector('.pos').textContent = playoffOn ? String(rankOf[k]) : r.dataset.pos;
+    const g = r.querySelector('.gap');
+    let txt = g.dataset.orig, neg = false, lock = false;
+    if (playoffOn) {
+      if (status[k] === 'lock') { txt = 'LOCKED IN'; lock = true; }
+      else {
+        const ref = status[k] === 'in' ? firstOut : lastIn;
+        const d = ref === null ? NaN : pts[k] - pts[ref];
+        if (isNaN(d)) txt = '—';
+        else { txt = d > 0 ? '+' + d : String(d); neg = d < 0; }
+      }
+    }
+    g.textContent = txt;
+    g.classList.toggle('neg', neg);
+    g.classList.toggle('lock', lock);
+    if (stagger) r.style.transitionDelay = ([...r.parentNode.children].indexOf(r) * (shown ? 70 : 30)) + 'ms';
+    if (lock && playoffOn && shown && stagger && g.animate) {
+      g.animate([{ transform: 'scale(2.6)', opacity: 0 }, { transform: 'scale(1)', opacity: 1 }],
+        { duration: 520, delay: 500 + rankOf[k] * 45, easing: 'cubic-bezier(.2,1.5,.4,1)', fill: 'backwards' });
+    }
+  });
+  document.querySelectorAll('.gaphead').forEach(h => { h.textContent = playoffOn ? 'TO CUTOFF' : 'TO LDR'; });
+
+  if (before) {
+    if (rows[0].animate) {
+      // Promoted winners lift, glow and fly to their new spot; the rest then slide into place.
+      movers.forEach(m => {
+        const r = m.r, dx = m.dx, dy = m.dy;
+        if (m.hero) {
+          const base = playoffOn ? 'inset 6px 0 0 #3ddc84' : 'inset 0 0 0 0 rgba(0,0,0,0)';
+          const glow = base + ', 0 0 40px 10px rgba(61,220,132,.95)';
+          r.style.position = 'relative';
+          const an = r.animate([
+            { transform: 'translate(' + dx + 'px,' + dy + 'px) scale(1)', boxShadow: base, zIndex: 9, offset: 0, easing: 'cubic-bezier(.4,0,.2,1)' },
+            { transform: 'translate(' + dx + 'px,' + dy + 'px) scale(1.08)', boxShadow: glow, zIndex: 9, offset: .2, easing: 'cubic-bezier(.55,0,.2,1)' },
+            { transform: 'translate(0px,0px) scale(1.08)', boxShadow: glow, zIndex: 9, offset: .8, easing: 'ease-out' },
+            { transform: 'translate(0px,0px) scale(1)', boxShadow: base, zIndex: 9, offset: 1 }
+          ], { duration: 1700, easing: 'linear' });
+          an.onfinish = an.oncancel = () => { r.style.position = ''; };
+        } else {
+          r.animate([
+            { transform: 'translate(' + dx + 'px,' + dy + 'px)' },
+            { transform: 'translate(0px,0px)' }
+          ], { duration: 950, delay: 500, easing: 'cubic-bezier(.3,1.25,.5,1)', fill: 'backwards' });
+        }
+      });
+      // The cutoff line draws across, then its label fades in, once everything has settled.
+      if (playoffOn && lastIn !== null) {
+        const row = rows[lastIn];
+        row.querySelector('.cutline').animate([{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }],
+          { duration: 700, delay: lineAt, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'backwards' });
+        row.querySelector('.cutlabel').animate([{ opacity: 0 }, { opacity: 1 }],
+          { duration: 450, delay: lineAt + 450, easing: 'ease-out', fill: 'backwards' });
+      }
+    } else {
+      movers.forEach(m => { m.r.style.transition = 'none'; m.r.style.transform = 'translate(' + m.dx + 'px,' + m.dy + 'px)'; });
+      void panel.offsetWidth;
+      movers.forEach(m => { m.r.style.transition = ''; m.r.style.transform = ''; });
+    }
+  }
+}
+
+function countUp() {
+  const cells = [...document.querySelectorAll('.pts')];
+  const t0 = performance.now();
+  (function tick(now) {
+    const p = Math.min(1, (now - t0) / 1100);
+    cells.forEach(c => { const v = parseFloat(c.dataset.v); if (!isNaN(v)) c.textContent = Math.round(v * (1 - Math.pow(1 - p, 3))); });
+    if (p < 1) requestAnimationFrame(tick);
+    else cells.forEach(c => c.textContent = c.dataset.v);
+  })(t0);
+}
+
+let holdTimer;
+function showStandings() {
+  clearTimeout(holdTimer);
+  const rows = [...document.querySelectorAll('.row')];
+  rows.forEach(r => { const i = [...r.parentNode.children].indexOf(r); r.style.transitionDelay = (200 + i * 45) + 'ms'; });
+  panel.classList.add('show');
+  countUp();
+  if (CONFIG.holdSeconds > 0) holdTimer = setTimeout(hideStandings, CONFIG.holdSeconds * 1000);
+}
+function hideStandings() {
+  const rows = [...document.querySelectorAll('.row')];
+  rows.forEach(r => { const sib = [...r.parentNode.children]; r.style.transitionDelay = ((sib.length - 1 - sib.indexOf(r)) * 30) + 'ms'; });
+  panel.classList.remove('show');
+}
+
+// ---------------- Playoff bracket ----------------
+const BRACKET_COLS = [
+  { name: 'ROUND OF 12', n: 12, w: 520 },
+  { name: 'ROUND OF 8', n: 8, w: 410 },
+  { name: 'CHAMPIONSHIP 4', n: 4, w: 410 },
+  { name: 'CHAMPION', n: 1, w: 340 }
+];
+let brPrev = {};
+function renderBracket(rounds) {
+  rounds = rounds || [[], [], [], []];
+  const H = 648, SH = 54, now = {};
+  let html = '';
+  BRACKET_COLS.forEach((c, ci) => {
+    html += '<div class="bcol" style="width:' + c.w + 'px"><div class="bh">' + c.name + '</div><div class="bslots">';
+    for (let i = 0; i < c.n; i++) {
+      const h = ci === 3 ? 96 : (ci === 0 ? 46 : SH);
+      const top = (i + 0.5) * (H / c.n) - h / 2;
+      const pos = 'data-c="' + ci + '" data-r="' + i + '" style="top:' + top + 'px;height:' + h + 'px"';
+      const r = rounds[ci] && rounds[ci][i];
+      if (r) {
+        now[ci + '-' + i] = r.seed + '|' + r.name;
+        html += '<div class="slot' + (ci === 3 ? ' champ' : '') + '" ' + pos + '><div class="seed">' + (ci === 0 ? esc(r.seed) : (i + 1)) + '</div><div class="car">' + esc(r.num) +
+                '</div><div class="nm">' + esc(r.name) + '</div></div>';
+      } else {
+        html += '<div class="slot tbd' + (ci === 3 ? ' champ' : '') + '" ' + pos + '><div class="tbdtxt">' +
+                (ci === 3 ? 'CHAMPION' : 'TBD') + '</div></div>';
+      }
+    }
+    html += '</div></div>';
+    if (ci < BRACKET_COLS.length - 1) html += '<div class="bchev">\u203A</div>';
+  });
+  document.getElementById('bcols').innerHTML = html;
+  // On air: pop in whatever changed (a driver advancing, or the first load).
+  if (bracketEl.classList.contains('show')) {
+    document.querySelectorAll('.slot:not(.tbd)').forEach(sl => {
+      const key = sl.dataset.c + '-' + sl.dataset.r;
+      if (brPrev[key] === now[key]) return;
+      const champ = sl.dataset.c === '3';
+      sl.animate([
+        { transform: 'translateX(-40px) scale(.8)', opacity: 0, filter: 'brightness(3)' },
+        { transform: 'translateX(0) scale(' + (champ ? 1.15 : 1.07) + ')', opacity: 1, filter: 'brightness(1.8)', offset: 0.55 },
+        { transform: 'none', opacity: 1, filter: 'none' }
+      ], { duration: champ ? 1400 : 900, delay: sl.dataset.c === '0' ? sl.dataset.r * 70 : 0, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'backwards' });
+    });
+  }
+  brPrev = now;
+}
+function showBracket() {
+  document.querySelectorAll('.slot').forEach(sl => { sl.style.transitionDelay = (300 + sl.dataset.c * 300 + sl.dataset.r * 40) + 'ms'; });
+  document.querySelectorAll('.bh').forEach((h, i) => { h.style.transitionDelay = (200 + i * 300) + 'ms'; });
+  document.querySelectorAll('.bchev').forEach((h, i) => { h.style.transitionDelay = (600 + i * 300) + 'ms'; });
+  bracketEl.classList.add('show');
+}
+function hideBracket() {
+  document.querySelectorAll('.slot').forEach(sl => { sl.style.transitionDelay = ((3 - sl.dataset.c) * 80 + sl.dataset.r * 15) + 'ms'; });
+  document.querySelectorAll('.bh, .bchev').forEach(h => { h.style.transitionDelay = '0ms'; });
+  bracketEl.classList.remove('show');
+}
+
+// Which view is on screen: null (nothing), 'standings' or 'bracket'. Switching plays the old view out, then the new one in.
+let shownView = null;
+function setView(desired) {
+  if (desired === shownView) return;
+  const old = shownView;
+  shownView = desired;
+  if (old === 'standings') hideStandings();
+  else if (old === 'bracket') hideBracket();
+  const go = () => { if (shownView === 'standings') showStandings(); else if (shownView === 'bracket') showBracket(); };
+  if (old && desired) setTimeout(go, 1150); else go();
+}
+
+async function refresh() {
+  try { render(await loadData()); document.getElementById('err').style.display = 'none'; }
+  catch (e) { console.error(e); const er = document.getElementById('err'); er.textContent = 'COULD NOT LOAD: ' + (e && e.message ? e.message : e); er.style.display = 'block'; }
+}
+
+// Keys: 1 = animate in, 2 = animate out, R = reload data
+document.addEventListener('keydown', e => {
+  if (e.key === '1') setView('standings');
+  else if (e.key === '2') setView(null);
+  else if (e.key === '3') setView('bracket');
+  else if (e.key.toLowerCase() === 'r') refresh();
+});
+window.showStandings = showStandings; window.hideStandings = hideStandings; window.refreshStandings = refresh;
+
+// ---- Remote control (Standings Control app). Turn on by adding control=1 to the page URL ----
+const ctlParam = new URLSearchParams(location.search).get('control');
+// Served by the Standings Control app (http://127.0.0.1:PORT/)? Then control is on automatically.
+const servedByApp = location.protocol === 'http:' && /^(127\.0\.0\.1|localhost)$/.test(location.hostname);
+const CONTROL_URL = ctlParam ? (ctlParam === '1' ? CONFIG.controlUrl : ctlParam) : (servedByApp ? location.origin : '');
+let lastCtl = null;
+let appWasDown = true;
+async function pollControl() {
+  let s;
+  try {
+    const r = await fetch(CONTROL_URL + '/state', { cache: 'no-store' });
+    s = await r.json();
+  } catch (e) { appWasDown = true; setTimeout(pollControl, 300); return; }   // app not running yet; keep trying
+  try {
+    if (lastCtl === null) lastCtl = { visible: false, replay: s.replay, reload: s.reload, title: null, bracket: null, playoff: false, cutoff: s.cutoff, logo: null, view: 'standings', logoSize: null, dataVer: s.dataVer };
+    // New data in the app (pull, CSV, hand edit), or the app just came online: load the standings again.
+    if (appWasDown || s.dataVer !== lastCtl.dataVer) { appWasDown = false; lastCtl.dataVer = s.dataVer; refresh(); }
+    const brKey = JSON.stringify(s.bracket || null);
+    if (brKey !== lastCtl.bracket) { lastCtl.bracket = brKey; renderBracket(s.bracket && s.bracket.rounds); }
+    if (s.logo !== lastCtl.logo) {
+      lastCtl.logo = s.logo;
+      ['logo', 'logo2'].forEach(id => {
+        const el = document.getElementById(id);
+        if (s.logo) { el.onerror = () => { el.style.display = 'none'; }; el.src = CONTROL_URL + '/logo?v=' + s.logo; el.style.display = 'block'; }
+        else { el.style.display = 'none'; el.removeAttribute('src'); }
+      });
+    }
+    if (s.logoSize && s.logoSize !== lastCtl.logoSize) {
+      lastCtl.logoSize = s.logoSize;
+      ['logo', 'logo2'].forEach(id => {
+        const el = document.getElementById(id);
+        el.style.maxHeight = s.logoSize + 'px';
+        el.style.maxWidth = Math.min(600, Math.round(s.logoSize * 2.8)) + 'px';
+      });
+    }
+    if (s.title !== null && s.title !== undefined && s.title !== lastCtl.title) {
+      lastCtl.title = s.title;
+      document.getElementById('title').textContent = s.title;
+      document.getElementById('btitle').textContent = s.title;
+    }
+    if (!!s.playoff !== lastCtl.playoff || s.cutoff !== lastCtl.cutoff) {
+      lastCtl.playoff = !!s.playoff; lastCtl.cutoff = s.cutoff;
+      playoffOn = !!s.playoff; playoffCut = s.cutoff || 16;
+      applyPlayoff(true);
+    }
+    if (s.reload !== lastCtl.reload) { lastCtl.reload = s.reload; refresh(); }
+    const view = s.view === 'bracket' ? 'bracket' : 'standings';
+    if (s.replay !== lastCtl.replay) {
+      lastCtl.replay = s.replay; lastCtl.visible = true; lastCtl.view = view;
+      if (shownView) { setView(null); setTimeout(() => setView(view), 1400); } else setView(view);
+    } else if (s.visible !== lastCtl.visible || view !== lastCtl.view) {
+      lastCtl.visible = s.visible; lastCtl.view = view;
+      setView(s.visible ? view : null);
+    }
+  } catch (e) { console.error(e); }
+  setTimeout(pollControl, 300);
+}
+
+// ---------------- Race analysis box ----------------
+// Open this same page at /analysis (or ?view=analysis) to get only the race analysis box, with its own show/hide.
+const PATH = location.pathname.replace(/\/+$/, ''), VIEWQ = new URLSearchParams(location.search).get('view');
+const MODE = (PATH.endsWith('/analysis') || VIEWQ === 'analysis') ? 'analysis' : ((PATH.endsWith('/team') || VIEWQ === 'team') ? 'team' : 'main');
+const A_DEFAULT = { title: 'RACE ANALYSIS', lines: ['RACE LENGTH: 100 LAPS', 'PITROAD SPEED: 50MPH', 'TIRE SETS AVAILABLE: 4', '2 GWC ATTEMPTS', '100% FUEL | PREMIER SETUP'] };
+const aBox = document.getElementById('analysis'), aTitle = document.getElementById('atitle'), aLines = document.getElementById('alines'),
+      aUline = document.getElementById('auline'), aShine = document.getElementById('ashine'), aHead = document.getElementById('ahead');
+const A_EASE = 'cubic-bezier(.2,.8,.2,1)';
+let aShown = false, aPrev = [];
+function aAll() { return [aBox, aHead, aTitle, aUline, aShine, ...aLines.children]; }
+function aSetText(title, lines, animate) {
+  const t = (title || '').toString();
+  if (aTitle.textContent !== t) {
+    aTitle.textContent = t;
+    if (animate && aTitle.animate) aTitle.animate([{ opacity: 0, transform: 'translateY(-14px)', filter: 'brightness(2.5)' }, { opacity: 1, transform: 'none', filter: 'none' }],
+      { duration: 500, easing: A_EASE });
+  }
+  const list = (lines || []).map(x => (x || '').toString().trim()).filter(Boolean);
+  aLines.innerHTML = list.map(x => '<div class="aline">' + esc(x) + '</div>').join('');
+  if (animate && aLines.children[0] && aLines.children[0].animate) {
+    [...aLines.children].forEach((el, i) => {
+      if (aPrev[i] === list[i]) return;
+      el.animate([{ opacity: 0, transform: 'translateX(-40px)', filter: 'brightness(3)' }, { opacity: 1, transform: 'none', filter: 'none' }],
+        { duration: 600, easing: A_EASE, fill: 'backwards' });
+    });
+  }
+  aPrev = list;
+}
+function aShow() {
+  aShown = true;
+  aAll().forEach(e => e.getAnimations && e.getAnimations().forEach(a => a.cancel()));
+  aBox.style.visibility = 'visible';
+  if (!aBox.animate) return;
+  aBox.animate([{ clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0 0 0)' }], { duration: 750, easing: A_EASE, fill: 'backwards' });
+  aTitle.animate([{ opacity: 0, transform: 'translateX(-60px)' }, { opacity: 1, transform: 'none' }], { duration: 650, delay: 300, easing: A_EASE, fill: 'backwards' });
+  aUline.animate([{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }], { duration: 850, delay: 550, easing: A_EASE, fill: 'backwards' });
+  [...aLines.children].forEach((el, i) => el.animate(
+    [{ opacity: 0, transform: 'translateX(-70px)' }, { opacity: 1, transform: 'none' }],
+    { duration: 600, delay: 650 + i * 140, easing: A_EASE, fill: 'backwards' }));
+  aShine.animate([{ transform: 'translateX(-200px)', opacity: 1 }, { transform: 'translateX(' + (aBox.offsetWidth + 200) + 'px)', opacity: 1 }],
+    { duration: 900, delay: 1050, easing: 'ease-in-out', fill: 'backwards' }).onfinish = () => { aShine.style.opacity = 0; };
+}
+function aHide() {
+  aShown = false;
+  if (!aBox.animate) { aBox.style.visibility = 'hidden'; return; }
+  const n = aLines.children.length;
+  [...aLines.children].forEach((el, i) => el.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateX(60px)' }],
+    { duration: 300, delay: (n - 1 - i) * 60, easing: 'ease-in', fill: 'forwards' }));
+  aUline.animate([{ transform: 'scaleX(1)' }, { transform: 'scaleX(0)' }], { duration: 400, delay: 150, easing: 'ease-in', fill: 'forwards' });
+  const an = aBox.animate([{ clipPath: 'inset(0 0 0 0)' }, { clipPath: 'inset(0 0 0 100%)' }], { duration: 600, delay: 350, easing: 'cubic-bezier(.6,0,.8,.3)', fill: 'forwards' });
+  an.onfinish = () => { if (!aShown) { aBox.style.visibility = 'hidden'; aAll().forEach(e => e.getAnimations().forEach(a => a.cancel())); } };
+}
+let lastA = null;
+async function pollAnalysis() {
+  let s;
+  try {
+    const r = await fetch(CONTROL_URL + '/state?src=analysis', { cache: 'no-store' });
+    s = await r.json();
+  } catch (e) { setTimeout(pollAnalysis, 300); return; }     // app not running yet; keep trying
+  try {
+    const a = s.analysis || {};
+    if (lastA === null) lastA = { visible: false, replay: a.replay, title: null, lines: null };
+    const lk = JSON.stringify(a.lines || []);
+    if (a.title !== lastA.title || lk !== lastA.lines) {
+      aSetText(a.title, a.lines, lastA.title !== null && aShown);
+      lastA.title = a.title; lastA.lines = lk;
+    }
+    if (a.replay !== lastA.replay) {
+      lastA.replay = a.replay; lastA.visible = true;
+      if (aShown) { aHide(); setTimeout(aShow, 1500); } else aShow();
+    } else if (!!a.visible !== lastA.visible) {
+      lastA.visible = !!a.visible;
+      if (a.visible) aShow(); else aHide();
+    }
+  } catch (e) { console.error(e); }
+  setTimeout(pollAnalysis, 300);
+}
+
+
+// ---------------- Broadcast team box (page: /team) ----------------
+const T_DEFAULT = { title: 'BROADCASTING TEAM', people: [['Sam Rivera', 'Lead Commentary'], ['Jordan Lee', 'Co-Commentary'], ['Casey Hart', 'Producer']] };
+const tBox = document.getElementById('team'), tHead = document.getElementById('thead'), tTitle = document.getElementById('ttitle'),
+      tUline = document.getElementById('tuline'), tBody = document.getElementById('tbody'), tBar = document.getElementById('tbar'),
+      tShine = document.getElementById('tshine');
+let tShown = false, tPrev = [];
+function tAll() { return [tBox, tHead, tTitle, tUline, tBody, tBar, tShine, ...tBody.querySelectorAll('.tm, .tdiv')]; }
+function tSetText(title, people, animate) {
+  const t = (title || '').toString();
+  if (tTitle.textContent !== t) {
+    tTitle.textContent = t;
+    if (animate && tTitle.animate) tTitle.animate([{ opacity: 0, transform: 'translateY(-14px)', filter: 'brightness(2.5)' }, { opacity: 1, transform: 'none', filter: 'none' }], { duration: 500, easing: A_EASE });
+  }
+  const list = (people || []).map(p => [((p && p[0]) || '').toString().trim(), ((p && p[1]) || '').toString().trim()]).filter(p => p[0] || p[1]);
+  let html = '';
+  list.forEach((p, i) => {
+    if (i) html += '<div class="tdiv"></div>';
+    html += '<div class="tm"><div class="tm-name">' + esc(p[0]) + '</div><div class="tm-role">' + esc(p[1]) + '</div></div>';
+  });
+  tBody.innerHTML = html;
+  // The box fits the number of people: 3 people = 1074px wide, 2 people = 716px, always centred on the same spot.
+  const bw = Math.max(640, 358 * Math.max(list.length, 1));
+  tBox.style.width = bw + 'px';
+  tBox.style.left = (995 - bw / 2) + 'px';
+  if (animate) {
+    [...tBody.querySelectorAll('.tm')].forEach((el, i) => {
+      if (tPrev[i] && tPrev[i][0] === list[i][0] && tPrev[i][1] === list[i][1]) return;
+      el.animate([{ opacity: 0, transform: 'translateY(22px)', filter: 'brightness(3)' }, { opacity: 1, transform: 'none', filter: 'none' }], { duration: 600, easing: A_EASE, fill: 'backwards' });
+    });
+  }
+  tPrev = list;
+}
+function tShow() {
+  tShown = true;
+  tAll().forEach(e => e.getAnimations && e.getAnimations().forEach(a => a.cancel()));
+  tBox.style.visibility = 'visible';
+  if (!tBox.animate) return;
+  tHead.animate([{ clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0 0 0)' }], { duration: 650, easing: A_EASE, fill: 'backwards' });
+  tTitle.animate([{ opacity: 0, transform: 'translateX(-60px)' }, { opacity: 1, transform: 'none' }], { duration: 600, delay: 250, easing: A_EASE, fill: 'backwards' });
+  tUline.animate([{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }], { duration: 800, delay: 450, easing: A_EASE, fill: 'backwards' });
+  tBody.animate([{ clipPath: 'inset(0 0 100% 0)' }, { clipPath: 'inset(0 0 0 0)' }], { duration: 650, delay: 400, easing: A_EASE, fill: 'backwards' });
+  tBar.animate([{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }], { duration: 750, delay: 750, easing: A_EASE, fill: 'backwards' });
+  [...tBody.querySelectorAll('.tm')].forEach((el, i) => el.animate([{ opacity: 0, transform: 'translateY(26px)' }, { opacity: 1, transform: 'none' }],
+    { duration: 600, delay: 800 + i * 160, easing: A_EASE, fill: 'backwards' }));
+  [...tBody.querySelectorAll('.tdiv')].forEach((el, i) => el.animate([{ transform: 'scaleY(0)' }, { transform: 'scaleY(1)' }],
+    { duration: 500, delay: 900 + i * 160, easing: A_EASE, fill: 'backwards' }));
+  tShine.animate([{ transform: 'translateX(-200px)', opacity: 1 }, { transform: 'translateX(' + (tBox.offsetWidth + 200) + 'px)', opacity: 1 }],
+    { duration: 900, delay: 1250, easing: 'ease-in-out', fill: 'backwards' });
+}
+function tHide() {
+  tShown = false;
+  if (!tBox.animate) { tBox.style.visibility = 'hidden'; return; }
+  const cols = [...tBody.querySelectorAll('.tm')];
+  cols.forEach((el, i) => el.animate([{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(20px)' }],
+    { duration: 280, delay: (cols.length - 1 - i) * 70, easing: 'ease-in', fill: 'forwards' }));
+  tBody.querySelectorAll('.tdiv').forEach(el => el.animate([{ transform: 'scaleY(1)' }, { transform: 'scaleY(0)' }], { duration: 250, easing: 'ease-in', fill: 'forwards' }));
+  tBar.animate([{ transform: 'scaleX(1)' }, { transform: 'scaleX(0)' }], { duration: 400, delay: 150, easing: 'ease-in', fill: 'forwards' });
+  tBody.animate([{ clipPath: 'inset(0 0 0 0)' }, { clipPath: 'inset(0 0 100% 0)' }], { duration: 500, delay: 350, easing: 'cubic-bezier(.6,0,.8,.3)', fill: 'forwards' });
+  tUline.animate([{ transform: 'scaleX(1)' }, { transform: 'scaleX(0)' }], { duration: 350, delay: 500, easing: 'ease-in', fill: 'forwards' });
+  const an = tHead.animate([{ clipPath: 'inset(0 0 0 0)' }, { clipPath: 'inset(0 0 0 100%)' }], { duration: 550, delay: 650, easing: 'cubic-bezier(.6,0,.8,.3)', fill: 'forwards' });
+  an.onfinish = () => { if (!tShown) { tBox.style.visibility = 'hidden'; tAll().forEach(e => e.getAnimations().forEach(a => a.cancel())); } };
+}
+let lastT = null;
+async function pollTeam() {
+  let s;
+  try {
+    const r = await fetch(CONTROL_URL + '/state?src=team', { cache: 'no-store' });
+    s = await r.json();
+  } catch (e) { setTimeout(pollTeam, 300); return; }
+  try {
+    const a = s.team || {};
+    if (lastT === null) lastT = { visible: false, replay: a.replay, title: null, people: null };
+    const pk = JSON.stringify(a.people || []);
+    if (a.title !== lastT.title || pk !== lastT.people) {
+      tSetText(a.title, a.people, lastT.title !== null && tShown);
+      lastT.title = a.title; lastT.people = pk;
+    }
+    if (a.replay !== lastT.replay) {
+      lastT.replay = a.replay; lastT.visible = true;
+      if (tShown) { tHide(); setTimeout(tShow, 1500); } else tShow();
+    } else if (!!a.visible !== lastT.visible) {
+      lastT.visible = !!a.visible;
+      if (a.visible) tShow(); else tHide();
+    }
+  } catch (e) { console.error(e); }
+  setTimeout(pollTeam, 300);
+}
+
+// ?align=right (used by the VSPEED overlay): anchor the race analysis box to the right instead of the left
+if (new URLSearchParams(location.search).get('align') === 'right') { aBox.style.left = 'auto'; aBox.style.right = '80px'; }
+
+if (MODE === 'team') {
+  document.body.classList.add('amode');
+  tSetText(T_DEFAULT.title, T_DEFAULT.people, false);
+  if (CONTROL_URL) pollTeam();
+  else setTimeout(tShow, 300);
+} else if (MODE === 'analysis') {
+  document.body.classList.add('amode');
+  aSetText(A_DEFAULT.title, A_DEFAULT.lines, false);
+  if (CONTROL_URL) pollAnalysis();
+  else setTimeout(aShow, 300);            // opened as a plain file: show the example text
+} else {
+  refresh().then(() => {
+    if (CONTROL_URL) pollControl();
+    else if (CONFIG.autoplay) setTimeout(showStandings, 300);
+  });
+}
+</script>
+</body>
+</html>

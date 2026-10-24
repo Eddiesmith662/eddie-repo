@@ -1,0 +1,1801 @@
+"""
+VSPEED Broadcast Overlay - bridge server
+
+Reads live data from iRacing (via pyirsdk) and serves:
+  /overlay   -> full 1920x1080 transparent overlay for a vMix Web Browser input
+  /control   -> producer control panel (works from any device on your network)
+
+Run:   python server.py            (live iRacing, falls back to "waiting" until the sim is running)
+       python server.py --demo     (fake race so you can design/test without iRacing)
+
+Only the Python standard library is needed for demo mode.
+Live mode needs:  pip install pyirsdk
+"""
+
+import argparse
+import copy
+import json
+import math
+import os
+import random
+import re
+import socket
+import subprocess
+import sys
+import threading
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlparse, parse_qs, unquote, quote
+import urllib.request
+import urllib.error
+
+import standings
+
+ROOT = os.path.dirname(os.path.abspath(__file__))
+STATIC = os.path.join(ROOT, "static")
+SETTINGS_FILE = os.path.join(ROOT, "settings.json")
+SPONSOR_DIR = os.path.join(ROOT, "sponsors")   # sponsor images loaded from the Race tab
+SPONSOR_SLOTS = ["green", "restart", "white", "read1", "read2", "read3"]
+SPONSOR_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg"}
+
+# --------------------------------------------------------------------------
+# Producer settings (what the control panel changes). Saved to settings.json
+# --------------------------------------------------------------------------
+DEFAULT_SETTINGS = {
+    "show": {
+        "logo": True,          # VSPEED logo, top left
+        "league": True,        # league logo + LIVE/REPLAY tag, top right
+        "tower": True,         # vertical ticker / timing tower
+        "lowerthird": True,    # focused driver info
+        "flags": True,         # automatic flag banners
+        "board": False,        # starting grid / results board
+    },
+    "raceName": "VSPEED SIM RACING",
+    "leagueLogo": "league_logo.png",
+    "logoStyle": "slant",      # VSPEED logo box: slant | straight (right-click the logo tile)
+    "liveMode": "auto",        # auto | live | replay
+    "towerMode": "interval",   # interval | leader
+    "towerRows": 20,           # rows on the ticker
+    "towerFixed": 14,          # top N always shown; the rows below them page through the rest of the field
+    "towerPageSec": 8,         # seconds per page
+    "classSplit": True,        # with more than one class, group the ticker by class (IMSA style)
+    "classRowSlots": [5, 15],  # ticker rows for the fastest class and the next class when grouped
+    "classFilter": "",         # "" = all classes, otherwise class short name
+    "lowerThirdMode": "always",  # always | oncut (show 8s after each camera change)
+    "boardTitle": "",            # empty = RESULTS
+    "gridw": {"visible": False, "t": 0, "rowSec": 6, "end": "hide", "step": {"n": 0, "dir": 1}},   # Grid widget
+    "paintDir": "",            # iRacing paint folder; empty = Documents\\iRacing\\paint
+    # address of iRacing's car render. {placeholders} are filled from the session's driver info
+    "renderCustNum": "",       # extra render setting for custom-number paints (found by the Test button)
+    "renderUrl": "http://127.0.0.1:32034/pk_car.png?size=2&view=1&licCol={licCol}&club={club}&sponsors={sponsors}&numPat={numPat}&numCol={numCol}&numSlnt={numSlnt}&carPath={carPath}&carPat={carPat}&carCol={carCol}&carRimType=2&carRimCol={rimCol}&carCustPaint={carCustPaint}&carSpecPaint={carSpecPaint}&numCustPaint={numCustPaint}",
+    "layout": {},              # widget positions/sizes from the Layout tab: { id: {x, y, s} }
+    "trackGraphic": "",        # Drive graphic used by the Track graphic button on the Race tab
+    "graphicsDir": "",         # Drive for desktop folder with ready-made graphics, e.g. G:\\My Drive\\VSPEED\\Graphics
+    "gfx": {"file": "", "visible": False, "anim": "wipe", "hold": 0, "t": 0},
+    "flagTrigger": {"flag": "", "t": 0},  # manual flag banner from the panel
+    # sponsor graphics (Race tab): one image per slot, one on air at a time; hold = seconds before it hides itself (0 = stays)
+    "sponsor": {"active": "", "t": 0, "hold": 0, "files": {k: "" for k in SPONSOR_SLOTS}},
+}
+
+
+def deep_merge(base, patch):
+    for k, v in patch.items():
+        if isinstance(v, dict) and isinstance(base.get(k), dict):
+            deep_merge(base[k], v)
+        else:
+            base[k] = v
+    return base
+
+
+class State:
+    def __init__(self):
+        self.lock = threading.Condition()
+        self.version = 0
+        self.settings = copy.deepcopy(DEFAULT_SETTINGS)
+        self.live = {"connected": False, "source": "none", "cars": []}
+        if os.path.exists(SETTINGS_FILE):
+            try:
+                with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
+                    deep_merge(self.settings, json.load(f))
+            except Exception as e:
+                print("Could not read settings.json:", e)
+
+    def bump(self):
+        self.version += 1
+        self.lock.notify_all()
+
+    def update_settings(self, patch):
+        with self.lock:
+            deep_merge(self.settings, patch)
+            self.bump()
+            snapshot = json.dumps(self.settings, indent=2)
+        try:
+            with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
+                f.write(snapshot)
+        except Exception as e:
+            print("Could not save settings.json:", e)
+
+    def set_live(self, live):
+        with self.lock:
+            self.live = live
+            self.bump()
+
+    def snapshot(self):
+        return json.dumps({"settings": self.settings, "live": self.live, "standings": standings.summary()})
+
+    def notify(self):
+        with self.lock:
+            self.bump()
+
+
+STATE = State()
+
+# --------------------------------------------------------------------------
+# Shared helpers
+# --------------------------------------------------------------------------
+FLAG_CHECKERED = 0x0001
+FLAG_WHITE = 0x0002
+FLAG_GREEN = 0x0004
+FLAG_RED = 0x0010
+FLAG_GREEN_HELD = 0x0400
+FLAG_CAUTION = 0x4000
+FLAG_CAUTION_WAVING = 0x8000
+FLAG_ONE_LAP_TO_GREEN = 0x0200
+
+
+def flag_from_bits(bits):
+    if bits & FLAG_CHECKERED:
+        return "checkered"
+    if bits & FLAG_RED:
+        return "red"
+    if bits & (FLAG_CAUTION | FLAG_CAUTION_WAVING):
+        return "caution"
+    if bits & FLAG_WHITE:
+        return "white"
+    if bits & (FLAG_GREEN | FLAG_GREEN_HELD):
+        return "green"
+    return ""
+
+
+PIT_SHOW_AFTER = 8.0   # seconds the final stop time stays up after the car leaves pit road
+PIT_HIDE_AT = 50.0     # a stop this long means the car is just parked: drop the tag until the next visit
+
+
+def pit_timer(store, idx, now, on_pit_road, in_stall):
+    """Time each stop in the pit box. Returns (state, seconds): ('road', None) on pit road,
+    ('stall', running time) while stopped, ('done', final time) for a while after the stop, else (None, None).
+    Once a stop reaches PIT_HIDE_AT seconds the tag is hidden for the rest of that pit visit."""
+    st = store.setdefault(idx, {"start": None, "last": None, "endAt": None, "parked": False, "lastStop": None})
+    if st["endAt"] is not None and now < st["endAt"]:      # time went backwards (replay jump): forget
+        st.update(start=None, last=None, endAt=None, parked=False)
+    if st.get("parked"):
+        if in_stall or on_pit_road:
+            if st["start"] is not None and now < st["start"]:   # replay jump back to before it got long
+                st.update(start=now, parked=False)
+            else:
+                return None, None
+        else:
+            if st["start"] is not None:
+                st["lastStop"] = now - st["start"]
+            st.update(start=None, last=None, endAt=None, parked=False)
+            return None, None
+    if in_stall:
+        if st["start"] is None or now < st["start"]:
+            st["start"] = now
+        t = max(0.0, now - st["start"])
+        if t >= PIT_HIDE_AT:
+            st["parked"] = True
+            return None, None
+        return "stall", t
+    if st["start"] is not None:                             # just left the box
+        st.update(last=now - st["start"], endAt=now, start=None, lastStop=now - st["start"])
+    if st["last"] is not None and (on_pit_road or now - st["endAt"] < PIT_SHOW_AFTER):
+        return "done", st["last"]
+    if not on_pit_road and st["endAt"] is not None and now - st["endAt"] >= PIT_SHOW_AFTER:
+        st.update(last=None, endAt=None)
+    return ("road", None) if on_pit_road else (None, None)
+
+
+def class_color(value):
+    try:
+        n = int(value)
+        if n <= 0:
+            return ""
+        return "#%06X" % (n & 0xFFFFFF)
+    except Exception:
+        return ""
+
+
+def compute_gaps(cars, is_race, racing):
+    """cars: list of dicts with progress, best, last, est. Sorted already.
+    Adds 'gap' (to leader) and 'interval' (to car ahead) as display strings
+    plus numeric 'gapS'."""
+    if not cars:
+        return
+    leader = cars[0]
+    if is_race:
+        ref = leader.get("last") or leader.get("est") or 60.0
+        if ref <= 0:
+            ref = leader.get("est") or 60.0
+        prev = None
+        for i, c in enumerate(cars):
+            if i == 0:
+                c["gap"] = "LEADER"
+                c["interval"] = "LEADER"
+                c["gapS"] = 0.0
+                c["lapsDown"] = 0
+                prev = c
+                continue
+            if not racing or c["progress"] is None or leader["progress"] is None:
+                c["gap"] = c["interval"] = ""
+                c["gapS"] = None
+                c["lapsDown"] = 0
+                prev = c
+                continue
+            diff = leader["progress"] - c["progress"]
+            laps_down = int(math.floor(diff)) if diff >= 1 else 0
+            c["lapsDown"] = laps_down
+            c["gapS"] = diff * ref
+            if laps_down:
+                c["gap"] = "+%d LAP%s" % (laps_down, "" if laps_down == 1 else "S")
+            else:
+                c["gap"] = "+%.1f" % c["gapS"]
+            pdiff = (prev["progress"] - c["progress"]) if prev["progress"] is not None else 0
+            if laps_down:                      # a lapped car always shows how many laps down it is
+                c["interval"] = c["gap"]
+            elif pdiff >= 1:
+                n = int(math.floor(pdiff))
+                c["interval"] = "+%d LAP%s" % (n, "" if n == 1 else "S")
+            else:
+                c["interval"] = "+%.1f" % max(0.0, pdiff * ref)
+            prev = c
+    else:
+        best0 = leader.get("best") or 0
+        prev = None
+        for i, c in enumerate(cars):
+            b = c.get("best") or 0
+            c["lapsDown"] = 0
+            if b <= 0:
+                c["gap"] = c["interval"] = "NO TIME"
+                c["gapS"] = None
+            elif i == 0:
+                c["gap"] = c["interval"] = fmt_lap(b)
+                c["gapS"] = 0.0
+            else:
+                c["gap"] = "+%.3f" % (b - best0)
+                pb = (prev.get("best") or 0) if prev else 0
+                c["interval"] = "+%.3f" % (b - pb) if pb > 0 else c["gap"]
+                c["gapS"] = b - best0
+            prev = c
+
+
+def fmt_lap(t):
+    if not t or t <= 0:
+        return ""
+    m = int(t // 60)
+    s = t - m * 60
+    return "%d:%06.3f" % (m, s) if m else "%.3f" % s
+
+
+def fmt_clock(t):
+    if t is None or t < 0 or t > 360000:
+        return ""
+    t = int(t)
+    h, r = divmod(t, 3600)
+    m, s = divmod(r, 60)
+    return "%d:%02d:%02d" % (h, m, s) if h else "%d:%02d" % (m, s)
+
+
+# --------------------------------------------------------------------------
+# iRacing source
+# --------------------------------------------------------------------------
+class IRacingSource:
+    def __init__(self):
+        import irsdk  # noqa: imported here so demo mode works without it
+        self.irsdk = irsdk
+        self.ir = irsdk.IRSDK()
+        self.connected = False
+        self.last_info_update = -1
+        self.drivers = {}
+        self.info = {}
+        self.pit_store = {}
+
+    def check_connection(self):
+        if self.connected and not (self.ir.is_initialized and self.ir.is_connected):
+            self.connected = False
+            self.ir.shutdown()
+            self.last_info_update = -1
+            print("iRacing disconnected")
+        elif not self.connected and self.ir.startup() and self.ir.is_initialized and self.ir.is_connected:
+            self.connected = True
+            print("iRacing connected")
+        return self.connected
+
+    def read_session_info(self):
+        ir = self.ir
+        # session info (driver list, cameras) changes rarely; re-read every 2s
+        now = time.time()
+        if self.info and now - self.last_info_update < 2.0:
+            return
+        self.last_info_update = now
+        di = ir["DriverInfo"] or {}
+        wi = ir["WeekendInfo"] or {}
+        si = ir["SessionInfo"] or {}
+        ci = ir["CameraInfo"] or {}
+        qi = ir["QualifyResultsInfo"] or {}
+        drivers = {}
+        for d in di.get("Drivers", []) or []:
+            idx = d.get("CarIdx")
+            if idx is None:
+                continue
+            if d.get("CarIsPaceCar") or d.get("IsSpectator") or not d.get("UserName"):
+                continue
+            drivers[idx] = {
+                "idx": idx,
+                "num": str(d.get("CarNumber", "")),
+                "name": d.get("UserName", ""),
+                "abbrev": d.get("AbbrevName", ""),
+                "team": d.get("TeamName", ""),
+                "cls": d.get("CarClassShortName", "") or "",
+                "clsColor": class_color(d.get("CarClassColor", 0)),
+                "est": float(d.get("CarClassEstLapTime", 0) or 0),
+                "car": d.get("CarScreenNameShort", "") or d.get("CarScreenName", ""),
+                "carFull": d.get("CarScreenName", "") or d.get("CarScreenNameShort", ""),
+                "custId": str(d.get("UserID", "") or ""),
+                "irating": d.get("IRating", 0),
+                # paint scheme details, used to ask iRacing for a render of the car
+                "paint": {"carPath": d.get("CarPath", "") or "", "carId": d.get("CarID", ""),
+                          "design": d.get("CarDesignStr", "") or "", "number": d.get("CarNumberDesignStr", "") or "",
+                          "sponsor1": d.get("CarSponsor_1", 0) or 0, "sponsor2": d.get("CarSponsor_2", 0) or 0,
+                          "licColor": d.get("LicColor", "") or "", "clubId": d.get("ClubID", 0) or 0,
+                          "userId": str(d.get("UserID", "") or ""), "teamId": str(d.get("TeamID", "") or "")},
+            }
+        self.drivers = drivers
+        sessions = si.get("Sessions", []) or []
+        groups = [{"num": g.get("GroupNum"), "name": g.get("GroupName")} for g in (ci.get("Groups") or [])]
+        qual_order = [r.get("CarIdx") for r in (qi.get("Results") or []) if r.get("CarIdx") is not None]
+        # starting grid: qualifying results (order + fastest time). Falls back to a qualifying session's results.
+        qres = sorted((r for r in (qi.get("Results") or []) if r.get("CarIdx") is not None), key=lambda r: r.get("Position", 999))
+        if not qres:
+            for sess in sessions:
+                if "qualif" in (sess.get("SessionType") or "").lower() and sess.get("ResultsPositions"):
+                    qres = sorted((r for r in sess["ResultsPositions"] if r.get("CarIdx") is not None), key=lambda r: r.get("Position", 999))
+        grid_order = [(r["CarIdx"], float(r.get("FastestTime") or 0)) for r in qres]
+        self.info = {
+            "trackM": track_meters(wi.get("TrackLength")),
+            "gridOrder": grid_order,
+            "track": wi.get("TrackDisplayName", ""),
+            "sessions": sessions,
+            "camGroups": groups,
+            "qualOrder": qual_order,
+        }
+
+    def tick(self):
+        ir = self.ir
+        ir.freeze_var_buffer_latest()
+        try:
+            self.read_session_info()
+            sess_num = ir["SessionNum"] or 0
+            sessions = self.info.get("sessions", [])
+            sess = sessions[sess_num] if 0 <= sess_num < len(sessions) else {}
+            stype = (sess.get("SessionType") or "").lower()
+            is_race = "race" in stype
+            state = ir["SessionState"] or 0  # 4 = racing, 5 = checkered
+            racing = state >= 4
+            total_laps = sess.get("SessionLaps")
+            try:
+                total_laps = int(total_laps)
+            except Exception:
+                total_laps = 0
+
+            pos = ir["CarIdxPosition"] or []
+            cpos = ir["CarIdxClassPosition"] or []
+            lap = ir["CarIdxLap"] or []
+            lapc = ir["CarIdxLapCompleted"] or []
+            pct = ir["CarIdxLapDistPct"] or []
+            pit = ir["CarIdxOnPitRoad"] or []
+            surf = ir["CarIdxTrackSurface"] or []
+            now_s = ir["SessionTime"] or 0.0
+            last = ir["CarIdxLastLapTime"] or []
+            best = ir["CarIdxBestLapTime"] or []
+            try:
+                cflags = ir["CarIdxSessionFlags"] or []   # per-car flags (meatball = repair)
+            except Exception:
+                cflags = []
+
+            cars = []
+            for idx, d in self.drivers.items():
+                if idx >= len(pos):
+                    continue
+                p = pct[idx] if idx < len(pct) else -1
+                in_world = p is not None and p >= 0
+                progress = (lap[idx] + p) if in_world and lap[idx] is not None and lap[idx] >= 0 else None
+                c = dict(d)
+                c.update({
+                    "officialPos": pos[idx] or 0,
+                    "classPosOfficial": cpos[idx] or 0,
+                    "lapsCompleted": max(0, lapc[idx] or 0),
+                    "progress": progress,
+                    "pit": bool(pit[idx]) if idx < len(pit) else False,
+                    "onTrack": in_world,
+                })
+                c["pitState"], c["pitTime"] = pit_timer(self.pit_store, idx, now_s, c["pit"],
+                                                        idx < len(surf) and surf[idx] == 1)
+                c.update({
+                    "last": last[idx] if last[idx] and last[idx] > 0 else 0,
+                    "best": best[idx] if best[idx] and best[idx] > 0 else 0,
+                    "meatball": bool(idx < len(cflags) and (cflags[idx] or 0) & REPAIR_FLAG),
+                })
+                cars.append(c)
+
+            cars = order_cars(cars, is_race, state, self.info.get("qualOrder", []))
+            compute_gaps(cars, is_race, racing)
+            compute_class_gaps(cars, is_race, racing)
+            finalize_positions(cars)
+            add_extras(cars, is_race, [i for i, _ in (self.info.get("gridOrder") or [])] or self.info.get("qualOrder", []),
+                       self.pit_store, self.__dict__.setdefault("speed_store", {}), now_s, self.info.get("trackM", 0))
+
+            leader_lap = cars[0]["progress"] if cars and cars[0]["progress"] is not None else 0
+            cur_lap = int(leader_lap) if leader_lap else 0
+            if total_laps:
+                cur_lap = min(cur_lap, total_laps)
+
+            replay_end = ir["ReplayFrameNumEnd"] or 0
+            live = {
+                "connected": True,
+                "source": "iracing",
+                "track": self.info.get("track", ""),
+                "sessionName": (sess.get("SessionName") or "").upper(),
+                "sessionType": stype,
+                "isRace": is_race,
+                "sessionState": state,
+                "lap": cur_lap,
+                "totalLaps": total_laps,
+                "timeRemain": fmt_clock(ir["SessionTimeRemain"]),
+                # iRacing only sets the green bit around the start; while racing with no other flag it's green
+                "flag": flag_from_bits(ir["SessionFlags"] or 0) or ("green" if state == 4 else ""),
+                "isReplay": bool(ir["IsReplayPlaying"]) and replay_end > 30,
+                "replaySpeed": ir["ReplayPlaySpeed"] or 0,
+                "replaySlow": bool(ir["ReplayPlaySlowMotion"]),
+                "uiHidden": bool((ir["CamCameraState"] or 0) & 0x0008),
+                "camLap": (lap[ir["CamCarIdx"]] if ir["CamCarIdx"] is not None and 0 <= ir["CamCarIdx"] < len(lap) else None),
+                "camCarIdx": ir["CamCarIdx"],
+                "camGroup": ir["CamGroupNumber"],
+                "camGroups": self.info.get("camGroups", []),
+                "grid": build_grid(self.drivers, self.info.get("gridOrder"), cars),
+                "cars": cars,
+                "classes": sorted({c["cls"] for c in cars if c["cls"]}),
+                "t": time.time(),
+            }
+            return live
+        finally:
+            ir.unfreeze_var_buffer_latest()
+
+    # ---- commands from the control panel ----
+    def camera(self, car_idx, group=None):
+        d = self.drivers.get(car_idx)
+        if not d or not self.connected:
+            return False
+        g = group if group is not None else (self.ir["CamGroupNumber"] or 1)
+        self.ir.cam_switch_num(d["num"], int(g), 0)
+        return True
+
+    def camera_group(self, group):
+        if not self.connected:
+            return False
+        cam_car = self.ir["CamCarIdx"]
+        d = self.drivers.get(cam_car)
+        num = d["num"] if d else "0"
+        self.ir.cam_switch_num(num, int(group), 0)
+        return True
+
+    def go_live(self):
+        if not self.connected:
+            return False
+        self.ir.replay_search(self.irsdk.RpySrchMode.to_end)
+        self.ir.replay_set_play_speed(1, False)
+        return True
+
+    # ---- replay controls (live timing window) ----
+    def replay(self, cmd, value=None):
+        if not self.connected:
+            return False
+        ir, R = self.ir, self.irsdk.RpySrchMode
+        speed = ir["ReplayPlaySpeed"] or 0
+        slow = bool(ir["ReplayPlaySlowMotion"])
+        if cmd == "start":
+            ir.replay_search(R.to_start)
+        elif cmd == "live":
+            return self.go_live()
+        elif cmd == "play":
+            ir.replay_set_play_speed(1, False)
+        elif cmd == "pause":
+            ir.replay_set_play_speed(0, False)
+        elif cmd == "rew":       # each press rewinds faster: 1x, 2x, 4x, 8x, 16x backwards
+            ir.replay_set_play_speed(max(-16, speed * 2) if speed < 0 and not slow else -1, False)
+        elif cmd == "ff":        # 2x, 4x, 8x, 16x
+            ir.replay_set_play_speed(min(16, speed * 2) if speed >= 2 and not slow else 2, False)
+        elif cmd == "speed":     # 0.25, 0.5, 1, 2, 4  (slow motion n = 1/(n+1) speed in iRacing)
+            v = float(value or 1)
+            if v < 1:
+                ir.replay_set_play_speed(max(1, int(round(1 / v)) - 1), True)
+            else:
+                ir.replay_set_play_speed(int(v), False)
+        elif cmd == "back":      # jump back N seconds from where we are and play at normal speed
+            secs = max(1.0, float(value or 30))
+            # the replay runs at 60 frames a second; move the play head back relative to where it is now
+            ir.replay_set_play_position(self.irsdk.RpyPosMode.current, -int(secs * 60))
+            ir.replay_set_play_speed(1, False)
+        elif cmd == "prevlap":   # start of the previous / next lap of the car on camera
+            ir.replay_search(R.prev_lap)
+        elif cmd == "nextlap":
+            ir.replay_search(R.next_lap)
+        elif cmd == "simui":     # show / hide iRacing's own on-screen UI
+            state = ir["CamCameraState"] or 0
+            ir.cam_set_state(state ^ 0x0008)
+        else:
+            return False
+        return True
+
+
+def order_cars(cars, is_race, state, qual_order):
+    if is_race and state == 4:
+        # live running order from track progress (updates mid-lap)
+        def key(c):
+            if c["progress"] is not None:
+                return (0, -c["progress"])
+            return (1, c["officialPos"] or 999)
+        return sorted(cars, key=key)
+    if any(c["officialPos"] > 0 for c in cars):
+        return sorted(cars, key=lambda c: (c["officialPos"] <= 0, c["officialPos"]))
+    if is_race and qual_order:
+        rank = {idx: i for i, idx in enumerate(qual_order)}
+        return sorted(cars, key=lambda c: rank.get(c["idx"], 999))
+    return sorted(cars, key=lambda c: c["idx"])
+
+
+def compute_class_gaps(cars, is_race, racing):
+    """Same as compute_gaps but measured within each car class (classGap / classInterval)."""
+    groups = {}
+    for c in cars:
+        groups.setdefault(c["cls"], []).append(c)
+    for members in groups.values():
+        tmp = [dict(c) for c in members]
+        compute_gaps(tmp, is_race, racing)
+        for c, t in zip(members, tmp):
+            c["classGap"] = t["gap"]
+            c["classInterval"] = t["interval"]
+
+
+REPAIR_FLAG = 0x00100000   # irsdk_repair: the meatball (black flag with orange circle)
+
+
+def track_meters(text):
+    """WeekendInfo TrackLength ('4.02 km' / '2.50 mi') in meters."""
+    m = re.match(r"\s*([\d.]+)\s*(km|mi)?", str(text or ""))
+    if not m:
+        return 0.0
+    v = float(m.group(1))
+    return v * (1609.344 if m.group(2) == "mi" else 1000.0)
+
+
+def add_extras(cars, is_race, start_order, pit_store, speed_store, now_s, track_m):
+    """Live timing extras: positions gained since the start, current speed (mph) and the last pit stop time."""
+    start = {idx: i + 1 for i, idx in enumerate(start_order or [])}
+    cls_of = {c["idx"]: c["cls"] for c in cars}
+    start_cls, per = {}, {}
+    for idx in start_order or []:
+        k = cls_of.get(idx)
+        if k is None:
+            continue
+        per[k] = per.get(k, 0) + 1
+        start_cls[idx] = per[k]
+    for c in cars:
+        idx = c["idx"]
+        sp = start.get(idx) if is_race else None
+        c["startPos"] = sp
+        c["gained"] = (sp - c["pos"]) if sp else None
+        c["classGained"] = (start_cls[idx] - c["classPos"]) if is_race and idx in start_cls else None
+        # speed from how far the car moved around the lap since the last reading, smoothed
+        prog, mph = c.get("progress"), None
+        prev = speed_store.get(idx)
+        if prog is not None and track_m > 0:
+            if prev and prev["p"] is not None and 0 < now_s - prev["t"] <= 2.0:
+                d = prog - prev["p"]
+                if -0.01 <= d < 0.25:                               # ignore resets, tows and replay jumps
+                    raw = max(0.0, d) * track_m / (now_s - prev["t"]) * 2.23694
+                    mph = raw if prev["mph"] is None else prev["mph"] + (raw - prev["mph"]) * 0.35
+            speed_store[idx] = {"p": prog, "t": now_s, "mph": mph}
+        else:
+            speed_store.pop(idx, None)
+        c["mph"] = round(mph) if mph is not None and c.get("onTrack", True) else None
+        st = pit_store.get(idx) or {}
+        c["lastPit"] = round(st["lastStop"], 1) if st.get("lastStop") else None
+
+
+def finalize_positions(cars):
+    per_class = {}
+    for i, c in enumerate(cars):
+        c["pos"] = i + 1
+        per_class[c["cls"]] = per_class.get(c["cls"], 0) + 1
+        c["classPos"] = per_class[c["cls"]]
+        c["lastStr"] = fmt_lap(c.get("last"))
+        c["bestStr"] = fmt_lap(c.get("best"))
+
+
+# --------------------------------------------------------------------------
+# Demo source: a fake 24-car oval race so you can test without iRacing
+# --------------------------------------------------------------------------
+DEMO_NAMES = [
+    "Ryan Carter", "Jake Morrison", "Tyler Brooks", "Cody Hensley", "Austin Reed",
+    "Mason Pike", "Dylan Hart", "Chase Whitaker", "Brandon Cole", "Logan Fisher",
+    "Evan Sutton", "Kyle Barrett", "Nate Delgado", "Garrett Lowe", "Hunter Vance",
+    "Jordan Mills", "Cole Ramsey", "Blake Turner", "Trent Hollis", "Wyatt Doyle",
+    "Shane Porter", "Derek Quinn", "Lucas Grant", "Owen Price",
+]
+
+
+class DemoSource:
+    def __init__(self, multiclass=False):
+        rnd = random.Random(7)
+        nums = rnd.sample(range(1, 99), len(DEMO_NAMES))
+        self.base = 29.6
+        self.cars = []
+        for i, name in enumerate(DEMO_NAMES):
+            self.cars.append({
+                "idx": i + 1, "num": str(nums[i]), "name": name, "abbrev": name,
+                "team": "VSPEED Demo", "cls": "CUP", "clsColor": "#FF0D40",
+                "est": self.base, "car": "Next Gen Camaro", "carFull": "NASCAR Chevrolet Camaro ZL1", "custId": str(100000 + i),
+                "irating": 2000 + rnd.randint(0, 3000),
+                "skill": 1.0 + i * 0.0018 + rnd.uniform(-0.002, 0.002),
+                "progress": -0.002 * i - (i // 2) * 0.004,  # two-wide grid
+                "lapStart": None, "last": 0.0, "best": 0.0, "pitUntil": 0,
+            })
+        self.multiclass = multiclass
+        if multiclass:   # 8 GTP prototypes and 16 GT3 cars
+            for i, c in enumerate(self.cars):
+                gtp = i % 3 == 0
+                c.update(cls="GTP" if gtp else "GT3", clsColor="#FF5FA2" if gtp else "#FFDA59",
+                         est=self.base * (0.86 if gtp else 1.0), car="BMW M Hybrid V8" if gtp else "Porsche 911 GT3 R",
+                         carFull="BMW M Hybrid V8" if gtp else "Porsche 911 GT3 R (992)")
+                c["skill"] = c["skill"] * (0.86 if gtp else 1.0)
+        self.total = 60
+        self.t0 = time.time()
+        self.last_t = self.t0
+        self.cam = 1
+        self.camGroup = 9
+        self.caution_until = 0
+        self.next_caution = self.t0 + 75
+        self.state = 3
+        self.finished = set()
+
+    def tick(self):
+        now = time.time()
+        dt = now - self.last_t
+        self.last_t = now
+        elapsed = now - self.t0
+        if self.state == 3 and elapsed > 6:
+            self.state = 4
+        caution = now < self.caution_until
+        if self.state == 4 and now > self.next_caution and not caution:
+            self.caution_until = now + 35
+            self.next_caution = now + 150
+            caution = True
+        leader_prog = max(c["progress"] for c in self.cars)
+
+        for c in self.cars:
+            if self.state == 3 or caution:
+                speed = 1.0 / (self.base * 1.6)
+                if caution:  # bunch the field up behind the leader
+                    ahead = [o["progress"] for o in self.cars if o["progress"] > c["progress"]]
+                    if ahead and min(ahead) - c["progress"] > 0.012:
+                        speed *= 1.25
+            else:
+                lap_time = self.base * c["skill"] * random.uniform(0.997, 1.006)
+                speed = 1.0 / lap_time
+            if c["pitUntil"] > now:
+                speed *= 0.0 if c.get("stallFrom", 0) <= now < c.get("stallTo", 0) else 0.35
+            if c["idx"] in self.finished:
+                speed *= 0.4
+            before = c["progress"]
+            c["progress"] += speed * dt
+            if math.floor(c["progress"]) > math.floor(before) and before >= 0:
+                if c["lapStart"] is not None and not caution:
+                    lt = now - c["lapStart"]
+                    c["last"] = lt
+                    if not c["best"] or lt < c["best"]:
+                        c["best"] = lt
+                c["lapStart"] = now
+                if random.random() < 0.05 and not caution:
+                    c["pitUntil"] = now + 11
+                    c["stallFrom"], c["stallTo"] = now + 2, now + 2 + random.uniform(5, 7.5)
+                if self.state >= 4 and math.floor(c["progress"]) >= self.total:
+                    self.finished.add(c["idx"])
+            elif before < 0 <= c["progress"]:
+                c["lapStart"] = now
+
+        if self.state == 4 and now > self.__dict__.get("next_meat", self.t0 + 40):   # demo: a meatball flag every ~50s
+            self.next_meat = now + 50
+            random.choice(self.cars[3:15])["meatUntil"] = now + 18
+        leader_prog = max(c["progress"] for c in self.cars)
+        if leader_prog >= self.total and self.state == 4:
+            self.state = 5
+        lap_now = max(0, int(math.floor(leader_prog)) + 1)
+
+        flag = ""
+        if self.state == 3:
+            flag = "caution"  # pace laps
+        elif self.state >= 5:
+            flag = "checkered"
+        elif caution:
+            flag = "caution"
+        elif lap_now == self.total:
+            flag = "white"
+        elif self.state == 4:
+            flag = "green"
+
+        cars = []
+        for c in self.cars:
+            p = c["progress"]
+            cars.append({
+                "idx": c["idx"], "num": c["num"], "name": c["name"], "abbrev": c["abbrev"],
+                "team": c["team"], "cls": c["cls"], "clsColor": c["clsColor"], "est": c["est"],
+                "car": c["car"], "carFull": c["carFull"], "custId": c["custId"], "irating": c["irating"],
+                "officialPos": 0, "classPosOfficial": 0, "lapsCompleted": max(0, int(p)),
+                "progress": p + 1, "pit": c["pitUntil"] > now, "onTrack": True,
+                "pitState": None, "pitTime": None,
+                "last": c["last"], "best": c["best"],
+                "meatball": c.get("meatUntil", 0) > now,
+            })
+        store = self.__dict__.setdefault("pit_store", {})
+        src = {c["idx"]: c for c in self.cars}
+        for c in cars:
+            sc = src[c["idx"]]
+            stall = sc.get("stallFrom", 0) <= now < sc.get("stallTo", 0)
+            c["pitState"], c["pitTime"] = pit_timer(store, c["idx"], now, c["pit"], stall)
+        cars.sort(key=lambda c: -c["progress"])
+        compute_gaps(cars, True, self.state >= 4)
+        compute_class_gaps(cars, True, self.state >= 4)
+        finalize_positions(cars)
+        add_extras(cars, True, [c["idx"] for c in self.cars], store,
+                   self.__dict__.setdefault("speed_store", {}), now, 2414.0)   # demo track: 1.5 mile oval
+        if self.cam not in {c["idx"] for c in cars}:
+            self.cam = cars[0]["idx"]
+        return {
+            "connected": True, "source": "demo", "track": "Demo Speedway",
+            "sessionName": "RACE", "sessionType": "race", "isRace": True,
+            "sessionState": self.state, "lap": min(lap_now, self.total), "totalLaps": self.total,
+            "timeRemain": "", "flag": flag, "isReplay": self.__dict__.get("rp", {}).get("replay", False),
+            "replaySpeed": self.__dict__.get("rp", {}).get("speed", 1), "replaySlow": self.__dict__.get("rp", {}).get("slow", False),
+            "uiHidden": self.__dict__.get("rp", {}).get("ui", False),
+            "camLap": max(1, int(next((c["progress"] for c in cars if c["idx"] == self.cam), 1)) + self.__dict__.get("rp", {}).get("lapOffset", 0)),
+            "camCarIdx": self.cam, "camGroup": self.camGroup,
+            "camGroups": [{"num": 9, "name": "TV1"}, {"num": 10, "name": "TV2"},
+                          {"num": 3, "name": "Cockpit"}, {"num": 6, "name": "Chase"},
+                          {"num": 12, "name": "Blimp"}],
+            "grid": build_grid({c["idx"]: c for c in self.cars}, [(c["idx"], round(self.base * c["skill"] * 1.012, 3)) for c in self.cars], cars),
+            "cars": cars, "classes": sorted({c["cls"] for c in cars}), "t": now,
+        }
+
+    def camera(self, car_idx, group=None):
+        self.cam = car_idx
+        if group is not None:
+            self.camGroup = group
+        return True
+
+    def camera_group(self, group):
+        self.camGroup = group
+        return True
+
+    def go_live(self):
+        self.rp = {"speed": 1, "slow": False, "replay": False, "ui": self.rp["ui"] if hasattr(self, "rp") else False, "lapOffset": 0}
+        return True
+
+    def replay(self, cmd, value=None):
+        rp = self.__dict__.setdefault("rp", {"speed": 1, "slow": False, "replay": False, "ui": False})
+        if cmd == "live":
+            return self.go_live()
+        if cmd == "simui":
+            rp["ui"] = not rp["ui"]
+            return True
+        rp["replay"] = True
+        if cmd == "start" or cmd == "back" or cmd == "play":
+            rp.update(speed=1, slow=False)
+        elif cmd == "pause":
+            rp.update(speed=0, slow=False)
+        elif cmd == "rew":
+            rp.update(speed=max(-16, rp["speed"] * 2) if rp["speed"] < 0 else -1, slow=False)
+        elif cmd == "ff":
+            rp.update(speed=min(16, rp["speed"] * 2) if rp["speed"] >= 2 else 2, slow=False)
+        elif cmd == "speed":
+            v = float(value or 1)
+            rp.update(speed=max(1, int(round(1 / v)) - 1), slow=True) if v < 1 else rp.update(speed=int(v), slow=False)
+        elif cmd in ("prevlap", "nextlap"):
+            rp["lapOffset"] = rp.get("lapOffset", 0) + (-1 if cmd == "prevlap" else 1)
+        return True
+
+    def check_connection(self):
+        return True
+
+
+SOURCE = None
+SOURCE_LOCK = threading.Lock()
+
+
+def telemetry_loop(demo, multiclass=False):
+    global SOURCE
+    if demo:
+        SOURCE = DemoSource(multiclass)
+    else:
+        try:
+            SOURCE = IRacingSource()
+        except ImportError:
+            print("\n!! pyirsdk is not installed. Run:  pip install pyirsdk")
+            print("!! Starting in demo mode instead.\n")
+            SOURCE = DemoSource()
+    waiting_printed = False
+    while True:
+        try:
+            with SOURCE_LOCK:
+                ok = SOURCE.check_connection()
+                live = SOURCE.tick() if ok else None
+            if live is None:
+                if not waiting_printed:
+                    print("Waiting for iRacing...")
+                    waiting_printed = True
+                STATE.set_live({"connected": False, "source": "iracing", "cars": []})
+                time.sleep(1.0)
+                continue
+            waiting_printed = False
+            STATE.set_live(live)
+        except Exception as e:  # keep the broadcast alive no matter what
+            print("Telemetry error:", repr(e))
+            time.sleep(0.5)
+        time.sleep(0.2)  # 5 updates per second
+
+
+# --------------------------------------------------------------------------
+# HTTP server
+# --------------------------------------------------------------------------
+MIME = {
+    ".html": "text/html; charset=utf-8", ".js": "application/javascript",
+    ".css": "text/css", ".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg",
+    ".gif": "image/gif", ".svg": "image/svg+xml", ".webp": "image/webp",
+    ".webm": "video/webm", ".mp4": "video/mp4", ".json": "application/json",
+    ".woff2": "font/woff2", ".ttf": "font/ttf", ".otf": "font/otf",
+}
+IMAGE_EXT = {".png", ".jpg", ".jpeg", ".gif", ".svg", ".webp"}
+
+
+class Handler(BaseHTTPRequestHandler):
+    protocol_version = "HTTP/1.1"
+
+    def log_message(self, fmt, *args):
+        pass  # quiet console
+
+    def send_json(self, obj, code=200):
+        body = json.dumps(obj).encode()
+        self.send_response(code)
+        self.send_header("Content-Type", "application/json")
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_bytes(self, body, ctype, code=200, headers=None):
+        self.send_response(code)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Access-Control-Allow-Origin", "*")
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
+        self.end_headers()
+        self.wfile.write(body)
+
+    def send_graphic(self, rel, base=None):
+        base = graphics_dir() if base is None else base
+        real = os.path.realpath(os.path.join(base, rel)) if base else ""
+        if not base or not real.startswith(os.path.realpath(base) + os.sep) or not os.path.isfile(real) \
+                or os.path.splitext(real)[1].lower() not in GFX_EXT:
+            return self.send_error(404)
+        size = os.path.getsize(real)
+        self.send_response(200)
+        self.send_header("Content-Type", MIME.get(os.path.splitext(real)[1].lower(), "application/octet-stream"))
+        self.send_header("Content-Length", str(size))
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        with open(real, "rb") as f:
+            while True:
+                chunk = f.read(1 << 16)
+                if not chunk:
+                    break
+                self.wfile.write(chunk)
+
+    def send_file(self, path):
+        real = os.path.realpath(path)
+        if not real.startswith(os.path.realpath(STATIC)) or not os.path.isfile(real):
+            self.send_error(404)
+            return
+        with open(real, "rb") as f:
+            body = f.read()
+        self.send_response(200)
+        self.send_header("Content-Type", MIME.get(os.path.splitext(real)[1].lower(), "application/octet-stream"))
+        self.send_header("Content-Length", str(len(body)))
+        self.send_header("Cache-Control", "no-cache")
+        self.end_headers()
+        self.wfile.write(body)
+
+    def do_GET(self):
+        path = urlparse(self.path).path
+        if path in ("/", "/control", "/timing"):
+            return self.send_file(os.path.join(STATIC, "control.html"))
+        if path == "/overlay":
+            return self.send_file(os.path.join(STATIC, "overlay.html"))
+        # Standings graphic (same page and URLs as the old Standings Control program)
+        if path in ("/standings", "/graphic", "/analysis", "/team", "/standings-graphic.html"):
+            return self.send_file(os.path.join(STATIC, "standings-graphic.html"))
+        if path == "/state":
+            return self.send_bytes(standings.state_json().encode(), "application/json")
+        if path in ("/standings.csv", "/standings-example.csv"):
+            if path == "/standings.csv":
+                snap = standings.data_snapshot()
+                if not snap["rows"]:
+                    return self.send_bytes(b"No standings loaded yet.", "text/plain", 404)
+                body = standings.rows_to_csv(snap["header"], snap["rows"])
+            else:
+                body = standings.rows_to_csv(*standings.example_csv())
+            dl = "download" in parse_qs(urlparse(self.path).query)
+            name = os.path.basename(path)
+            return self.send_bytes(body.encode("utf-8-sig" if dl else "utf-8"), "text/csv; charset=utf-8",
+                                   headers={"Content-Disposition": 'attachment; filename="%s"' % name} if dl else None)
+        if path == "/logo":
+            try:
+                with open(standings.LOGO_PATH, "rb") as f:
+                    body = f.read()
+                ctype = standings.LOGO_TYPES.get(os.path.splitext(standings.LOGO_PATH)[1].lower(), "application/octet-stream")
+                return self.send_bytes(body, ctype)
+            except (OSError, TypeError, ValueError):
+                return self.send_bytes(b"No logo set.", "text/plain", 404)
+        if path == "/events":
+            return self.stream_events()
+        if path == "/api/state":
+            with STATE.lock:
+                return self.send_json({"settings": STATE.settings, "live": STATE.live})
+        if path == "/api/assets":
+            return self.send_json(list_assets())
+        if path == "/api/graphics":
+            return self.send_json(list_graphics())
+        if path == "/api/pickfolder":
+            q = parse_qs(urlparse(self.path).query)
+            if self.client_address[0] not in ("127.0.0.1", "::1", "::ffff:127.0.0.1"):
+                return self.send_json({"unsupported": True})   # panel opened from a phone/another PC: use the in-page browser
+            return self.send_json(pick_folder((q.get("start") or [""])[0], (q.get("title") or ["Pick a folder"])[0]))
+        if path == "/api/browse":
+            q = parse_qs(urlparse(self.path).query)
+            return self.send_json(browse_folder((q.get("path") or [""])[0]))
+        if path.startswith("/carrender/"):
+            try:
+                idx = int(path[len("/carrender/"):].split(".")[0])
+            except ValueError:
+                return self.send_error(404)
+            d = getattr(SOURCE, "drivers", {}).get(idx) if SOURCE else None
+            body, ctype = fetch_render(d) if d else (None, "")
+            if not body:
+                return self.send_error(404)
+            return self.send_bytes(body, ctype, headers={"Cache-Control": "max-age=3600"})
+        if path == "/api/rendertest":
+            drivers = getattr(SOURCE, "drivers", {}) if SOURCE else {}
+            with_paint = [x for x in drivers.values() if x.get("paint")]
+            # test on the driver with the most paint files (car, decal, number, spec) so every kind gets checked
+            def n_files(x):
+                v = render_url(x, "{carCustPaint}|{carSpecPaint}|{numCustPaint}|{carDecalPaint}").split("|")
+                return (bool(v[0]), sum(1 for f in v if f))
+            d = max(with_paint, key=n_files) if with_paint else None
+            if not d:
+                return self.send_json({"ok": False, "error": "No drivers with paint info yet. Join or watch an iRacing session first.", "url": ""})
+            RENDER_CACHE.clear()
+            results, winner = probe_renders(d)
+            cn = next((x for x in with_paint if is_custom_number(x)), None)
+            if winner and cn:
+                r2, frag = probe_custom_number(cn, winner)
+                results += [dict(x, name=x["name"] + " (tested on %s #%s)" % (cn.get("name", ""), cn.get("num", ""))) for x in r2[-1:]] if frag else r2
+                STATE.update_settings({"renderCustNum": frag})
+            elif winner:
+                results.append({"name": "custom-number paints", "ok": False, "code": 0, "msg": "no driver with car_num_<id>.tga in this session to test on", "url": ""})
+            if winner:
+                STATE.update_settings({"renderUrl": winner})
+                RENDER_CACHE.clear()
+            return self.send_json({"ok": bool(winner), "results": results, "winner": winner or "",
+                                   "cnIdx": cn["idx"] if cn else None, "cnName": cn.get("name", "") if cn else "",
+                                   "cnFrag": STATE.settings.get("renderCustNum", ""),
+                                   "idx": d["idx"], "name": d.get("name", ""), "paintDir": paint_dir(),
+                                   "paint": d.get("paint"), "paintFound": "{carCustPaint" in (winner or ""),
+                                   "paintFolder": car_paint_folder((d.get("paint") or {}).get("carPath", ""))})
+        if path == "/api/paintcheck":
+            drivers = getattr(SOURCE, "drivers", {}) if SOURCE else {}
+            return self.send_json({"paintDir": paint_dir(), "drivers": paint_check(drivers)})
+        if path.startswith("/sponsor/"):
+            return self.send_graphic(unquote(path[len("/sponsor/"):]), base=SPONSOR_DIR)
+        if path.startswith("/gfx/"):
+            return self.send_graphic(unquote(path[len("/gfx/"):]))
+        if path.startswith("/static/"):
+            return self.send_file(os.path.join(STATIC, path[len("/static/"):]))
+        self.send_error(404)
+
+    def do_POST(self):
+        path = urlparse(self.path).path
+        length = int(self.headers.get("Content-Length") or 0)
+        if path == "/api/sponsor/upload":
+            return self.send_json(sponsor_upload(parse_qs(urlparse(self.path).query), self.headers, self.rfile, length))
+        try:
+            data = json.loads(self.rfile.read(length) or b"{}")
+        except Exception:
+            return self.send_json({"ok": False, "error": "bad json"}, 400)
+        if path == "/api/settings":
+            STATE.update_settings(data)
+            return self.send_json({"ok": True})
+        if path == "/api/gfx":
+            return self.send_json(gfx_command(data))
+        if path == "/api/reset":
+            fresh = copy.deepcopy(DEFAULT_SETTINGS)
+            with STATE.lock:   # keep the graphics folder and the layout
+                fresh["graphicsDir"] = STATE.settings.get("graphicsDir", "")
+                fresh["trackGraphic"] = STATE.settings.get("trackGraphic", "")
+                for k in ("renderUrl", "renderCustNum", "paintDir"):   # keep the working iRacing render setup
+                    fresh[k] = STATE.settings.get(k, fresh.get(k))
+                fresh["layout"] = copy.deepcopy(STATE.settings.get("layout", {}))
+                fresh["sponsor"]["files"] = copy.deepcopy(STATE.settings.get("sponsor", {}).get("files", {}))   # keep loaded sponsor images
+            STATE.update_settings(fresh)
+            return self.send_json({"ok": True})
+        if path == "/api/camera":
+            with SOURCE_LOCK:
+                if "carIdx" in data:
+                    ok = SOURCE.camera(int(data["carIdx"]), data.get("group"))
+                else:
+                    ok = SOURCE.camera_group(int(data["group"]))
+            return self.send_json({"ok": bool(ok)})
+        if path == "/api/standings":
+            cmd = str(data.pop("cmd", ""))
+            try:
+                ok, msg = standings.command(cmd, data)
+            except Exception as e:
+                ok, msg = False, "Error: %s" % e
+            STATE.notify()
+            return self.send_json({"ok": ok, "msg": msg})
+        if path == "/api/golive":
+            with SOURCE_LOCK:
+                ok = SOURCE.go_live()
+            return self.send_json({"ok": bool(ok)})
+        if path == "/api/replay":
+            cmd = str(data.get("cmd", ""))
+            if cmd == "ontrack":
+                return self.send_json({"ok": on_track_switch(int(data.get("dir") or 1))})
+            try:
+                with SOURCE_LOCK:
+                    ok = SOURCE.replay(cmd, data.get("value"))
+            except Exception as e:
+                print("Replay command failed:", repr(e))
+                ok = False
+            return self.send_json({"ok": bool(ok)})
+        self.send_error(404)
+
+    def stream_events(self):
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+        last = -1
+        try:
+            while True:
+                with STATE.lock:
+                    if STATE.version == last:
+                        STATE.lock.wait(timeout=5)
+                    if STATE.version != last:
+                        last = STATE.version
+                        payload = STATE.snapshot()
+                    else:
+                        payload = None
+                if payload is None:
+                    self.wfile.write(b": ping\n\n")
+                else:
+                    self.wfile.write(("data: " + payload + "\n\n").encode())
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
+            return
+
+
+# --------------------------------------------------------------------------
+# Ready-made graphics from a Google Drive (Drive for desktop) folder
+# --------------------------------------------------------------------------
+def sponsor_upload(query, headers, rfile, length):
+    """Save an image sent from the control panel as the picture for one sponsor slot."""
+    slot = (query.get("slot") or [""])[0]
+    name = unquote(headers.get("X-Filename") or "")
+    ext = os.path.splitext(name)[1].lower()
+    if slot not in SPONSOR_SLOTS:
+        rfile.read(length)
+        return {"ok": False, "error": "unknown sponsor slot"}
+    if ext not in SPONSOR_EXT:
+        rfile.read(length)
+        return {"ok": False, "error": "use a PNG, JPG, WEBP, GIF or SVG image"}
+    if length <= 0 or length > 40 * 1024 * 1024:
+        rfile.read(length)
+        return {"ok": False, "error": "image is empty or bigger than 40 MB"}
+    body = rfile.read(length)
+    os.makedirs(SPONSOR_DIR, exist_ok=True)
+    for old in os.listdir(SPONSOR_DIR):            # drop the slot's previous picture
+        if os.path.splitext(old)[0] == slot:
+            try:
+                os.remove(os.path.join(SPONSOR_DIR, old))
+            except OSError:
+                pass
+    fname = slot + ext
+    with open(os.path.join(SPONSOR_DIR, fname), "wb") as f:
+        f.write(body)
+    ref = "%s?v=%d" % (fname, int(time.time() * 1000))   # new address each time, so vMix never shows a cached old picture
+    STATE.update_settings({"sponsor": {"files": {slot: ref}}})
+    return {"ok": True, "file": ref, "name": name}
+
+
+GFX_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".webm", ".mp4"}
+VIDEO_EXT = {".webm", ".mp4"}
+GFX_TIMER = {"t": None}
+
+
+def graphics_dir():
+    with STATE.lock:
+        return (STATE.settings.get("graphicsDir") or "").strip().strip('"')
+
+
+def drive_guesses():
+    """Folders Drive for desktop usually creates, to suggest in the panel."""
+    out = []
+    for letter in "GHIJKLMNOPQRSTUVWXYZ":
+        for sub in ("My Drive", "Shared drives"):
+            pth = "%s:\\%s" % (letter, sub)
+            if os.path.isdir(pth):
+                out.append(pth)
+    return out
+
+
+def list_graphics():
+    base = graphics_dir()
+    res = {"dir": base, "ok": False, "error": "", "files": [], "guesses": drive_guesses() if os.name == "nt" else []}
+    if not base:
+        res["error"] = "No folder set yet."
+        return res
+    if not os.path.isdir(base):
+        res["error"] = "Can't find that folder on this PC. Check the path (and, for a Google Drive folder, that Drive for desktop is running)."
+        return res
+    files = []
+    try:
+        for root, dirs, names in os.walk(base):
+            dirs[:] = sorted(d for d in dirs if not d.startswith("."))
+            depth = os.path.relpath(root, base).count(os.sep)
+            if depth > 2:
+                dirs[:] = []
+            for n in sorted(names, key=str.lower):
+                ext = os.path.splitext(n)[1].lower()
+                if ext not in GFX_EXT or n.startswith("."):
+                    continue
+                full = os.path.join(root, n)
+                rel = os.path.relpath(full, base).replace(os.sep, "/")
+                try:
+                    mt = os.path.getmtime(full)
+                except OSError:
+                    mt = 0
+                folder = os.path.dirname(rel)
+                files.append({"path": rel, "name": os.path.splitext(n)[0], "folder": folder,
+                              "video": ext in VIDEO_EXT, "mtime": int(mt)})
+                if len(files) >= 500:
+                    break
+    except OSError as e:
+        res["error"] = str(e)
+        return res
+    res["ok"] = True
+    res["files"] = files
+    return res
+
+
+SKIP_DIRS = {"$recycle.bin", "system volume information", "windows", "program files", "program files (x86)",
+             "programdata", "appdata", "$windows.~bt", "recovery", "perflogs"}
+
+
+# --------------------------------------------------------------------------
+# Starting grid + iRacing car renders (with each driver's custom paint)
+# --------------------------------------------------------------------------
+def build_grid(drivers, grid_order, cars):
+    """Starting grid for the Grid widget: qualifying order and time, plus the iRacing render of each car."""
+    order = [(i, t) for i, t in (grid_order or []) if i in drivers]
+    if not order:   # no qualifying results: use the current order
+        order = [(c["idx"], c.get("best") or 0) for c in cars]
+    out = []
+    for pos, (i, t) in enumerate(order, 1):
+        d = drivers[i]
+        # the car as iRacing renders it, with the driver's custom paint from the paint folder
+        img = "/carrender/%d.png?v=%s" % (i, render_key(d)[:10]) if d.get("paint") else ""
+        out.append({"pos": pos, "idx": i, "num": d.get("num", ""), "name": d.get("name", ""),
+                    "car": d.get("carFull") or d.get("car", ""), "time": fmt_lap(t) if t and t > 0 else "",
+                    "img": img})
+    return out
+
+
+# ---- iRacing car renders ----
+RENDER_CACHE = {}          # key -> (time, bytes or None, content type)
+RENDER_LAST = {"url": "", "status": "", "error": ""}
+NO_PROXY = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
+
+def documents_dirs():
+    """Possible Documents folders: the real one from Windows (often moved into OneDrive), then the usual spots."""
+    out = []
+    if os.name == "nt":
+        try:
+            import ctypes
+            from ctypes import wintypes
+
+            class GUID(ctypes.Structure):
+                _fields_ = [("a", wintypes.DWORD), ("b", wintypes.WORD), ("c", wintypes.WORD), ("d", ctypes.c_ubyte * 8)]
+            docs = GUID(0xFDD39AD0, 0x238F, 0x46AF, (ctypes.c_ubyte * 8)(0xAD, 0xB4, 0x6C, 0x85, 0x48, 0x03, 0x69, 0xC7))
+            ptr = ctypes.c_wchar_p()
+            if ctypes.windll.shell32.SHGetKnownFolderPath(ctypes.byref(docs), 0, None, ctypes.byref(ptr)) == 0:
+                out.append(ptr.value)
+                ctypes.windll.ole32.CoTaskMemFree(ptr)
+        except Exception:
+            pass
+    home = os.path.expanduser("~")
+    for od in (os.environ.get("OneDrive"), os.environ.get("OneDriveConsumer"), os.path.join(home, "OneDrive")):
+        if od:
+            out.append(os.path.join(od, "Documents"))
+    out.append(os.path.join(home, "Documents"))
+    seen, uniq = set(), []
+    for d in out:
+        if d and d.lower() not in seen:
+            seen.add(d.lower())
+            uniq.append(d)
+    return uniq
+
+
+def paint_dir():
+    with STATE.lock:
+        p = (STATE.settings.get("paintDir") or "").strip().strip('"')
+    if p:
+        return p
+    cands = [os.path.join(d, "iRacing", "paint") for d in documents_dirs()]
+    return next((c for c in cands if os.path.isdir(c)), cands[0])
+
+
+def car_paint_folder(car_path):
+    """The car's folder inside the paint folder (usually the car path, e.g. 'stockcars2 camaro2022')."""
+    base = paint_dir()
+    for name in (car_path, car_path.replace("\\", " ").replace("/", " "), car_path.replace(" ", "_"), car_path.split(" ")[-1]):
+        f = os.path.join(base, name)
+        if name and os.path.isdir(f):
+            return f
+    return os.path.join(base, car_path)
+
+
+def hex_color(v):
+    """iRacing gives some colors as a number (87003) or 0x0153db; the renderer wants 6-digit hex (0153db)."""
+    if v in (None, ""):
+        return ""
+    if isinstance(v, (int, float)):
+        return "%06x" % (int(v) & 0xFFFFFF)
+    v = str(v).strip().lower().replace("#", "")
+    if v.startswith("0x"):
+        return "%06x" % (int(v, 16) & 0xFFFFFF)
+    if v.isdigit() and len(v) != 6:
+        return "%06x" % (int(v) & 0xFFFFFF)
+    return v
+
+
+def fill_template(tpl, vals):
+    out = tpl
+    for k, v in sorted(vals.items(), key=lambda kv: -len(kv[0])):   # longest names first ({carCustPaintFwd} before {carCustPaint})
+        out = out.replace("{%s}" % k, quote(str(v), safe="" if k.endswith("Enc") else ",:\\/"))
+    # leave out parameters that ended up empty (the renderer may reject them)
+    base, _, query = out.partition("?")
+    parts = [p for p in query.split("&") if p and not p.endswith("=")]
+    return base + ("?" + "&".join(parts) if parts else "")
+
+
+def render_url(d, template=None):
+    """Fill the render address template from a driver's paint scheme (DriverInfo) and paint files."""
+    pt = d.get("paint") or {}
+    des = [x.strip() for x in (pt.get("design") or "").split(",")]
+    num = [x.strip() for x in (pt.get("number") or "").split(",")]
+    folder = car_paint_folder(pt.get("carPath", ""))
+
+    def first_file(*names):
+        for n in names:
+            f = os.path.join(folder, n)
+            if n and os.path.isfile(f):
+                return f
+        return ""
+    uid, tid = pt.get("userId", ""), pt.get("teamId", "")
+    vals = {
+        "carPath": pt.get("carPath", ""), "carId": pt.get("carId", ""),
+        "carPat": des[0] if des else "", "carCol": ",".join(des[1:4]), "rimCol": des[4] if len(des) > 4 else "",
+        "numPat": num[0] if num else "", "numSlnt": num[1] if len(num) > 1 else "", "numCol": ",".join(num[2:5]),
+        "sponsors": "%s,%s" % (pt.get("sponsor1", 0), pt.get("sponsor2", 0)),
+        "licCol": hex_color(pt.get("licColor", "")), "club": pt.get("clubId", 0),
+        "carPathBs": pt.get("carPath", "").replace(" ", "\\"), "carPathSlash": pt.get("carPath", "").replace(" ", "/"),
+        "carCol1": des[1] if len(des) > 1 else "", "carCol2": des[2] if len(des) > 2 else "", "carCol3": des[3] if len(des) > 3 else "",
+        "numFont": num[1] if len(num) > 1 else "", "numCol1": num[2] if len(num) > 2 else "", "numCol2": num[3] if len(num) > 3 else "",
+        "numCol3": num[4] if len(num) > 4 else "",
+        # a custom-number paint is the whole car with its number painted in, saved as car_num_<id>.tga
+        "carCustPaint": first_file("car_team_%s.tga" % tid if tid and tid != "0" else "", "car_%s.tga" % uid,
+                                   "car_num_team_%s.tga" % tid if tid and tid != "0" else "", "car_num_%s.tga" % uid),
+        "carSpecPaint": first_file("car_spec_team_%s.mip" % tid if tid and tid != "0" else "", "car_spec_%s.mip" % uid),
+        "numCustPaint": "",
+        "carDecalPaint": first_file("car_decal_%s.tga" % uid),
+        "userId": uid, "teamId": tid, "num": d.get("num", ""),
+    }
+    custom_number = os.path.basename(vals["carCustPaint"]).lower().startswith("car_num_")
+    for k in ("carCustPaint", "carSpecPaint", "numCustPaint", "carDecalPaint"):
+        vals[k + "Fwd"] = vals[k].replace("\\", "/")
+        vals[k + "Enc"] = vals[k]
+    if template is None:
+        with STATE.lock:
+            template = STATE.settings.get("renderUrl") or DEFAULT_SETTINGS["renderUrl"]
+            extra = STATE.settings.get("renderCustNum") or ""
+        if custom_number and extra:
+            # the number is already painted on the car: tell iRacing (setting found by the Test button)
+            template = drop_param(template, extra.split("=")[0]) + "&" + extra
+    return fill_template(template, vals)
+
+
+def is_custom_number(d):
+    v = render_url(d, "{carCustPaint}")
+    return os.path.basename(unquote(v)).lower().startswith("car_num_")
+
+
+def drop_param(tpl, name):
+    base, _, query = tpl.partition("?")
+    return base + "?" + "&".join(p for p in query.split("&") if p and p.split("=")[0] != name)
+
+
+# Ways of asking iRacing for a render, tried in order by the Test button. The first that returns
+# an image is saved as the render address.
+RENDER_VARIANTS = [
+    ("full, car path as given", "http://127.0.0.1:32034/pk_car.png?size=2&view=1&licCol={licCol}&club={club}&sponsors={sponsors}&numPat={numPat}&numCol={numCol}&numSlnt={numSlnt}&carPath={carPath}&carPat={carPat}&carCol={carCol}&carRimType=2&carRimCol={rimCol}&carCustPaint={carCustPaint}&carSpecPaint={carSpecPaint}&numCustPaint={numCustPaint}"),
+    ("full, car path with backslash", "http://127.0.0.1:32034/pk_car.png?size=2&view=1&licCol={licCol}&club={club}&sponsors={sponsors}&numPat={numPat}&numCol={numCol}&numSlnt={numSlnt}&carPath={carPathBs}&carPat={carPat}&carCol={carCol}&carRimType=2&carRimCol={rimCol}&carCustPaint={carCustPaint}&carSpecPaint={carSpecPaint}&numCustPaint={numCustPaint}"),
+    ("full, car path with slash", "http://127.0.0.1:32034/pk_car.png?size=2&view=1&licCol={licCol}&club={club}&sponsors={sponsors}&numPat={numPat}&numCol={numCol}&numSlnt={numSlnt}&carPath={carPathSlash}&carPat={carPat}&carCol={carCol}&carRimType=2&carRimCol={rimCol}&carCustPaint={carCustPaint}&carSpecPaint={carSpecPaint}&numCustPaint={numCustPaint}"),
+    ("paint only, backslash path", "http://127.0.0.1:32034/pk_car.png?size=2&view=1&carPath={carPathBs}&carPat={carPat}&carCol={carCol}&numPat={numPat}&numCol={numCol}&numSlnt={numSlnt}&sponsors={sponsors}&carCustPaint={carCustPaint}"),
+    ("paint only, path as given", "http://127.0.0.1:32034/pk_car.png?size=2&view=1&carPath={carPath}&carPat={carPat}&carCol={carCol}&numPat={numPat}&numCol={numCol}&numSlnt={numSlnt}&sponsors={sponsors}&carCustPaint={carCustPaint}"),
+    ("minimal, backslash path", "http://127.0.0.1:32034/pk_car.png?size=2&view=1&carPath={carPathBs}&carPat={carPat}&carCol={carCol}"),
+    ("minimal, path as given", "http://127.0.0.1:32034/pk_car.png?size=2&view=1&carPath={carPath}&carPat={carPat}&carCol={carCol}"),
+]
+
+
+def try_render(url):
+    """Ask iRacing for one render. Returns (ok, http status, message)."""
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "VSPEED-Overlay"})
+        with NO_PROXY.open(req, timeout=8) as r:
+            body, ctype = r.read(), r.headers.get("Content-Type", "")
+        if body and ctype.startswith("image"):
+            return True, 200, "image (%d KB)" % (len(body) // 1024), body
+        return False, 200, "not an image: " + body[:200].decode("utf-8", "replace"), None
+    except urllib.error.HTTPError as e:
+        try:
+            msg = e.read()[:300].decode("utf-8", "replace").strip()
+        except Exception:
+            msg = ""
+        return False, e.code, (e.reason or "") + (" - " + msg if msg else ""), None
+    except Exception as e:
+        return False, 0, str(e), None
+
+
+PAINT_PARAMS = ("carCustPaint", "carSpecPaint", "numCustPaint", "carDecalPaint")
+
+
+def strip_paint_params(tpl):
+    base, _, query = tpl.partition("?")
+    keep = [p for p in query.split("&") if p and not any("{%s" % k in p for k in PAINT_PARAMS)]
+    return base + "?" + "&".join(keep)
+
+
+def probe_renders(d):
+    """1) request format, 2) custom paint, 3) car number. Each step keeps what actually changes the picture."""
+    import hashlib
+    results, tpl = _probe_paint(d)
+    if not tpl:
+        return results, None
+    # car number: without it iRacing paints its default number on every car
+    num = str(d.get("num", ""))
+    if "{num}" not in tpl and num:
+        ok, code, msg, plain = try_render(render_url(d, tpl))
+        plain_hash = hashlib.md5(plain or b"").hexdigest()
+        found = False
+        for pname in ("carNum", "number", "num", "carNumber", "numVal", "numStr", "carNo"):
+            t = tpl + "&%s={num}" % pname
+            ok, code, msg, body = try_render(render_url(d, t))
+            changed = ok and hashlib.md5(body).hexdigest() != plain_hash
+            results.append({"name": "car number as %s" % pname, "ok": changed, "code": code,
+                            "msg": ("number applied (#%s)" % num if changed else "no change") if ok else msg, "url": ""})
+            if changed:
+                tpl, found = t, True
+                break
+        if not found:
+            results.append({"name": "car number", "ok": False, "code": 0, "msg": "couldn't find how iRacing takes the number", "url": ""})
+    PROBE_EXTRA["custNum"] = None
+    return results, tpl
+
+
+PROBE_EXTRA = {}
+
+
+def probe_custom_number(d, tpl):
+    """For a car whose paint already has its number painted in (car_num_<id>.tga): find the setting that
+    stops iRacing drawing its own number on top. Returns (results, fragment or '')."""
+    import hashlib
+    results = []
+    ok, code, msg, base = try_render(render_url(d, tpl))
+    if not ok:
+        return [{"name": "custom-number paint", "ok": False, "code": code, "msg": msg, "url": ""}], ""
+    base_hash = hashlib.md5(base).hexdigest()
+    cands = ["numCustPaint={carCustPaint}", "carNumPaint={carCustPaint}", "carCustNum=1", "custNum=1", "numCust=1",
+             "carNumCust=1", "useCustNum=1", "hideNum=1", "noNumber=1", "numPat=-1"]
+    for frag in cands:
+        name = frag.split("=")[0]
+        t = drop_param(tpl, name) + ("&" + frag if not frag.endswith("=") else "")
+        ok, code, msg, body = try_render(render_url(d, t))
+        changed = ok and hashlib.md5(body).hexdigest() != base_hash
+        results.append({"name": "custom number: " + (frag if not frag.endswith("=") else "leave out " + name), "ok": changed, "code": code,
+                        "msg": ("picture changed, using this" if changed else "no change") if ok else msg, "url": ""})
+        if changed:
+            return results, (frag if not frag.endswith("=") else name + "=")
+    return results, ""
+
+
+def _probe_paint(d):
+    """1) find a request format iRacing accepts, 2) find how it wants the custom paint file,
+    by checking which request actually changes the picture."""
+    import hashlib
+    results, winner = [], None
+    for name, tpl in RENDER_VARIANTS:
+        url = render_url(d, tpl)
+        ok, code, msg, body = try_render(url)
+        results.append({"name": name, "ok": ok, "code": code, "msg": msg, "url": url})
+        if ok:
+            winner = tpl
+            break
+    if not winner:
+        return results, None
+    vals_probe = render_url(d, "{carCustPaint}|{carSpecPaint}|{numCustPaint}|{carDecalPaint}").split("?")[0].split("|")
+    has = dict(zip(PAINT_PARAMS, [unquote(v) for v in vals_probe]))
+    if not has["carCustPaint"]:
+        results.append({"name": "custom paint", "ok": False, "code": 0, "msg": "no car_<id>.tga for this driver in " + car_paint_folder((d.get("paint") or {}).get("carPath", "")), "url": ""})
+        return results, winner
+    base_tpl = strip_paint_params(winner)
+    ok, code, msg, plain = try_render(render_url(d, base_tpl))
+    plain_hash = hashlib.md5(plain or b"").hexdigest()
+    best = None
+    for pname in ("carCustPaint", "carPaint", "custPaint", "carCustomPaint", "paint"):
+        for enc, label in (("", "path as is"), ("Fwd", "forward slashes"), ("Enc", "fully encoded")):
+            tpl = base_tpl + "&%s={carCustPaint%s}" % (pname, enc)
+            ok, code, msg, body = try_render(render_url(d, tpl))
+            changed = ok and hashlib.md5(body).hexdigest() != plain_hash
+            results.append({"name": "custom paint as %s (%s)" % (pname, label), "ok": changed, "code": code,
+                            "msg": ("paint applied" if changed else "same picture as without the paint") if ok else msg, "url": ""})
+            if changed:
+                best, best_enc, best_body = tpl, enc, body
+                break
+        if best:
+            break
+    if not best:
+        return results, winner
+    # extra paint files (spec map, decals, custom number): keep each one iRacing accepts
+    for key, names in (("carDecalPaint", ("carDecalPaint", "decalPaint", "carDecal")),
+                       ("numCustPaint", ("numCustPaint", "carNumPaint", "numPaint")),
+                       ("carSpecPaint", ("carSpecPaint", "carSpecMap", "specPaint"))):
+        if not has.get(key):
+            continue
+        for pname in names:
+            tpl = best + "&%s={%s%s}" % (pname, key, best_enc)
+            ok, code, msg, body = try_render(render_url(d, tpl))
+            if ok:
+                results.append({"name": "%s as %s" % (key, pname), "ok": True, "code": code, "msg": "accepted", "url": ""})
+                best = tpl
+                break
+        else:
+            results.append({"name": key, "ok": False, "code": 0, "msg": "iRacing didn't accept it, left out", "url": ""})
+    return results, best
+
+
+def paint_check(drivers):
+    """For every driver: which paint files the overlay found for them, so missing schemes are easy to explain."""
+    out = []
+    for d in sorted(drivers.values(), key=lambda x: (len(str(x.get("num", ""))), str(x.get("num", "")))):
+        pt = d.get("paint") or {}
+        folder = car_paint_folder(pt.get("carPath", ""))
+        uid, tid = pt.get("userId", ""), pt.get("teamId", "")
+        v = render_url(d, "{carCustPaint}|{carSpecPaint}|{numCustPaint}|{carDecalPaint}").split("|")
+        found = [os.path.basename(unquote(f)) for f in v if f]
+        other = []
+        try:
+            if os.path.isdir(folder):
+                ids = [i for i in (uid, tid) if i and i != "0"]
+                other = sorted(n for n in os.listdir(folder)
+                               if any(re.search(r"(^|[_\\-])%s([_.\\-]|$)" % re.escape(i), n) for i in ids) and n not in found)[:6]
+        except OSError:
+            pass
+        out.append({"num": d.get("num", ""), "name": d.get("name", ""), "custId": uid, "teamId": tid,
+                    "customNumber": bool(v[0]) and os.path.basename(unquote(v[0])).lower().startswith("car_num_"),
+                    "folder": folder, "folderExists": bool(pt.get("carPath")) and os.path.isdir(folder), "found": found, "other": other,
+                    "paint": bool(v[0])})
+    return out
+
+
+def render_key(d):
+    import hashlib
+    url = render_url(d)
+    try:
+        f = [p for p in url.split("&") if p.startswith("carCustPaint=")]
+        mt = os.path.getmtime(unquote(f[0].split("=", 1)[1])) if f and f[0].split("=", 1)[1] else 0
+    except OSError:
+        mt = 0
+    return hashlib.md5((url + str(mt)).encode()).hexdigest()
+
+
+RENDER_LOCK = threading.Lock()   # one render at a time, so a full grid doesn't swamp iRacing
+
+
+def fetch_render(d):
+    key = render_key(d)
+    hit = RENDER_CACHE.get(key)
+    if hit and (hit[1] is not None or time.time() - hit[0] < 30):
+        return hit[1], hit[2]
+    with RENDER_LOCK:
+        hit = RENDER_CACHE.get(key)
+        if hit and (hit[1] is not None or time.time() - hit[0] < 30):
+            return hit[1], hit[2]
+        return _fetch_render(d, key)
+
+
+def _fetch_render(d, key):
+    url = render_url(d)
+    RENDER_LAST["url"] = url
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "VSPEED-Overlay"})
+        with NO_PROXY.open(req, timeout=15) as r:   # straight to iRacing on this PC, never through a proxy
+            body, ctype = r.read(), r.headers.get("Content-Type", "image/png")
+        if not body or not ctype.startswith("image"):
+            raise ValueError("iRacing answered, but not with an image (%s)" % ctype)
+        RENDER_LAST.update(status="ok", error="")
+        RENDER_CACHE[key] = (time.time(), body, ctype)
+    except Exception as e:
+        RENDER_LAST.update(status="failed", error=str(e))
+        RENDER_CACHE[key] = (time.time(), None, "")
+    return RENDER_CACHE[key][1], RENDER_CACHE[key][2]
+
+
+def browse_roots():
+    """Starting points for the folder browser: drives plus the usual user folders."""
+    roots = []
+    home = os.path.expanduser("~")
+    for name in ("Desktop", "Documents", "Pictures", "Downloads", "Videos"):
+        p = os.path.join(home, name)
+        if os.path.isdir(p):
+            roots.append({"name": name, "path": p})
+    for p in drive_guesses():
+        roots.append({"name": p.split(":")[0] + ": " + p.split("\\")[-1], "path": p})
+    if os.name == "nt":
+        import string
+        for letter in string.ascii_uppercase:
+            p = letter + ":\\"
+            if os.path.isdir(p):
+                roots.append({"name": letter + ":", "path": p})
+    else:
+        roots.append({"name": "/", "path": "/"})
+    return roots
+
+
+def count_images(folder):
+    try:
+        with os.scandir(folder) as it:
+            return sum(1 for e in it if e.is_file() and os.path.splitext(e.name)[1].lower() in GFX_EXT)
+    except OSError:
+        return 0
+
+
+PICK_TK = r"""
+import sys, tkinter as tk
+from tkinter import filedialog
+root = tk.Tk(); root.withdraw(); root.attributes("-topmost", True); root.update()
+p = filedialog.askdirectory(parent=root, initialdir=sys.argv[1] or None, title=sys.argv[2], mustexist=True)
+sys.stdout.write(p or "")
+"""
+PICK_PS = (
+    "Add-Type -AssemblyName System.Windows.Forms;"
+    "$d = New-Object System.Windows.Forms.FolderBrowserDialog; $d.Description = $env:VS_TITLE; $d.ShowNewFolderButton = $false;"
+    "if ($env:VS_START) { $d.SelectedPath = $env:VS_START };"
+    "$f = New-Object System.Windows.Forms.Form -Property @{TopMost = $true};"
+    "if ($d.ShowDialog($f) -eq 'OK') { [Console]::Out.Write($d.SelectedPath) }"
+)
+PICK_LOCK = threading.Lock()
+
+
+def pick_folder(start, title):
+    """Open the Windows folder picker on this PC (the same kind of window as the sponsor Load image button).
+    Returns {"path": ...}, {"cancel": True}, or {"unsupported": True} when it can't open one here."""
+    if os.name != "nt":
+        return {"unsupported": True}
+    if not PICK_LOCK.acquire(blocking=False):
+        return {"error": "A folder window is already open on the broadcast PC"}
+    try:
+        start = start if start and os.path.isdir(start) else ""
+        flags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        tries = [([sys.executable, "-c", PICK_TK, start, title], None),
+                 (["powershell", "-NoProfile", "-STA", "-Command", PICK_PS], dict(os.environ, VS_TITLE=title, VS_START=start))]
+        for cmd, env in tries:
+            try:
+                r = subprocess.run(cmd, capture_output=True, text=True, timeout=900, creationflags=flags, env=env)
+            except Exception as e:
+                print("Folder window failed:", repr(e))
+                continue
+            if r.returncode != 0:
+                print("Folder window failed:", (r.stderr or "").strip()[-300:])
+                continue
+            out = (r.stdout or "").strip()
+            return {"path": os.path.normpath(out)} if out else {"cancel": True}
+        return {"unsupported": True}
+    finally:
+        PICK_LOCK.release()
+
+
+def browse_folder(path):
+    """List the subfolders of `path` (names only) for the control panel's folder browser."""
+    res = {"path": "", "parent": "", "dirs": [], "images": 0, "roots": browse_roots(), "error": ""}
+    if not path:
+        return res
+    path = os.path.abspath(os.path.expanduser(path.strip().strip('"')))
+    if not os.path.isdir(path):
+        res["error"] = "That folder doesn't exist."
+        return res
+    res["path"] = path
+    parent = os.path.dirname(path.rstrip("\\/")) if path.rstrip("\\/") else ""
+    res["parent"] = parent if parent and parent != path else ""
+    if os.name == "nt" and len(path.rstrip("\\")) <= 2:      # a drive root like C:\
+        res["parent"] = ""
+    dirs = []
+    try:
+        with os.scandir(path) as it:
+            for e in it:
+                try:
+                    if not e.is_dir() or e.name.startswith(".") or e.name.lower() in SKIP_DIRS:
+                        continue
+                except OSError:
+                    continue
+                dirs.append(e.name)
+    except OSError as e:
+        res["error"] = "Can't open that folder (%s)." % e.strerror
+        return res
+    dirs.sort(key=str.lower)
+    res["dirs"] = [{"name": n, "path": os.path.join(path, n), "images": count_images(os.path.join(path, n))} for n in dirs[:300]]
+    res["images"] = count_images(path)
+    return res
+
+
+def gfx_command(d):
+    """show / hide / replay the Drive graphic. hold > 0 hides it again after that many seconds."""
+    cmd = d.get("cmd")
+    with STATE.lock:
+        g = dict(STATE.settings.get("gfx") or {})
+    if cmd == "show":
+        if d.get("file"):
+            g["file"] = str(d["file"])
+        if not g.get("file"):
+            return {"ok": False, "msg": "Pick a graphic first"}
+        g["visible"] = True
+        g["t"] = int(g.get("t", 0)) + 1
+    elif cmd == "hide":
+        g["visible"] = False
+    elif cmd == "cue":
+        g["file"] = str(d.get("file") or "")
+    else:
+        return {"ok": False, "msg": "unknown command"}
+    for k in ("anim", "hold"):
+        if k in d:
+            g[k] = d[k]
+    STATE.update_settings({"gfx": g})
+    if GFX_TIMER["t"]:
+        GFX_TIMER["t"].cancel()
+        GFX_TIMER["t"] = None
+    hold = float(g.get("hold") or 0)
+    if cmd == "show" and hold > 0:
+        token = g["t"]
+
+        def auto_hide():
+            with STATE.lock:
+                cur = STATE.settings.get("gfx") or {}
+                same = cur.get("t") == token and cur.get("visible")
+            if same:
+                STATE.update_settings({"gfx": {"visible": False}})
+        GFX_TIMER["t"] = threading.Timer(hold, auto_hide)
+        GFX_TIMER["t"].daemon = True
+        GFX_TIMER["t"].start()
+    return {"ok": True, "msg": ""}
+
+
+def list_assets():
+    out = {"logos": []}
+    adir = os.path.join(STATIC, "assets")
+    out["logos"] = sorted(f for f in os.listdir(adir) if os.path.splitext(f)[1].lower() in IMAGE_EXT)
+    return out
+
+
+class QuietServer(ThreadingHTTPServer):
+    """vMix and browsers drop idle connections all the time (closing a tab, reloading an input).
+    That's normal, so don't print a traceback for it."""
+    daemon_threads = True
+
+    def handle_error(self, request, client_address):
+        import sys
+        err = sys.exc_info()[1]
+        if isinstance(err, (ConnectionError, TimeoutError)):
+            return
+        super().handle_error(request, client_address)
+
+
+def on_track_switch(direction):
+    """Put the camera on the car physically ahead (+1) or behind (-1) on track, by lap distance."""
+    with STATE.lock:
+        live = STATE.live
+        cars = [c for c in live.get("cars", []) if c.get("onTrack") and c.get("progress") is not None]
+        cam = live.get("camCarIdx")
+    if len(cars) < 2:
+        return False
+    pct = {c["idx"]: c["progress"] % 1.0 for c in cars}
+    order = sorted(cars, key=lambda c: pct[c["idx"]])
+    ids = [c["idx"] for c in order]
+    if cam not in ids:
+        target = ids[0]
+    else:
+        i = ids.index(cam)
+        target = ids[(i + (1 if direction > 0 else -1)) % len(ids)]
+    with SOURCE_LOCK:
+        return bool(SOURCE.camera(target))
+
+
+def local_ip():
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        ip = s.getsockname()[0]
+        s.close()
+        return ip
+    except Exception:
+        return "127.0.0.1"
+
+
+def main():
+    ap = argparse.ArgumentParser(description="VSPEED broadcast overlay server")
+    ap.add_argument("--demo", action="store_true", help="run a fake race instead of reading iRacing")
+    ap.add_argument("--multiclass", action="store_true", help="demo race with GTP and GT3 classes")
+    ap.add_argument("--port", type=int, default=8765)
+    args = ap.parse_args()
+
+    standings.init()
+    standings.autopull(on_done=STATE.notify)
+    threading.Thread(target=telemetry_loop, args=(args.demo, args.multiclass), daemon=True).start()
+    server = QuietServer(("0.0.0.0", args.port), Handler)
+    ip = local_ip()
+    print("=" * 60)
+    print(" VSPEED Broadcast Overlay  (%s mode)" % ("DEMO" if args.demo else "iRacing"))
+    print("  vMix overlay :  http://localhost:%d/overlay" % args.port)
+    print("  Control panel:  http://localhost:%d/control" % args.port)
+    print("  Standings only: http://localhost:%d/standings  (also /analysis and /team)" % args.port)
+    print("  From a phone :  http://%s:%d/control" % (ip, args.port))
+    print("=" * 60)
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+
+
+if __name__ == "__main__":
+    main()

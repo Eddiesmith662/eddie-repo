@@ -1,0 +1,10 @@
+# Each install's own data: never part of the program, never uploaded
+settings.json
+standings/
+sponsors/
+backup/
+data/
+
+# Python cache
+__pycache__/
+*.pyc

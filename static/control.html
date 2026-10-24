@@ -1,0 +1,1183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VSPEED Control</title>
+<style>
+  :root { --red:#FF0D40; --grey:#383839; --panel:#242425; --bg:#161617; --line:#3a3a3b; --text:#f2f2f2; --dim:#939598; --blue:#33A1FF; --yellow:#FFE81F; --green:#22C55E; --bad:#ff6b6b; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: "Bahnschrift", Arial, sans-serif; font-size: 15px; }
+  header { position: sticky; top: 0; z-index: 5; background: var(--grey); border-bottom: 3px solid var(--red); }
+  .hbar { display: flex; align-items: center; gap: 14px; padding: 10px 16px 6px; flex-wrap: wrap; }
+  header img { height: 22px; }
+  .status { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 14px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #666; display: inline-block; margin-right: 6px; }
+  .dot.on { background: var(--green); } .dot.demo { background: var(--blue); }
+  .pill { background: rgba(0,0,0,.35); padding: 4px 10px; border-radius: 4px; white-space: nowrap; }
+  .pill.air { background: var(--red); }
+  nav { display: flex; gap: 2px; padding: 0 12px; overflow-x: auto; }
+  nav button { background: transparent; border: 0; border-bottom: 3px solid transparent; border-radius: 0; padding: 10px 14px; margin-bottom: -3px; text-transform: uppercase; letter-spacing: 1px; font-size: 13px; color: #ccc; white-space: nowrap; }
+  nav button.on { color: #fff; border-bottom-color: #fff; }
+  nav button.navlink { margin-left: auto; color: #fff; border: 1px solid #5a5a5b; border-radius: 5px; padding: 6px 12px; margin-top: 4px; margin-bottom: 6px; text-transform: none; letter-spacing: .3px; font-size: 13px; }
+  nav button.navlink:hover { border-color: var(--red); background: var(--red); }
+  nav button .live { display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--red); margin-left: 6px; vertical-align: middle; visibility: hidden; }
+  nav button .live.on { visibility: visible; }
+  main { display: none; grid-template-columns: repeat(auto-fit, minmax(340px, 1fr)); gap: 14px; padding: 14px; max-width: 1500px; margin: 0 auto; }
+  main.on { display: grid; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px; min-width: 0; }
+  section.wide { grid-column: 1 / -1; }
+  h2 { margin: 0 0 12px; font-size: 14px; letter-spacing: 1.5px; text-transform: uppercase; color: #fff; display: flex; align-items: center; gap: 8px; }
+  h2::before { content: ""; width: 4px; height: 16px; background: var(--red); display: inline-block; flex: 0 0 auto; }
+  h2 span.t { flex: 1; }
+  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+  button { font: inherit; color: var(--text); background: #333334; border: 1px solid #4a4a4b; border-radius: 5px; padding: 10px 12px; cursor: pointer; transition: background .15s, border-color .15s; }
+  button:hover { border-color: #777; }
+  button:active { transform: translateY(1px); }
+  button:disabled { opacity: .5; cursor: default; }
+  .tile { min-height: 56px; text-align: left; font-size: 14px; text-transform: uppercase; letter-spacing: .5px; }
+  .tile small { display: block; font-size: 11px; color: var(--dim); margin-top: 3px; letter-spacing: 1px; }
+  .tile.on { background: var(--red); border-color: var(--red); }
+  .tile.on small { color: #ffd6df; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+  .row > * { flex: 1; }
+  .big { padding: 18px 12px; font-size: 18px; letter-spacing: 1px; text-transform: uppercase; }
+  .go { background: var(--red); border-color: var(--red); }
+  .seg { display: inline-flex; border: 1px solid #4a4a4b; border-radius: 5px; overflow: hidden; flex: 0 0 auto; }
+  .seg button { border: 0; border-radius: 0; background: #2c2c2d; padding: 9px 14px; }
+  .seg button.on { background: var(--red); }
+  .seg.replay button.on[data-v="replay"] { background: var(--yellow); color: #111; }
+  label { display: block; font-size: 12px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; margin: 10px 0 4px; }
+  input, select, textarea { width: 100%; font: inherit; color: var(--text); background: #1b1b1c; border: 1px solid #4a4a4b; border-radius: 5px; padding: 9px 10px; }
+  input[type=file] { padding: 6px; }
+  input[type=range] { padding: 0; }
+  textarea { resize: vertical; min-height: 60px; }
+  input[type=color] { padding: 2px; height: 40px; width: 60px; flex: 0 0 60px; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .save { background: var(--red); border-color: var(--red); margin-top: 12px; width: 100%; text-transform: uppercase; letter-spacing: 1px; }
+  .flags button { flex: 1; min-width: 90px; text-transform: uppercase; font-size: 13px; }
+  .f-green { border-left: 6px solid var(--green) !important; }
+  .f-caution { border-left: 6px solid var(--yellow) !important; }
+  .f-white { border-left: 6px solid #fff !important; }
+  .f-checkered { border-left: 6px solid #888 !important; }
+  .f-red { border-left: 6px solid #E11 !important; }
+  .cars { max-height: 560px; overflow: auto; border: 1px solid var(--line); border-radius: 5px; }
+  .car, .carh { display: grid; grid-template-columns: 40px 48px minmax(110px, 1fr) 44px 84px 50px 74px 74px 52px 38px; align-items: center; padding: 9px 10px; border-bottom: 1px solid #2f2f30; cursor: pointer; gap: 6px; }
+  .carh { position: sticky; top: 0; z-index: 1; background: #161617; cursor: default; padding-top: 7px; padding-bottom: 7px; font-size: 11px; letter-spacing: 1px; color: var(--dim); text-transform: uppercase; }
+  .carh span:nth-child(n+4) { text-align: right; } .carh span:nth-child(4) { text-align: center; }
+  .car .gn { text-align: center; font-size: 13px; font-weight: 600; color: #777; }
+  .car .gn.up { color: var(--green); } .car .gn.dn { color: #ff5a6e; }
+  .car .t { text-align: right; font-variant-numeric: tabular-nums; color: #cfcfcf; }
+  .car .t.pb { color: var(--green); } .car .t.ob { color: #c86bff; }
+  .car .g.ld { color: #ffb347; }
+  .car .sp { text-align: right; font-variant-numeric: tabular-nums; color: #cfcfcf; }
+  @media (max-width: 760px) { .car, .carh { grid-template-columns: 30px 40px minmax(80px, 1fr) 34px 66px 34px 32px; gap: 4px; } .car .x, .carh .x { display: none; } }
+  .car:nth-child(even) { background: #1f1f20; }
+  .car:hover { background: #303031; }
+  .car.cam { background: rgba(255,13,64,.25); }
+  .car .p { font-weight: 600; text-align: center; background: #111; border-radius: 3px; padding: 2px 0; }
+  .car.cam .p { background: var(--red); }
+  .car .n { color: var(--dim); text-align: center; }
+  .car .g { text-align: right; color: var(--dim); font-variant-numeric: tabular-nums; }
+  .car .pt { font-size: 11px; background: var(--blue); border-radius: 3px; text-align: center; padding: 1px 0; }
+  .hint { color: var(--dim); font-size: 12px; margin: 6px 0 0; line-height: 1.4; }
+  .age { font-size: 16px; font-weight: 600; color: var(--green); }
+  .age.stale { color: var(--bad); }
+  .note { font-size: 13px; color: #e8c46a; margin-top: 4px; white-space: pre-line; }
+  .note.err { color: var(--bad); }
+  table.st { width: 100%; border-collapse: collapse; font-size: 14px; font-variant-numeric: tabular-nums; }
+  table.st th { text-align: left; font-weight: 400; color: var(--dim); font-size: 12px; letter-spacing: 1px; padding: 6px; border-bottom: 1px solid var(--line); text-transform: uppercase; }
+  table.st td { padding: 5px 6px; border-bottom: 1px solid #2f2f30; white-space: nowrap; }
+  table.st tr.cut td { border-bottom: 2px solid var(--red); }
+  table.st input { padding: 5px 6px; min-width: 44px; }
+  table.st td.drv input { min-width: 170px; }
+  .tablewrap { overflow: auto; max-height: 640px; border: 1px solid var(--line); border-radius: 5px; }
+  .bracket { display: grid; grid-template-columns: repeat(4, minmax(200px, 1fr)); gap: 10px; overflow-x: auto; }
+  .bcol h3 { margin: 0 0 6px; font-size: 12px; letter-spacing: 1.5px; color: var(--dim); font-weight: 400; text-transform: uppercase; }
+  .bent { display: flex; align-items: center; gap: 6px; background: #1d1d1e; border: 1px solid #333; border-radius: 4px; padding: 5px 6px; margin-bottom: 4px; font-size: 14px; }
+  .bent .sd { background: var(--red); min-width: 26px; text-align: center; border-radius: 3px; font-size: 12px; padding: 2px 0; }
+  .bent .cn { color: var(--yellow); min-width: 30px; }
+  .bent .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bent button { padding: 3px 7px; font-size: 13px; }
+  .empty { color: var(--dim); font-size: 13px; padding: 6px 0; }
+  .log { font-family: Consolas, monospace; font-size: 12px; color: #bbb; background: #111; border-radius: 5px; padding: 8px; max-height: 170px; overflow: auto; white-space: pre-wrap; }
+  .url { display: flex; gap: 6px; }
+  .url button { flex: 0 0 auto; }
+  .toast { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); background: #000; border: 1px solid var(--red); padding: 8px 16px; border-radius: 5px; opacity: 0; transition: opacity .2s; pointer-events: none; z-index: 50; max-width: 90vw; }
+  .toast.show { opacity: 1; }
+  a { color: var(--blue); }
+  /* pop-out car list: /control?solo=cars */
+  /* live timing window: /timing (or /control?solo=cars) */
+  body:not(.solo) #carsSec { display: none; }
+  body.solo header nav, body.solo main > section:not(#carsSec) { display: none !important; }
+  body.solo main[data-tab="race"] { display: block; padding: 8px; max-width: none; }
+  body.solo .hbar { padding-bottom: 10px; }
+  body.solo #carsSec { padding: 10px; height: calc(100vh - 92px); }
+  .lt { display: grid; grid-template-columns: 180px 1fr; gap: 12px; height: 100%; min-height: 0; }
+  .ltside, .ltmain { display: flex; flex-direction: column; min-height: 0; }
+  .ltside h2, .ltmain h2 { margin-bottom: 8px; }
+  .ltcams { overflow: auto; display: flex; flex-direction: column; gap: 6px; }
+  .ltcams button { text-align: left; padding: 9px 10px; font-size: 14px; }
+  .ltcams button.on { background: var(--red); border-color: var(--red); }
+  body.solo .cars { flex: 1; max-height: none; min-height: 120px; }
+  .rpbox { margin-top: 10px; background: #2a2a2b; border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
+  .rprow { display: grid; gap: 8px; }
+  .rprow.six { grid-template-columns: repeat(6, 1fr); }
+  .rprow .rp { background: #1d1d1e; border-color: #3a3a3b; padding: 10px 6px; font-size: 16px; font-weight: 600; }
+  .rprow .rp.start { background: #1f2a44; border-color: #3f5fa8; color: #8fb4ff; }
+  .rprow .rp.live { background: #4a1f24; border-color: #b23a48; color: #ff8a96; }
+  .rprow .rp.live.on { background: var(--red); border-color: var(--red); color: #fff; }
+  .rprow.speeds { grid-template-columns: repeat(5, 1fr); gap: 0; border: 1px solid #3a3a3b; border-radius: 6px; overflow: hidden; }
+  .rprow.speeds button { border: 0; border-radius: 0; border-right: 1px solid #3a3a3b; background: #1d1d1e; color: #bbb; font-weight: 600; padding: 9px 4px; }
+  .rprow.speeds button:last-child { border-right: 0; }
+  .rprow.speeds button.on { background: #3a3a3b; color: #fff; }
+  .rprow.last { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .rprow.last .grow { flex: 1; }
+  .rprow .rp.small { font-size: 13px; padding: 8px 8px; color: #bbb; white-space: nowrap; }
+  .rprow .rp.small.on { background: #3a3a3b; color: #fff; }
+  .rprow .rp.replay { background: #ececed; color: #111; border-color: #ececed; font-size: 17px; padding: 10px 16px; letter-spacing: .5px; }
+  .rprow input#rpSecs { width: 64px; padding: 9px 6px; text-align: center; }
+  .rprow .s { color: var(--dim); font-size: 13px; margin-left: -4px; }
+  .pill.rep { background: var(--blue); }
+  /* sponsors */
+  .sprow { display: grid; grid-template-columns: 96px 1fr auto; gap: 10px; align-items: center; padding: 8px; margin-top: 8px; border-radius: 6px; background: rgba(0,0,0,.25); border: 1px solid transparent; }
+  .sprow.on { border-color: var(--red); background: rgba(255,13,64,.12); }
+  .sprow .thumb { width: 96px; height: 54px; border-radius: 4px; background: rgba(255,255,255,.06) center/contain no-repeat; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #888; }
+  .sprow .nm { font-size: 15px; letter-spacing: 1px; text-transform: uppercase; }
+  .sprow .fn { font-size: 12px; color: #999; margin-top: 2px; }
+  .sprow .bt { display: flex; gap: 6px; }
+  .sprow .bt button { min-width: 64px; padding: 8px 10px; }
+  @media (max-width: 560px) { .sprow { grid-template-columns: 72px 1fr; } .sprow .thumb { width: 72px; height: 40px; } .sprow .bt { grid-column: 1 / -1; } .sprow .bt button { flex: 1; } }
+  .lapsel { display: flex; align-items: stretch; border: 1px solid #3a3a3b; border-radius: 6px; overflow: hidden; }
+  .lapsel .rp { border: 0; border-radius: 0; padding: 9px 12px; font-size: 14px; }
+  .lapsel span { min-width: 72px; display: flex; align-items: center; justify-content: center; background: #111; font-weight: 600; letter-spacing: 1px; font-size: 15px; }
+  .ltcams.c2 { display: grid; grid-template-columns: repeat(2, 125px); }
+  .ltcams.c3 { display: grid; grid-template-columns: repeat(3, 118px); align-content: start; }
+  .ltcams.c2 button, .ltcams.c3 button { padding: 8px 8px; font-size: 13px; }
+  .ltcams.c2 button, .ltcams.c3 button { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .ltside { max-width: 400px; }
+  .lt { grid-template-columns: auto 1fr !important; }
+  .ltside { min-width: 180px; }
+  .ctx { position: fixed; z-index: 60; background: #1d1d1e; border: 1px solid #4a4a4b; border-radius: 6px; padding: 4px; min-width: 190px; box-shadow: 0 8px 30px rgba(0,0,0,.6);
+         display: flex; flex-direction: column; max-height: min(460px, calc(100vh - 16px)); }
+  .ctx .list { overflow-y: auto; overscroll-behavior: contain; }
+  .ctx .list::-webkit-scrollbar { width: 10px; }
+  .ctx .list::-webkit-scrollbar-thumb { background: #4a4a4b; border-radius: 5px; }
+  .ctx[hidden] { display: none; }
+  .ctx .hd { font-size: 12px; color: var(--dim); padding: 6px 10px 4px; letter-spacing: 1px; text-transform: uppercase; }
+  .ctx button { display: block; width: 100%; text-align: left; border: 0; background: transparent; padding: 8px 10px; border-radius: 4px; }
+  .ctx button:hover { background: var(--red); }
+  .ctx button.cur { color: var(--red); }
+  .ctx button.cur:hover { color: #fff; }
+  @media (max-width: 700px) {
+    .lt { grid-template-columns: 1fr !important; }
+    .ltcams.c2, .ltcams.c3 { display: flex; }
+    .ltcams { flex-direction: row; flex-wrap: wrap; }
+    .rprow.six { grid-template-columns: repeat(3, 1fr); }
+  }
+  .modal { position: fixed; inset: 0; background: rgba(0,0,0,.65); z-index: 40; display: flex; align-items: center; justify-content: center; padding: 16px; }
+  .modal[hidden] { display: none; }
+  .mbox { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; width: min(640px, 100%); max-height: 90vh; display: flex; flex-direction: column; }
+  .fbroots { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+  .fbroots button { padding: 6px 10px; font-size: 13px; }
+  .fbpath { display: flex; gap: 8px; align-items: center; background: #111; border-radius: 5px; padding: 6px; font-size: 14px; word-break: break-all; }
+  .fbpath button { padding: 4px 10px; flex: 0 0 auto; }
+  .fblist { overflow: auto; margin-top: 8px; border: 1px solid var(--line); border-radius: 5px; min-height: 200px; flex: 1; }
+  .fbitem { display: flex; justify-content: space-between; gap: 10px; padding: 10px 12px; border-bottom: 1px solid #2f2f30; cursor: pointer; }
+  .fbitem:hover { background: #303031; }
+  .fbitem .c { color: var(--dim); font-size: 13px; white-space: nowrap; }
+  .fbitem .c.has { color: var(--green); }
+  .chk { display: flex; gap: 8px; align-items: center; text-transform: none; letter-spacing: 0; font-size: 14px; color: #ddd; }
+  .chk input { width: auto; }
+  .stage { position: relative; width: 100%; aspect-ratio: 16 / 9; background: #000; overflow: hidden; border: 1px solid var(--line); border-radius: 4px; user-select: none; touch-action: none; }
+  .stage iframe { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; border: 0; transform-origin: 0 0; pointer-events: none; }
+  .boxes { position: absolute; inset: 0; }
+  .lbox { position: absolute; border: 1px dashed rgba(255,255,255,.55); cursor: move; touch-action: none; }
+  .lbox span { position: absolute; left: -1px; top: -18px; font-size: 11px; background: rgba(0,0,0,.75); padding: 1px 5px; white-space: nowrap; letter-spacing: .5px; }
+  .lbox:hover { border-color: #fff; background: rgba(255,255,255,.06); }
+  .lbox.sel { z-index: 5; border: 2px solid var(--red); background: rgba(255,13,64,.10); }
+  .lbox.sel span { background: var(--red); }
+  .lylist { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px 18px; }
+  .lyrow { display: grid; grid-template-columns: 110px 1fr 48px auto; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 5px; cursor: pointer; }
+  .lyrow.sel { background: rgba(255,13,64,.18); }
+  .lyrow .v { text-align: right; font-variant-numeric: tabular-nums; color: var(--dim); font-size: 13px; }
+  .lyrow button { padding: 4px 8px; font-size: 12px; }
+</style>
+</head>
+<body>
+<header>
+  <div class="hbar">
+    <img src="/static/assets/vspeed_logo.png" alt="VSPEED">
+    <div class="status">
+      <span class="pill"><span class="dot" id="dot"></span><span id="conn">Connecting…</span></span>
+      <span class="pill" id="sess">—</span>
+      <span class="pill" id="lapPill">—</span>
+      <span class="pill" id="flagPill">—</span>
+    </div>
+  </div>
+  <nav id="nav">
+    <button data-tab="prerace">Prerace</button>
+    <button data-tab="race">Race</button>
+    <button data-tab="standings">Standings<span class="live" id="liveStand"></span></button>
+    <button data-tab="layout">Layout</button>
+    <button data-tab="setup">Setup</button>
+    <button id="camWin" class="navlink">Open live timing ↗</button>
+  </nav>
+</header>
+
+<!-- ================= PRERACE ================= -->
+<main data-tab="prerace">
+  <section>
+    <h2><span class="t">Race info</span><span class="pill" id="aAir">HIDDEN</span></h2>
+    <div class="row"><button class="go" data-a="analysisShow">Show</button><button data-a="analysisHide">Hide</button><button data-a="analysisReplay">Replay</button></div>
+    <label>Title</label><input id="aTitle">
+    <div id="aLines"></div>
+    <div class="row" style="margin-top:12px"><button class="go" data-a="analysisText">Apply text</button><button id="aReset">Example text</button></div>
+    <p class="hint">Show and Replay also apply whatever is typed. Edits made while it's on screen animate in.</p>
+  </section>
+
+  <section>
+    <h2><span class="t">Broadcast team</span><span class="pill" id="tAir">HIDDEN</span></h2>
+    <div class="row"><button class="go" data-t="teamShow">Show</button><button data-t="teamHide">Hide</button><button data-t="teamReplay">Replay</button></div>
+    <label>Title</label><input id="tTitle">
+    <div id="tPeople"></div>
+    <div class="row" style="margin-top:12px"><button class="go" data-t="teamText">Apply text</button><button id="tReset">Example text</button></div>
+    <p class="hint">Want only 2 names? Clear the last person and the box narrows to fit.</p>
+  </section>
+
+  <section>
+    <h2><span class="t">Broadcast text</span></h2>
+    <label>Race name (ticker header)</label><input id="raceName">
+    <label>League logo (file in static/assets)</label><select id="leagueLogo"></select>
+    <button class="save" data-save="text">Update text</button>
+  </section>
+
+  <section>
+    <h2><span class="t">Track graphic</span><span class="pill" id="trAir">HIDDEN</span></h2>
+    <label>Tonight's track</label>
+    <select id="trackSel"></select>
+    <div class="row" style="margin-top:10px"><button class="go" id="trShow">Show track</button><button id="trHide">Hide</button></div>
+    <label>Graphics folder on this PC (any folder, including Google Drive)</label>
+    <div class="row" style="margin:0"><input id="gDir" placeholder="C:\VSPEED\Track Graphics"><button class="go" id="gBrowse" style="flex:0 0 auto">Browse…</button><button id="gDirSave" style="flex:0 0 auto">Save</button></div>
+    <div class="note" id="gStatus"></div>
+    <div id="gGuess" class="hint"></div>
+    <p class="hint">Press Browse to pick the folder, or paste its path and press Save. Subfolders are included. With a Google Drive folder, new graphics show up in the list by themselves once Drive has synced them (PNG, JPG, WEBP, GIF, SVG, WebM, MP4). Right-click the folder → Offline access → Available offline, so nothing has to download when you hit Show. The "Track graphic" tile on the Race tab does the same as Show / Hide.</p>
+  </section>
+
+  <section>
+    <h2><span class="t">Results board</span></h2>
+    <label>Board title</label><input id="boardTitle" placeholder="RESULTS">
+    <button class="save" data-save="board">Update board</button>
+    <p class="hint">Running order with gaps, from live iRacing data. Turn it on with the "Results" tile. For championship points, use the Standings tab.</p>
+  </section>
+</main>
+
+<!-- ================= RACE ================= -->
+<main data-tab="race">
+  <section>
+    <h2><span class="t">Graphics</span></h2>
+    <div class="tiles" id="tiles"></div>
+    <div class="row" style="margin-top:10px">
+      <button id="hideAll">Hide all</button>
+      <button id="showBase">Show base package</button>
+    </div>
+    <p class="hint">Base package = logo, league, ticker and driver info. While standings, race info or the team box are on screen, the driver info steps aside on its own.</p>
+  </section>
+
+  <section>
+    <h2><span class="t">Ticker &amp; driver info</span></h2>
+    <label>Ticker gaps</label>
+    <div class="seg" id="towerSeg"><button data-v="interval">Interval</button><button data-v="leader">To leader</button></div>
+    <div class="grid2">
+      <div><label>Rows shown</label><input type="number" id="towerRows" min="5" max="40"></div>
+      <div><label>Always show top</label><input type="number" id="towerFixed" min="0" max="39"></div>
+      <div><label>Page every (sec)</label><input type="number" id="towerPageSec" min="3" max="60"></div>
+      <div><label>Class</label><select id="classFilter"></select></div>
+    </div>
+    <label>Multi-class races</label>
+    <div class="seg" id="csSeg"><button data-v="on">Grouped by class</button><button data-v="off">One combined list</button></div>
+    <div id="csRows" class="grid2" style="margin-top:4px"></div>
+    <label>Driver info (lower third)</label>
+    <div class="seg" id="ltSeg"><button data-v="always">Always on</button><button data-v="oncut">8s on camera cut</button></div>
+    <p class="hint">When the field is bigger than the rows shown, the top drivers stay put and the rows below them page through everyone else (e.g. 20 rows, top 14 fixed: P15–20, then P21–26, …). The driver info always follows the car the iRacing camera is on.</p>
+  </section>
+
+  <section class="wide" id="carsSec">
+    <select id="camGroup" hidden></select>
+    <div class="lt">
+      <div class="ltside">
+        <h2><span class="t">Cameras</span></h2>
+        <div class="ltcams" id="ltCams"></div>
+      </div>
+      <div class="ltmain">
+        <h2><span class="t">Live timing</span><span class="pill" id="rpState">LIVE</span></h2>
+        <div class="cars" id="cars"></div>
+        <div class="rpbox">
+          <div class="rprow six">
+            <button class="rp start" data-rp="start">⏮ Start</button>
+            <button class="rp" data-rp="rew" title="Rewind (press again to go faster)">◀◀</button>
+            <button class="rp" data-rp="play" title="Play">▶</button>
+            <button class="rp" data-rp="pause" title="Pause">❚❚</button>
+            <button class="rp" data-rp="ff" title="Fast forward (press again to go faster)">▶▶</button>
+            <button class="rp live" data-rp="live">Live ⏭</button>
+          </div>
+          <div class="rprow speeds" id="rpSpeeds">
+            <button data-sp="0.25">×0.25</button><button data-sp="0.5">×0.5</button><button data-sp="1">×1</button><button data-sp="2">×2</button><button data-sp="4">×4</button>
+          </div>
+          <div class="rprow last">
+            <button class="rp small" data-rp="simui" id="rpUi" title="Show / hide iRacing's own on-screen UI">⛶ Sim UI</button>
+            <span class="grow"></span>
+            <div class="lapsel" title="Jump to the start of the previous / next lap of the car on camera">
+              <button class="rp" data-rp="prevlap">◀</button><span id="rpLap">LAP –</span><button class="rp" data-rp="nextlap">▶</button>
+            </div>
+            <button class="rp replay" id="rpBack" title="Jump back this many seconds and play">↻ REPLAY</button>
+            <input type="number" id="rpSecs" min="3" max="600" value="30"><span class="s">s</span>
+            <button class="rp small" data-ot="-1" title="Camera to the car behind on track">◀ On Track</button>
+            <button class="rp small" data-ot="1" title="Camera to the car ahead on track">On Track ▶</button>
+          </div>
+        </div>
+        <p class="hint">Click a driver to put the camera on them. Right-click (or press and hold) a driver to pick the camera too.</p>
+      </div>
+    </div>
+  </section>
+  <div class="ctx" id="ctx" hidden></div>
+
+  <section>
+    <h2><span class="t">Grid</span><span class="pill" id="grAir">HIDDEN</span></h2>
+    <div class="row"><button class="go" id="grShow">Show from row 1</button><button id="grHide">Hide</button></div>
+    <div class="row"><button id="grPrev">◀ Previous row</button><button id="grNext">Next row ▶</button></div>
+    <label>Next row</label>
+    <div class="seg" id="grMode"><button data-v="auto">Automatic</button><button data-v="manual">Manual (I press Next row)</button></div>
+    <div class="grid2">
+      <div><label>Seconds per row</label><input type="number" id="grSec" min="2" max="60"></div>
+      <div><label>After the last row</label><div class="seg" id="grEnd"><button data-v="hide">Hide</button><button data-v="loop">Start over</button></div></div>
+    </div>
+    <label>Text under the logo</label><input id="grSite" placeholder="vspeedsim.com">
+    <p class="hint">Starting grid from qualifying, two cars per row, with each car rendered by iRacing in the driver's custom paint. Render tools are on the Setup tab.</p>
+  </section>
+
+  <section class="wide">
+    <h2><span class="t">Sponsors</span><span class="pill" id="spAir">HIDDEN</span></h2>
+    <div id="spRows"></div>
+    <div class="grid2" style="margin-top:12px">
+      <div><label>Hide by itself after (sec, 0 = stays up)</label><input type="number" id="spHold" min="0" max="600"></div>
+      <div><label>&nbsp;</label><button id="spHideAll" style="width:100%">Hide sponsor</button></div>
+    </div>
+    <input type="file" id="spFile" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" hidden>
+    <p class="hint">Load image picks a picture from this device and keeps it for next time. Sponsors play full screen, exactly as the image is: make them 1920 × 1080 PNGs with a transparent background (smaller images are centered). Only one sponsor is on air at a time: Show on another one swaps it in.</p>
+  </section>
+
+</main>
+
+<!-- ================= STANDINGS ================= -->
+<main data-tab="standings">
+  <section>
+    <h2><span class="t">On air</span><span class="pill" id="sAir">HIDDEN</span></h2>
+    <div class="row">
+      <button class="big go" data-s="show">Show</button>
+      <button class="big" data-s="hide">Hide</button>
+    </div>
+    <div class="row">
+      <button data-s="replay">Replay animation</button>
+      <button data-s="reload">Reload data</button>
+    </div>
+    <label>View (switches with an animation if showing)</label>
+    <div class="seg" id="viewSeg"><button data-v="standings">Standings</button><button data-v="bracket">Playoff bracket</button></div>
+    <label>Playoff cutoff</label>
+    <div class="row" style="margin:0">
+      <button id="playoffBtn">Playoff cutoff: OFF</button>
+      <div style="flex:0 0 120px"><input type="number" id="cutoff" min="1" max="20" title="Cutoff position"></div>
+    </div>
+    <p class="hint">Winners lock in first, the remaining spots go to the best non-winners on points, and the cutoff line draws under the last one in.</p>
+  </section>
+
+  <section>
+    <h2><span class="t">Title &amp; logo</span></h2>
+    <label>Title text</label>
+    <div class="row" style="margin:0"><input id="sTitle" placeholder="ALEXANDER PCS ARCA SERIES"><button id="sTitleBtn" style="flex:0 0 auto">Apply</button></div>
+    <label>Logo (top right of the header bar)</label>
+    <div id="logoName" class="hint" style="margin:0 0 6px"></div>
+    <input type="file" id="logoFile" accept=".png,.jpg,.jpeg,.gif,.webp,.svg">
+    <div class="row" style="margin-top:8px"><button id="logoRemove">Remove logo</button></div>
+    <label>Logo size: <span id="logoSizeV"></span>px</label>
+    <input type="range" id="logoSize" min="40" max="220">
+  </section>
+
+  <section>
+    <h2><span class="t">Standings data</span></h2>
+    <div class="age" id="sAge"></div>
+    <div class="note" id="sNote"></div>
+    <label>Xtreme Scoring widget link</label>
+    <input id="xtreme" placeholder="https://app.xtremescoring.com/api/Widget/...">
+    <button class="save" id="pullBtn">Pull standings now</button>
+    <p class="hint">Pulls automatically each time the overlay starts (unless you've hand-edited the standings). The last good copy is saved, so it still works if the site is down.</p>
+    <label>CSV</label>
+    <input type="file" id="csvFile" accept=".csv,text/csv">
+    <div class="row" style="margin-top:8px">
+      <a href="/standings.csv?download=1"><button style="width:100%">Save CSV</button></a>
+      <a href="/standings-example.csv?download=1"><button style="width:100%">Example CSV</button></a>
+    </div>
+  </section>
+
+  <section class="wide">
+    <h2><span class="t">Standings</span>
+      <button id="editBtn" style="flex:0 0 auto">Edit by hand</button></h2>
+    <div class="tablewrap"><table class="st" id="sTable"></table></div>
+    <div id="editBar" style="display:none">
+      <label style="display:flex;gap:8px;align-items:center;text-transform:none;letter-spacing:0;font-size:14px;color:#ddd">
+        <input type="checkbox" id="recalc" checked style="width:auto"> Re-sort by points and recalculate Pos, To Ldr and To Nxt when saving
+      </label>
+      <div class="row"><button class="go" id="editSave">Save edits</button><button id="editCancel">Cancel</button></div>
+    </div>
+    <p class="hint">Red line = playoff cutoff (by points). The Chg column is never recalculated.</p>
+  </section>
+
+  <section class="wide">
+    <h2><span class="t">Playoff bracket</span>
+      <button id="bLoad" style="flex:0 0 auto">Load top 12</button><button id="bClear" style="flex:0 0 auto">Clear</button></h2>
+    <div class="bracket" id="bracket"></div>
+    <p class="hint">→ advances a driver to the next round. × takes them out of that round and later ones. ✎ fixes a name or car number everywhere. The bracket is filled by hand and never changed by a standings pull.</p>
+  </section>
+
+  <section class="wide">
+    <h2><span class="t">Log</span></h2>
+    <div class="log" id="sLog"></div>
+  </section>
+</main>
+
+<!-- ================= LAYOUT ================= -->
+<main data-tab="layout">
+  <section class="wide">
+    <h2><span class="t">Drag a graphic to move it</span><button id="lyResetAll" style="flex:0 0 auto">Reset all</button></h2>
+    <div class="stage" id="stage">
+      <iframe id="lyFrame" tabindex="-1"></iframe>
+      <div class="boxes" id="boxes"></div>
+    </div>
+    <p class="hint">Everything is shown here with sample data so you can place it, even graphics that are off. Changes go live in vMix as you drag. Graphics stacked on top of each other? Pick one in the size list below to bring it to the front. Select a graphic, then use the arrow keys to nudge it (hold Shift for 10px steps).</p>
+  </section>
+  <section class="wide">
+    <h2><span class="t">Size</span></h2>
+    <div class="lylist" id="lyList"></div>
+    <p class="hint">Sizes are relative to the default for each graphic. While standings, race info or the team box are on air, any live graphic they overlap steps aside on its own.</p>
+  </section>
+</main>
+
+<!-- ================= SETUP ================= -->
+<main data-tab="setup">
+  <section class="wide">
+    <h2><span class="t">vMix inputs (Add Input → Web Browser, 1920 × 1080)</span></h2>
+    <label>Everything in one input (recommended)</label>
+    <div class="url"><input readonly id="u1"><button data-copy="u1">Copy</button></div>
+    <p class="hint">Live race graphics, standings, bracket, race info and broadcast team, all on one transparent layer.</p>
+    <label>Or separate inputs, if you'd rather switch them in vMix</label>
+    <div class="url"><input readonly id="u2"><button data-copy="u2">Copy</button></div>
+    <div class="url" style="margin-top:6px"><input readonly id="u3"><button data-copy="u3">Copy</button></div>
+    <div class="url" style="margin-top:6px"><input readonly id="u4"><button data-copy="u4">Copy</button></div>
+    <p class="hint">If you use separate inputs, turn off the matching parts in the main overlay so they don't show twice. Check the layout any time at <a href="/overlay?preview" target="_blank">/overlay?preview</a>.</p>
+  </section>
+  <section>
+    <h2><span class="t">Car renders (Grid)</span></h2>
+    <p class="hint" style="margin-top:0">Already set up and saved. Only needed again if renders stop showing after an iRacing update, or to check why one driver's paint is missing.</p>
+    <div class="row" style="margin:8px 0 0"><button id="rtTest">Test iRacing renders</button></div>
+    <div class="note" id="rtStatus" style="word-break:break-all;max-height:260px;overflow:auto"></div>
+    <button id="rtCopy" style="margin-top:6px;display:none">Copy test results</button>
+    <div id="rtPrev" style="display:none;margin-top:8px;background:repeating-conic-gradient(#2a2a2b 0 25%,#222 0 50%) 0 0/16px 16px;border-radius:5px;text-align:center"><img id="rtImg" style="max-width:100%;max-height:160px"></div>
+    <div id="rtPrev2" style="display:none;margin-top:8px"><div class="hint" id="rtCap2" style="margin:0 0 4px"></div><div style="background:repeating-conic-gradient(#2a2a2b 0 25%,#222 0 50%) 0 0/16px 16px;border-radius:5px;text-align:center"><img id="rtImg2" style="max-width:100%;max-height:160px"></div></div>
+    <div class="row" style="margin:6px 0 0"><button id="pcBtn">Check every driver's paint</button></div>
+    <div id="pcOut" style="display:none;margin-top:8px;max-height:320px;overflow:auto;border:1px solid var(--line);border-radius:5px"></div>
+    <label>iRacing paint folder</label>
+    <div class="row" style="margin:0"><input id="ptDir" placeholder="Documents\iRacing\paint (default)"><button class="go" id="ptBrowse" style="flex:0 0 auto">Browse…</button><button id="ptSave" style="flex:0 0 auto">Save</button></div>
+    <details style="margin-top:8px"><summary class="hint" style="cursor:pointer">Render address (advanced)</summary>
+      <textarea id="rtUrl" placeholder="(default iRacing address)" style="margin-top:6px;font-family:Consolas,monospace;font-size:12px;min-height:90px"></textarea>
+      <div class="row" style="margin-top:6px"><button id="rtUrlSave">Save address</button><button id="rtUrlReset">Default</button></div>
+      <p class="hint">Placeholders: {carPath} {carPat} {carCol} {rimCol} {numPat} {numCol} {numSlnt} {sponsors} {licCol} {club} {carCustPaint} {carSpecPaint} {numCustPaint} {userId} {teamId} {carId}</p>
+    </details>
+  </section>
+
+  <section>
+    <h2><span class="t">Reset</span></h2>
+    <button id="resetBtn" style="width:100%">Reset live race settings to default</button>
+    <p class="hint">Doesn't touch standings, bracket, race info or team (those are saved in the standings folder).</p>
+  </section>
+</main>
+<div class="modal" id="fb" hidden>
+  <div class="mbox">
+    <h2><span class="t" id="fbTitle">Pick a folder</span><button id="fbClose" style="flex:0 0 auto">✕</button></h2>
+    <div class="fbroots" id="fbRoots"></div>
+    <div class="fbpath"><button id="fbUp" title="Up one folder">↑</button><span id="fbPath">Pick a place to start</span></div>
+    <div class="fblist" id="fbList"></div>
+    <div class="row" style="margin:12px 0 0"><span class="hint" id="fbCount" style="margin:0"></span><button class="go" id="fbUse" style="flex:0 0 auto">Use this folder</button></div>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+let S = null, L = null, SD = null, filled = false, sFilled = false, pullBusy = false;
+const TILES = [
+  ['logo', 'VSPEED logo', 'top left'], ['league', 'League + live tag', 'top right'],
+  ['tower', 'Ticker', 'timing tower'], ['lowerthird', 'Driver info', 'camera car'],
+  ['board', 'Results', 'live order'], ['@grid', 'Grid', 'row by row'],
+  ['@standings', 'Standings', 'points / bracket'], ['@info', 'Race info', 'analysis box'], ['@team', 'Broadcast team', 'lower third'], ['@track', 'Track graphic', 'from Drive'],
+];
+const BASE = { logo: true, league: true, tower: true, lowerthird: true, flags: true, board: false };
+const A_EXAMPLE = { title: 'RACE ANALYSIS', lines: ['RACE LENGTH: 100 LAPS', 'PITROAD SPEED: 50MPH', 'TIRE SETS AVAILABLE: 4', '2 GWC ATTEMPTS', '100% FUEL | PREMIER SETUP'] };
+const T_EXAMPLE = { title: 'BROADCASTING TEAM', people: [['Sam Rivera', 'Lead Commentary'], ['Jordan Lee', 'Co-Commentary'], ['Casey Hart', 'Producer']] };
+
+function toast(t) { if (!t) return; const el = $('toast'); el.textContent = t; el.classList.add('show'); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove('show'), 2200); }
+async function post(url, body) {
+  try {
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    return await r.json();
+  } catch (e) { toast('Server not reachable'); return { ok: false }; }
+}
+const set = async patch => (await post('/api/settings', patch)).ok;
+// standings commands; a CONFIRM: reply asks first and sends again with force
+async function std(cmd, payload = {}) {
+  let r = await post('/api/standings', Object.assign({ cmd }, payload));
+  if (!r.ok && r.msg && r.msg.startsWith('CONFIRM:')) {
+    if (!confirm(r.msg.slice(8))) return r;
+    r = await post('/api/standings', Object.assign({ cmd, force: true }, payload));
+  }
+  if (r.msg) toast(r.msg);
+  return r;
+}
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+
+// ---------- live timing window (/timing) ----------
+const SOLO = location.pathname.replace(/\/+$/, '') === '/timing' || new URLSearchParams(location.search).get('solo') === 'cars';
+if (SOLO) { document.body.classList.add('solo'); document.title = 'VSPEED Live Timing'; }
+$('camWin').onclick = () => {
+  const w = window.open('/timing', 'vspeedTiming', 'width=1150,height=980');
+  if (!w) toast('Your browser blocked the pop-up. Open /timing in a new window instead.');
+};
+
+// ---------- tabs ----------
+function showTab(t) {
+  document.querySelectorAll('nav button').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+  document.querySelectorAll('main').forEach(m => m.classList.toggle('on', m.dataset.tab === t));
+  if (!SOLO) try { localStorage.setItem('vsTab', t); } catch (e) {}
+}
+$('nav').onclick = e => { const b = e.target.closest('button'); if (b && b.dataset.tab) showTab(b.dataset.tab); };
+let startTab = 'race'; try { startTab = localStorage.getItem('vsTab') || 'race'; } catch (e) {}
+if (!document.querySelector(`nav button[data-tab="${startTab}"]`)) startTab = 'race';
+showTab(SOLO ? 'race' : startTab);
+
+// ---------- race tab ----------
+$('tiles').innerHTML = TILES.map(([k, n, s]) => `<button class="tile" data-k="${k}">${n}<small>${s}</small></button>`).join('');
+// right-click (or press and hold) the VSPEED logo tile: slanted or straight logo box
+function openLogoMenu(x, y) {
+  const m = $('ctx'), cur = (S && S.logoStyle) || 'slant';
+  m.innerHTML = '<div class="hd">VSPEED logo style</div>' +
+    [['slant', 'Slanted box'], ['straight', 'Straight box (not slanted)']].map(([v, n]) => `<button data-logo="${v}" class="${v === cur ? 'cur' : ''}">${n}</button>`).join('');
+  m.hidden = false;
+  const w = m.offsetWidth, h = m.offsetHeight;
+  m.style.left = Math.max(6, Math.min(x, innerWidth - w - 6)) + 'px'; m.style.top = Math.max(6, Math.min(y, innerHeight - h - 6)) + 'px';
+}
+let logoHold = null, logoSkipClick = false;
+$('tiles').addEventListener('contextmenu', e => { if (!e.target.closest('.tile[data-k="logo"]')) return; e.preventDefault(); openLogoMenu(e.clientX, e.clientY); });
+$('tiles').addEventListener('pointerdown', e => {
+  if (e.pointerType === 'mouse' || !e.target.closest('.tile[data-k="logo"]')) return;
+  logoHold = setTimeout(() => { logoSkipClick = true; openLogoMenu(e.clientX, e.clientY); }, 550);
+});
+['pointerup', 'pointercancel', 'pointerleave'].forEach(ev => $('tiles').addEventListener(ev, () => clearTimeout(logoHold)));
+$('tiles').addEventListener('click', e => { if (logoSkipClick) { logoSkipClick = false; e.stopImmediatePropagation(); } }, true);
+$('tiles').onclick = e => {
+  const b = e.target.closest('.tile'); if (!b || !S) return;
+  const k = b.dataset.k, st = SD ? SD.state : {};
+  if (k === '@standings') return std(st.visible ? 'hide' : 'show');
+  if (k === '@info') return std(st.analysis && st.analysis.visible ? 'analysisHide' : 'analysisShow');
+  if (k === '@team') return std(st.team && st.team.visible ? 'teamHide' : 'teamShow');
+  if (k === '@track') return trackToggle();
+  if (k === '@grid') return S.gridw && S.gridw.visible ? set({ gridw: { visible: false } }) : set({ gridw: { visible: true, t: Date.now() } });
+  set({ show: { [k]: !S.show[k] } });
+};
+$('hideAll').onclick = () => { set({ show: Object.fromEntries(Object.keys(BASE).map(k => [k, false])) }); std('hideAll'); };
+$('showBase').onclick = () => set({ show: BASE });
+function bindSeg(id, key) { $(id).onclick = e => { const b = e.target.closest('button'); if (b) set({ [key]: b.dataset.v }); }; }
+bindSeg('towerSeg', 'towerMode'); bindSeg('ltSeg', 'lowerThirdMode');
+$('towerRows').onchange = () => set({ towerRows: +$('towerRows').value });
+$('towerFixed').onchange = () => set({ towerFixed: +$('towerFixed').value });
+$('towerPageSec').onchange = () => set({ towerPageSec: +$('towerPageSec').value });
+$('classFilter').onchange = () => set({ classFilter: $('classFilter').value });
+$('camGroup').onchange = () => post('/api/camera', { group: +$('camGroup').value });
+async function camTo(carIdx, group) {
+  const res = await post('/api/camera', { carIdx, group: group != null ? group : ($('camGroup').value ? +$('camGroup').value : null) });
+  if (!res.ok) toast('Camera switch failed (iRacing connected?)');
+}
+let ctxSkipClick = false;
+$('cars').onclick = e => {
+  const r = e.target.closest('.car'); if (!r) return;
+  if (ctxSkipClick) { ctxSkipClick = false; return; }
+  camTo(+r.dataset.idx);
+};
+// right-click (or press and hold) a driver: pick the camera to cut to
+function openCtx(row, x, y) {
+  const car = (L.cars || []).find(c => c.idx === +row.dataset.idx); if (!car) return;
+  const groups = L.camGroups || [];
+  const m = $('ctx');
+  m.innerHTML = `<div class="hd">#${esc(car.num)} ${esc(car.name)}</div>` + (groups.length
+    ? '<div class="list">' + groups.map(g => `<button data-g="${g.num}" class="${g.num === L.camGroup ? 'cur' : ''}">${esc(g.name)}</button>`).join('') + '</div>'
+    : '<div class="hd">No cameras (is iRacing running?)</div>');
+  m.dataset.idx = car.idx; m.hidden = false;
+  const w = m.offsetWidth, h = m.offsetHeight;
+  m.style.left = Math.max(6, Math.min(x, innerWidth - w - 6)) + 'px'; m.style.top = Math.max(6, Math.min(y, innerHeight - h - 6)) + 'px';
+  const cur = m.querySelector('.cur'); if (cur) cur.scrollIntoView({ block: 'nearest' });
+}
+$('cars').addEventListener('contextmenu', e => { const r = e.target.closest('.car'); if (!r) return; e.preventDefault(); openCtx(r, e.clientX, e.clientY); });
+let holdT = null;
+$('cars').addEventListener('pointerdown', e => {
+  if (e.pointerType === 'mouse') return;
+  const r = e.target.closest('.car'); if (!r) return;
+  holdT = setTimeout(() => { ctxSkipClick = true; openCtx(r, e.clientX, e.clientY); }, 550);
+});
+['pointerup', 'pointercancel', 'pointermove'].forEach(ev => $('cars').addEventListener(ev, e => { if (ev !== 'pointermove' || Math.abs(e.movementY) > 4) clearTimeout(holdT); }));
+$('ctx').onclick = e => {
+  const lb = e.target.closest('[data-logo]'); if (lb) { set({ logoStyle: lb.dataset.logo }); $('ctx').hidden = true; return; }
+  const b = e.target.closest('[data-g]'); if (!b) return; camTo(+$('ctx').dataset.idx, +b.dataset.g); $('ctx').hidden = true; };
+document.addEventListener('pointerdown', e => { if (!$('ctx').hidden && !e.target.closest('#ctx')) $('ctx').hidden = true; });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') $('ctx').hidden = true; });
+// camera list on the left
+$('ltCams').onclick = e => { const b = e.target.closest('[data-g]'); if (b) post('/api/camera', { group: +b.dataset.g }); };
+// replay controls
+const rp = (cmd, value) => post('/api/replay', { cmd, value }).then(r => { if (!r.ok) toast('Not connected to iRacing'); });
+document.querySelectorAll('[data-rp]').forEach(b => b.onclick = () => rp(b.dataset.rp));
+$('rpSpeeds').onclick = e => { const b = e.target.closest('[data-sp]'); if (b) rp('speed', +b.dataset.sp); };
+$('rpBack').onclick = () => rp('back', Math.max(3, +$('rpSecs').value || 30));
+document.querySelectorAll('[data-ot]').forEach(b => b.onclick = () => post('/api/replay', { cmd: 'ontrack', dir: +b.dataset.ot }));
+try { const v = localStorage.getItem('vsRpSecs'); if (v) $('rpSecs').value = v; } catch (e) {}
+$('rpSecs').onchange = () => { try { localStorage.setItem('vsRpSecs', $('rpSecs').value); } catch (e) {} };
+document.querySelectorAll('[data-save]').forEach(b => b.onclick = async () => {
+  const k = b.dataset.save; let patch;
+  if (k === 'text') patch = { raceName: $('raceName').value, leagueLogo: $('leagueLogo').value };
+  if (k === 'board') patch = { boardTitle: $('boardTitle').value };
+  if (await set(patch)) toast('Updated');
+});
+
+// ---------- standings tab ----------
+document.querySelectorAll('[data-s]').forEach(b => b.onclick = () => std(b.dataset.s));
+$('viewSeg').onclick = e => { const b = e.target.closest('button'); if (b) std('view', { view: b.dataset.v }); };
+$('playoffBtn').onclick = () => std('playoff', { cutoff: +$('cutoff').value || 16 });
+$('cutoff').onchange = () => std('cutoff', { cutoff: +$('cutoff').value });
+$('sTitleBtn').onclick = () => std('title', { text: $('sTitle').value });
+$('logoSize').oninput = () => { $('logoSizeV').textContent = $('logoSize').value; clearTimeout($('logoSize')._t); $('logoSize')._t = setTimeout(() => std('logoSize', { size: +$('logoSize').value }), 120); };
+$('logoRemove').onclick = () => { if (confirm('Remove the standings logo?')) std('logoRemove'); };
+$('logoFile').onchange = () => {
+  const f = $('logoFile').files[0]; if (!f) return;
+  const rd = new FileReader();
+  rd.onload = () => { std('logoUpload', { name: f.name, data: rd.result }); $('logoFile').value = ''; };
+  rd.readAsDataURL(f);
+};
+$('xtreme').onchange = () => std('xtreme', { url: $('xtreme').value });
+$('pullBtn').onclick = async () => {
+  pullBusy = true; $('pullBtn').disabled = true; $('pullBtn').textContent = 'Pulling…';
+  await std('pull', { url: $('xtreme').value });
+  pullBusy = false; $('pullBtn').disabled = false; $('pullBtn').textContent = 'Pull standings now';
+};
+$('csvFile').onchange = () => {
+  const f = $('csvFile').files[0]; if (!f) return;
+  f.text().then(t => std('csvLoad', { text: t, name: f.name })).finally(() => { $('csvFile').value = ''; });
+};
+
+// standings table (view + hand edit)
+const EDIT_COLS = ['pos', 'chg', '#', 'driver', 'pts', 'to ldr', 'to nxt', 'wins'];
+let editing = null;   // { ver, rows } while editing
+function colsOf(header) { const low = header.map(h => h.toLowerCase()); return EDIT_COLS.map(n => low.indexOf(n)).filter(i => i >= 0); }
+function cutoffIndex() {
+  // same rule as the graphic: winners lock in, remaining spots to best non-winners; the line sits under the last one in (by points order)
+  if (!SD || !SD.state.playoff) return -1;
+  const low = SD.header.map(h => h.toLowerCase()), wi = low.indexOf('wins');
+  const rows = SD.rows.slice(0, 20), n = SD.state.cutoff || 16;
+  const wins = rows.map(r => wi >= 0 && (parseInt(r[wi], 10) || 0) > 0);
+  let spots = Math.max(0, n - wins.filter(Boolean).length), last = -1;
+  rows.forEach((r, k) => { if (!wins[k] && spots > 0) { spots--; last = k; } });
+  return last;
+}
+function renderTable() {
+  const t = $('sTable');
+  if (!SD || !SD.header.length) { t.innerHTML = '<tr><td class="empty">No standings yet. Pull from Xtreme Scoring or load a CSV.</td></tr>'; return; }
+  const cols = colsOf(SD.header);
+  const head = '<tr>' + cols.map(i => `<th>${esc(SD.header[i])}</th>`).join('') + '</tr>';
+  if (editing) {
+    if (t.dataset.mode === 'edit') return;
+    t.dataset.mode = 'edit';
+    t.innerHTML = head + editing.rows.map((r, ri) => '<tr>' + cols.map(i =>
+      `<td class="${SD.header[i].toLowerCase() === 'driver' ? 'drv' : ''}"><input data-r="${ri}" data-c="${i}" value="${esc(r[i])}"></td>`).join('') + '</tr>').join('');
+    return;
+  }
+  const cut = cutoffIndex();
+  const html = head + SD.rows.map((r, ri) => `<tr class="${ri === cut ? 'cut' : ''}">` + cols.map(i => `<td>${esc(r[i])}</td>`).join('') + '</tr>').join('');
+  if (t.dataset.mode !== 'view' || t._h !== html) { t.dataset.mode = 'view'; t._h = html; t.innerHTML = html; }
+}
+$('editBtn').onclick = () => {
+  if (!SD || !SD.rows.length) return toast('Pull or load the standings first');
+  editing = { ver: SD.state.dataVer, rows: SD.rows.map(r => r.slice()) };
+  $('editBar').style.display = ''; $('editBtn').style.display = 'none'; renderTable();
+};
+function stopEdit() { editing = null; $('editBar').style.display = 'none'; $('editBtn').style.display = ''; $('sTable').dataset.mode = ''; renderTable(); }
+$('editCancel').onclick = stopEdit;
+$('editSave').onclick = async () => {
+  $('sTable').querySelectorAll('input').forEach(inp => { editing.rows[+inp.dataset.r][+inp.dataset.c] = inp.value; });
+  const r = await std('edit', { rows: editing.rows, recalc: $('recalc').checked, ver: editing.ver });
+  if (r.ok) stopEdit();
+};
+
+// bracket
+const BNAMES = ['Round of 12', 'Round of 8', 'Championship 4', 'Champion'];
+let bKey = '';
+function renderBracket() {
+  const rounds = (SD && SD.state.bracket && SD.state.bracket.rounds) || [[], [], [], []];
+  const key = JSON.stringify(rounds); if (key === bKey) return; bKey = key;
+  $('bracket').innerHTML = BNAMES.map((n, r) => `<div class="bcol"><h3>${n} (${rounds[r].length})</h3>` +
+    (rounds[r].length ? rounds[r].map((e, i) => `<div class="bent"><span class="sd">${esc(e.seed)}</span><span class="cn">${esc(e.num)}</span><span class="nm">${esc(e.name)}</span>` +
+      (r < 3 ? `<button data-b="bracketAdvance" data-r="${r}" data-i="${i}" title="Advance">→</button>` : '') +
+      (r > 0 ? `<button data-b="bracketRemove" data-r="${r}" data-i="${i}" title="Remove">×</button>` : '') +
+      `<button data-b="edit" data-r="${r}" data-i="${i}" title="Edit">✎</button></div>`).join('') : '<div class="empty">Empty</div>') + '</div>').join('');
+}
+$('bracket').onclick = e => {
+  const b = e.target.closest('button[data-b]'); if (!b) return;
+  const r = +b.dataset.r, i = +b.dataset.i;
+  if (b.dataset.b === 'edit') {
+    const ent = SD.state.bracket.rounds[r][i];
+    const num = prompt('Car number for ' + ent.name, ent.num); if (num === null) return;
+    const name = prompt('Driver name', ent.name); if (name === null) return;
+    return std('bracketEdit', { seed: ent.seed, num, name });
+  }
+  std(b.dataset.b, { r, idx: i });
+};
+$('bLoad').onclick = () => std('bracketLoad');
+$('bClear').onclick = () => std('bracketClear');
+
+// ---------- race info + team ----------
+$('aLines').innerHTML = [0, 1, 2, 3, 4].map(i => `<label>Line ${i + 1}</label><input id="aL${i}">`).join('');
+$('tPeople').innerHTML = [0, 1, 2].map(i => `<div class="grid2"><div><label>Person ${i + 1}</label><input id="tN${i}" placeholder="Name"></div><div><label>Role</label><input id="tR${i}" placeholder="Role"></div></div>`).join('');
+const aPayload = () => ({ title: $('aTitle').value, lines: [0, 1, 2, 3, 4].map(i => $('aL' + i).value) });
+const tPayload = () => ({ title: $('tTitle').value, people: [0, 1, 2].map(i => [$('tN' + i).value, $('tR' + i).value]) });
+document.querySelectorAll('[data-a]').forEach(b => b.onclick = () => std(b.dataset.a, b.dataset.a === 'analysisHide' ? {} : aPayload()).then(r => r.ok && b.dataset.a === 'analysisText' && toast('Race info updated')));
+document.querySelectorAll('[data-t]').forEach(b => b.onclick = () => std(b.dataset.t, b.dataset.t === 'teamHide' ? {} : tPayload()).then(r => r.ok && b.dataset.t === 'teamText' && toast('Team updated')));
+function fillA(a) { $('aTitle').value = a.title || ''; [0, 1, 2, 3, 4].forEach(i => $('aL' + i).value = (a.lines || [])[i] || ''); }
+function fillT(t) { $('tTitle').value = t.title || ''; [0, 1, 2].forEach(i => { const p = (t.people || [])[i] || ['', '']; $('tN' + i).value = p[0]; $('tR' + i).value = p[1]; }); }
+$('aReset').onclick = () => fillA(A_EXAMPLE);
+$('tReset').onclick = () => fillT(T_EXAMPLE);
+
+
+
+// ---------- Google Drive folder (track graphics) ----------
+let gFiles = [], gKey = '', gDirFilled = false, trKey = '';
+async function gLoad() {
+  let r; try { r = await (await fetch('/api/graphics')).json(); } catch (e) { return; }
+  if (!gDirFilled && document.activeElement !== $('gDir')) { $('gDir').value = r.dir || ''; gDirFilled = true; }
+  $('gStatus').textContent = r.ok ? `${r.files.length} graphic${r.files.length === 1 ? '' : 's'} found` : r.error;
+  $('gStatus').classList.toggle('err', !r.ok);
+  $('gGuess').innerHTML = (!r.ok && r.guesses && r.guesses.length) ? 'Google Drive found at: ' + r.guesses.map(g => `<a href="#" data-g="${esc(g)}">${esc(g)}</a>`).join(' · ') : '';
+  gFiles = r.files || [];
+  const key = gFiles.map(f => f.path + f.mtime).join('|');
+  if (key !== gKey) { gKey = key; trKey = ''; }
+  if (S) trackList();
+}
+const gOpts = () => ({ anim: (S && S.gfx && S.gfx.anim) || 'wipe', hold: (S && S.gfx && S.gfx.hold) || 0 });
+$('gDirSave').onclick = async () => { await set({ graphicsDir: $('gDir').value.trim() }); gKey = ''; gLoad(); };
+$('gGuess').onclick = e => { const a = e.target.closest('[data-g]'); if (!a) return; e.preventDefault(); $('gDir').value = a.dataset.g + '\\'; $('gDir').focus(); };
+gLoad();
+
+// folder browser (lists folders on the broadcast PC through the overlay server)
+let fbCur = '';
+async function fbGo(path) {
+  let r; try { r = await (await fetch('/api/browse?path=' + encodeURIComponent(path || ''))).json(); } catch (e) { return toast('Server not reachable'); }
+  if (r.error) toast(r.error);
+  $('fbRoots').innerHTML = r.roots.map(x => `<button data-p="${esc(x.path)}">${esc(x.name)}</button>`).join('');
+  if (r.error && path) return;
+  fbCur = r.path;
+  $('fbPath').textContent = r.path || 'Pick a place to start';
+  $('fbUp').disabled = !r.parent; $('fbUp').dataset.p = r.parent || '';
+  $('fbList').innerHTML = !r.path ? '<p class="empty" style="padding:12px">Choose a drive or folder above.</p>' :
+    (r.dirs.length ? r.dirs.map(d => `<div class="fbitem" data-p="${esc(d.path)}"><span>📁 ${esc(d.name)}</span><span class="c ${d.images ? 'has' : ''}">${d.images ? d.images + ' image' + (d.images === 1 ? '' : 's') : ''}</span></div>`).join('')
+      : '<p class="empty" style="padding:12px">No folders inside this one.</p>');
+  $('fbCount').textContent = r.path ? (r.images ? `${r.images} graphic${r.images === 1 ? '' : 's'} in this folder` : 'No graphics directly in this folder (subfolders are included too)') : '';
+  $('fbUse').disabled = !r.path;
+}
+let fbTarget = 'gfx';
+// Browse: on the broadcast PC this opens the normal Windows folder window; from a phone or another PC it falls back to the in-page folder list
+async function pickFolder(target, title, start) {
+  fbTarget = target;
+  let r = null;
+  toast('Opening the folder window on the broadcast PC…');
+  try { r = await (await fetch('/api/pickfolder?title=' + encodeURIComponent(title) + '&start=' + encodeURIComponent(start))).json(); } catch (e) {}
+  if (r && r.path) { fbCur = r.path; return fbUse(); }
+  if (r && r.cancel) return;
+  if (r && r.error) return toast(r.error);
+  $('fbTitle').textContent = title; $('fb').hidden = false; fbGo(start);
+}
+$('gBrowse').onclick = () => pickFolder('gfx', 'Pick the graphics folder', $('gDir').value.trim());
+$('fbClose').onclick = () => { $('fb').hidden = true; };
+$('fb').onclick = e => { if (e.target === $('fb')) $('fb').hidden = true; };
+$('fbRoots').onclick = e => { const b = e.target.closest('[data-p]'); if (b) fbGo(b.dataset.p); };
+$('fbList').onclick = e => { const b = e.target.closest('[data-p]'); if (b) fbGo(b.dataset.p); };
+$('fbUp').onclick = () => { if ($('fbUp').dataset.p) fbGo($('fbUp').dataset.p); };
+$('fbUse').onclick = () => fbUse();
+async function fbUse() {
+  if (!fbCur) return;
+  $('fb').hidden = true;
+  if (fbTarget === 'paint') { $('ptDir').value = fbCur; await set({ paintDir: fbCur }); toast('Paint folder set'); return; }
+  $('gDir').value = fbCur;
+  await set({ graphicsDir: fbCur }); gKey = ''; trKey = ''; gLoad(); toast('Graphics folder set');
+}
+
+// ---------- race tab: track graphic button ----------
+function trackOnAir() { const g = (S && S.gfx) || {}; return !!(g.visible && S.trackGraphic && g.file === S.trackGraphic); }
+function trackToggle() {
+  if (trackOnAir()) return post('/api/gfx', { cmd: 'hide' });
+  const f = S && S.trackGraphic;
+  if (!f) { toast('Pick tonight\'s track first'); return; }
+  post('/api/gfx', Object.assign({ cmd: 'show', file: f }, gOpts()));
+}
+$('trShow').onclick = () => { if (trackOnAir()) return; trackToggle(); };
+$('trHide').onclick = () => { if (trackOnAir()) post('/api/gfx', { cmd: 'hide' }); };
+$('trackSel').onchange = () => set({ trackGraphic: $('trackSel').value });
+function trackList() {
+  const isTrack = f => /track/i.test(f.folder) || /track/i.test(f.name);
+  const list = gFiles.slice().sort((a, b) => (isTrack(b) - isTrack(a)) || a.path.localeCompare(b.path));
+  const cur = (S && S.trackGraphic) || '';
+  const key = list.map(f => f.path).join('|') + '#' + cur;
+  if (key !== trKey && document.activeElement !== $('trackSel')) {
+    trKey = key;
+    $('trackSel').innerHTML = `<option value="">${list.length ? '— Pick a track graphic —' : 'No graphics yet (pick the folder below)'}</option>` +
+      list.map(f => `<option value="${esc(f.path)}" ${f.path === cur ? 'selected' : ''}>${esc(f.folder ? f.folder + ' / ' + f.name : f.name)}</option>`).join('');
+  }
+  air('trAir', trackOnAir());
+}
+setInterval(() => { if ($('trackSel').offsetParent) gLoad(); }, 10000);
+
+
+// ---------- grid ----------
+const gw = () => (S && S.gridw) || {};
+$('grShow').onclick = () => set({ gridw: { visible: true, t: Date.now() } });
+$('grHide').onclick = () => set({ gridw: { visible: false } });
+$('grPrev').onclick = () => set({ gridw: { step: { n: Date.now(), dir: -1 } } });
+$('grNext').onclick = () => set({ gridw: { step: { n: Date.now(), dir: 1 } } });
+$('grSec').onchange = () => set({ gridw: { rowSec: Math.max(2, +$('grSec').value || 6) } });
+$('grEnd').onclick = e => { const b = e.target.closest('button'); if (b) set({ gridw: { end: b.dataset.v } }); };
+$('grMode').onclick = e => { const b = e.target.closest('button'); if (b) set({ gridw: { mode: b.dataset.v } }); };
+$('grSite').onchange = () => set({ gridw: { site: $('grSite').value } });
+/* ---------- sponsors ---------- */
+const SPONSORS = [['green', 'Green Flag'], ['restart', 'Restart'], ['white', 'White Flag'], ['read1', 'Sponsor Read 1'], ['read2', 'Sponsor Read 2'], ['read3', 'Sponsor Read 3']];
+$('spRows').innerHTML = SPONSORS.map(([k, n]) => `<div class="sprow" data-sp="${k}"><div class="thumb">no image</div>
+  <div><div class="nm">${n}</div><div class="fn"></div></div>
+  <div class="bt"><button data-do="load">Load image…</button><button class="go" data-do="show">Show</button><button data-do="hide">Hide</button></div></div>`).join('');
+let spSlot = '';
+$('spRows').onclick = e => {
+  const b = e.target.closest('button'), row = e.target.closest('.sprow'); if (!b || !row) return;
+  const k = row.dataset.sp, sp = S.sponsor || {};
+  if (b.dataset.do === 'load') { spSlot = k; $('spFile').value = ''; $('spFile').click(); }
+  else if (b.dataset.do === 'show') {
+    if (!(sp.files || {})[k]) return toast('Load an image for this sponsor first');
+    set({ sponsor: { active: k, t: Date.now() }, show: { lowerthird: false } });   // driver info goes off and stays off until its tile is pressed again
+  } else if (sp.active === k) set({ sponsor: { active: '' } });
+};
+$('spFile').onchange = async () => {
+  const f = $('spFile').files[0]; if (!f || !spSlot) return;
+  toast('Loading ' + f.name + '…');
+  try {
+    const r = await (await fetch('/api/sponsor/upload?slot=' + spSlot, { method: 'POST', headers: { 'X-Filename': encodeURIComponent(f.name), 'Content-Type': 'application/octet-stream' }, body: f })).json();
+    if (r.ok) { try { localStorage.setItem('vsSpName_' + spSlot, f.name); } catch (e) {} toast('Image loaded'); } else toast(r.error || 'Could not load the image');
+  } catch (e) { toast('Server not reachable'); }
+};
+$('spHideAll').onclick = () => set({ sponsor: { active: '' } });
+$('spHold').onchange = () => set({ sponsor: { hold: Math.max(0, +$('spHold').value || 0) } });
+function sponsorRender() {
+  const sp = S.sponsor || {}, files = sp.files || {};
+  const live = !!sp.active && !!files[sp.active] && !(+sp.hold > 0 && Date.now() - (sp.t || 0) > sp.hold * 1000);
+  air('spAir', live);
+  document.querySelectorAll('.sprow').forEach(row => {
+    const k = row.dataset.sp, f = files[k] || '', th = row.querySelector('.thumb');
+    row.classList.toggle('on', live && sp.active === k);
+    const bg = f ? `url("/sponsor/${f}")` : '';
+    if (th.dataset.bg !== bg) { th.dataset.bg = bg; th.style.backgroundImage = bg; th.textContent = f ? '' : 'no image'; }
+    let nm = ''; try { nm = localStorage.getItem('vsSpName_' + k) || ''; } catch (e) {}
+    row.querySelector('.fn').textContent = live && sp.active === k ? 'On air' : (f ? (nm || 'Image loaded') : 'No image yet');
+  });
+  if (document.activeElement !== $('spHold')) $('spHold').value = sp.hold || 0;
+}
+setInterval(() => { if (S) sponsorRender(); }, 1000);
+function gridRender() {
+  const g = gw();
+  air('grAir', g.visible);
+  segOn('grEnd', g.end || 'hide'); segOn('grMode', g.mode || 'auto');
+  $('grSec').disabled = g.mode === 'manual'; $('grSec').parentElement.style.opacity = g.mode === 'manual' ? .45 : 1;
+  if (document.activeElement !== $('grSec')) $('grSec').value = g.rowSec || 6;
+  if (document.activeElement !== $('grSite')) $('grSite').value = g.site ?? 'vspeedsim.com';
+}
+
+
+// car renders from iRacing
+$('rtTest').onclick = async () => {
+  $('rtStatus').textContent = 'Asking iRacing… (trying a few ways, this can take a few seconds)'; $('rtStatus').classList.remove('err');
+  let r; try { r = await (await fetch('/api/rendertest')).json(); } catch (e) { return; }
+  if (!r.results) { $('rtStatus').textContent = r.error || 'No answer'; $('rtStatus').classList.add('err'); return; }
+  const lines = r.results.map(x => `${x.ok ? '✔' : '✘'} ${x.name}: ${x.ok ? x.msg : (x.code ? 'HTTP ' + x.code + ' ' : '') + x.msg}`);
+  if (r.ok) {
+    $('rtStatus').textContent = (r.paintFound
+      ? `iRacing renders with custom paints work (tested on ${r.name}). Saved the way that worked.\n`
+      : `Renders work, but the custom paint isn't showing yet (tested on ${r.name}).\nPaint folder checked: ${r.paintFolder}\nIf that's not where your paints are, pick the right folder below and test again, or copy these results to me.\n`) + lines.join('\n');
+    $('rtStatus').classList.toggle('err', !r.paintFound);
+    $('rtImg').src = `/carrender/${r.idx}.png?t=${Date.now()}`; $('rtPrev').style.display = '';
+    if (r.cnIdx != null) {
+      $('rtImg2').src = `/carrender/${r.cnIdx}.png?t=${Date.now()}`; $('rtPrev2').style.display = '';
+      $('rtCap2').textContent = `Custom-number paint: ${r.cnName}. ` + (r.cnFrag ? 'Check that only their painted number shows (no second iRacing number on top).' : 'iRacing\'s own number may be drawn on top of theirs; send me these results if so.');
+    } else $('rtPrev2').style.display = 'none';
+    $('rtUrl').value = r.winner;
+  } else {
+    $('rtStatus').textContent = 'No render yet. Please send me this:\n' + lines.join('\n') + '\n\nPaint info: ' + JSON.stringify(r.paint) + '\nFirst address tried: ' + (r.results[0] ? r.results[0].url : '');
+    $('rtStatus').classList.add('err'); $('rtPrev').style.display = 'none';
+  }
+  $('rtStatus').style.userSelect = 'text'; $('rtCopy').style.display = '';
+};
+$('rtCopy').onclick = () => { try { navigator.clipboard.writeText($('rtStatus').textContent); toast('Copied'); } catch (e) {} };
+
+$('pcBtn').onclick = async () => {
+  let r; try { r = await (await fetch('/api/paintcheck')).json(); } catch (e) { return; }
+  const rows = r.drivers || [];
+  const yes = rows.filter(x => x.paint).length;
+  $('pcOut').style.display = '';
+  $('pcOut').innerHTML = !rows.length ? '<p class="empty" style="padding:10px">No drivers yet. Join or watch an iRacing session first.</p>' :
+    `<p class="hint" style="padding:8px 10px;margin:0">${yes} of ${rows.length} drivers have a custom paint file. Paint folder: ${esc(r.paintDir)}</p>` +
+    '<table class="st"><tr><th>#</th><th>Driver</th><th>Member ID</th><th>Custom paint</th><th>Files</th></tr>' +
+    rows.map(x => `<tr><td>${esc(x.num)}</td><td>${esc(x.name)}</td><td>${esc(x.custId)}${x.teamId && x.teamId !== '0' ? ' / team ' + esc(x.teamId) : ''}</td>
+      <td style="color:${x.paint ? 'var(--green)' : 'var(--bad)'}">${x.paint ? (x.customNumber ? 'yes, custom number' : 'yes') : (x.folderExists ? 'no car_' + esc(x.custId) + '.tga' : 'no car folder')}</td>
+      <td style="white-space:normal">${esc(x.found.join(', '))}${x.other.length ? '<br><span style="color:#e8c46a">also: ' + esc(x.other.join(', ')) + '</span>' : ''}</td></tr>`).join('') + '</table>' +
+    (rows.some(x => !x.folderExists) ? `<p class="hint" style="padding:8px 10px">Car folder looked for: ${esc((rows.find(x => !x.folderExists) || {}).folder || '')}</p>` : '');
+};
+$('ptSave').onclick = () => set({ paintDir: $('ptDir').value.trim() }).then(() => toast('Paint folder saved'));
+$('ptBrowse').onclick = () => pickFolder('paint', 'Pick the iRacing paint folder', $('ptDir').value.trim());
+$('rtUrlSave').onclick = () => set({ renderUrl: $('rtUrl').value.trim() }).then(() => toast('Render address saved'));
+$('rtUrlReset').onclick = async () => { await set({ renderUrl: '' }); toast('Back to the default address'); setTimeout(() => { $('rtUrl').value = ''; rtFilled = false; }, 300); };
+let rtFilled = false;
+function rendersRender() {
+  if (!rtFilled) { rtFilled = true; $('rtUrl').value = S.renderUrl || ''; $('ptDir').value = S.paintDir || ''; }
+}
+
+
+// ---------- ticker: multi-class grouping ----------
+// Two boxes: rows for the fastest class and for the next one. Labels follow the classes in the current session.
+$('csSeg').onclick = e => { const b = e.target.closest('button'); if (b) set({ classSplit: b.dataset.v === 'on' }); };
+$('csRows').onchange = e => {
+  const i = e.target.closest('[data-slot]'); if (!i) return;
+  const slots = (S.classRowSlots || [5, 15]).slice();
+  slots[+i.dataset.slot] = Math.max(1, Math.min(40, +i.value || 1));
+  set({ classRowSlots: slots });
+};
+let csKey = '';
+function sessionClasses() {   // fastest class first, same order as the ticker
+  const cars = (L && L.cars) || [];
+  const names = [...new Set(cars.map(c => c.cls).filter(Boolean))];
+  const pace = n => Math.min(...cars.filter(c => c.cls === n).map(c => c.est || 999));
+  return names.sort((a, b) => pace(a) - pace(b));
+}
+function classRowsRender() {
+  segOn('csSeg', S.classSplit === false ? 'off' : 'on');
+  const slots = S.classRowSlots || [5, 15];
+  const cls = sessionClasses();
+  const labels = [0, 1].map(i => cls.length > 1 && cls[i] ? cls[i] : (i ? 'Second class' : 'Fastest class'));
+  const key = labels.join('|') + slots.join(',') + S.classSplit;
+  if (key === csKey || $('csRows').contains(document.activeElement)) return;
+  csKey = key;
+  $('csRows').innerHTML = S.classSplit === false ? '' : [0, 1].map(i => `<div><label>${esc(labels[i])} rows</label><input type="number" min="1" max="40" data-slot="${i}" value="${slots[i] ?? 10}"></div>`).join('');
+}
+
+// ---------- layout tab ----------
+// The preview is a second copy of the overlay in layout mode (everything shown, sample data).
+// Boxes are drawn from where each graphic really is in that preview; dragging moves its anchor.
+let ly = null, lySel = null, drag = null, lyTimer = null, lyPending = {};
+const LYMIN = 0.4, LYMAX = 1.8;
+function lyScale() { return $('stage').clientWidth / 1920; }
+function lySend(id, patch) {
+  lyPending[id] = Object.assign(lyPending[id] || {}, patch);
+  if (lyTimer) return;
+  lyTimer = setTimeout(() => { const p = lyPending; lyPending = {}; lyTimer = null; set({ layout: p }); }, 60);
+}
+function lySelect(id) { lySel = id; document.querySelectorAll('.lbox, .lyrow').forEach(e => e.classList.toggle('sel', e.dataset.id === id)); }
+function lyTick() {
+  requestAnimationFrame(lyTick);
+  if (!$('stage').offsetParent) return;                      // tab not visible
+  const f = $('lyFrame');
+  if (!f.src) f.src = '/overlay?layout=1&preview';
+  const k = lyScale();
+  f.style.transform = `scale(${k})`;
+  let info; try { info = f.contentWindow.layoutInfo && f.contentWindow.layoutInfo(); } catch (e) {}
+  if (!info) return;
+  ly = info;
+  const boxes = $('boxes');
+  for (const id in info) {
+    let b = boxes.querySelector(`[data-id="${id}"]`);
+    if (!b) {
+      b = document.createElement('div'); b.className = 'lbox'; b.dataset.id = id; b.innerHTML = `<span>${esc(info[id].name)}</span>`;
+      boxes.appendChild(b);
+    }
+    let r = info[id].rect;
+    if (drag && drag.id === id) r = { x: drag.r.x + drag.dx, y: drag.r.y + drag.dy, w: drag.r.w, h: drag.r.h };
+    if (!r || r.w < 2) { b.style.display = 'none'; continue; }
+    b.style.display = '';
+    b.style.left = r.x * k + 'px'; b.style.top = r.y * k + 'px'; b.style.width = r.w * k + 'px'; b.style.height = r.h * k + 'px';
+    b.classList.toggle('sel', id === lySel);
+  }
+  lyList();
+}
+let lyListKey = '';
+function lyList() {
+  const key = Object.keys(ly).map(id => id + ly[id].mult).join('|') + lySel;
+  if (key === lyListKey) return; lyListKey = key;
+  $('lyList').innerHTML = Object.keys(ly).map(id => `<div class="lyrow ${id === lySel ? 'sel' : ''}" data-id="${id}">
+      <span>${esc(ly[id].name)}</span><input type="range" min="${LYMIN * 100}" max="${LYMAX * 100}" value="${Math.round(ly[id].mult * 100)}" data-size="${id}">
+      <span class="v">${Math.round(ly[id].mult * 100)}%</span><button data-reset="${id}">Reset</button></div>`).join('');
+}
+$('lyList').oninput = e => {
+  const id = e.target.dataset.size; if (!id) return;
+  const v = +e.target.value / 100;
+  e.target.nextElementSibling.textContent = Math.round(v * 100) + '%';
+  ly[id].mult = v; lyListKey = '';
+  lySend(id, { s: v });
+};
+$('lyList').onclick = e => {
+  const r = e.target.closest('[data-reset]');
+  if (r) { set({ layout: { [r.dataset.reset]: null } }); lyListKey = ''; return; }
+  const row = e.target.closest('.lyrow'); if (row && !e.target.matches('input')) lySelect(row.dataset.id);
+};
+$('lyResetAll').onclick = () => { if (confirm('Put every graphic back in its default spot and size?')) { set({ layout: Object.fromEntries(Object.keys(ly || {}).map(id => [id, null])) }); lyListKey = ''; } };
+$('boxes').addEventListener('pointerdown', e => {
+  const b = e.target.closest('.lbox'); if (!b || !ly) return;
+  const id = b.dataset.id; lySelect(id);
+  drag = { id, sx: e.clientX, sy: e.clientY, dx: 0, dy: 0, r: ly[id].rect, x: ly[id].x, y: ly[id].y };
+  b.setPointerCapture(e.pointerId); e.preventDefault();
+});
+$('boxes').addEventListener('pointermove', e => {
+  if (!drag) return;
+  const k = lyScale();
+  drag.dx = Math.round((e.clientX - drag.sx) / k); drag.dy = Math.round((e.clientY - drag.sy) / k);
+  lySend(drag.id, { x: drag.x + drag.dx, y: drag.y + drag.dy });
+});
+const lyEnd = () => { if (drag) { lySend(drag.id, { x: drag.x + drag.dx, y: drag.y + drag.dy }); setTimeout(() => { drag = null; }, 250); } };
+$('boxes').addEventListener('pointerup', lyEnd);
+$('boxes').addEventListener('pointercancel', lyEnd);
+document.addEventListener('keydown', e => {
+  if (!lySel || !ly || !$('stage').offsetParent || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return;
+  const step = e.shiftKey ? 10 : 1, d = { ArrowLeft: [-step, 0], ArrowRight: [step, 0], ArrowUp: [0, -step], ArrowDown: [0, step] }[e.key];
+  if (!d) return;
+  e.preventDefault();
+  ly[lySel].x += d[0]; ly[lySel].y += d[1];
+  lySend(lySel, { x: ly[lySel].x, y: ly[lySel].y });
+});
+requestAnimationFrame(lyTick);
+
+// ---------- setup ----------
+const o = location.origin.replace('://localhost', '://127.0.0.1');
+$('u1').value = o + '/overlay'; $('u2').value = o + '/standings'; $('u3').value = o + '/analysis'; $('u4').value = o + '/team';
+document.querySelectorAll('[data-copy]').forEach(b => b.onclick = () => { const i = $(b.dataset.copy); i.select(); try { navigator.clipboard.writeText(i.value); } catch (e) { document.execCommand('copy'); } toast('Copied'); });
+$('resetBtn').onclick = async () => { if (confirm('Reset live race settings and text to default?')) { await post('/api/reset', {}); filled = false; toast('Reset'); } };
+
+async function loadLogos() {
+  try {
+    const a = await (await fetch('/api/assets')).json();
+    const sel = $('leagueLogo'), cur = S ? S.leagueLogo : '';
+    const opts = a.logos.filter(f => !f.startsWith('vspeed_') && f !== 'preview_bg.jpg');
+    if (cur && !opts.includes(cur)) opts.unshift(cur);
+    sel.innerHTML = opts.map(f => `<option ${f === cur ? 'selected' : ''}>${esc(f)}</option>`).join('');
+  } catch (e) {}
+}
+function fillInputs() {
+  if (!filled) {
+    filled = true;
+    for (const k of ['raceName', 'boardTitle']) $(k).value = S[k] || '';
+    $('towerRows').value = S.towerRows; $('towerFixed').value = S.towerFixed ?? 14; $('towerPageSec').value = S.towerPageSec ?? 8;
+    loadLogos();
+  }
+  if (!sFilled && SD) {
+    sFilled = true;
+    $('sTitle').value = SD.state.title || '';
+    $('xtreme').value = SD.xtreme || '';
+    $('cutoff').value = SD.state.cutoff;
+    fillA(SD.state.analysis); fillT(SD.state.team);
+  }
+}
+function segOn(id, v) { document.querySelectorAll('#' + id + ' button').forEach(b => b.classList.toggle('on', b.dataset.v === v)); }
+function air(id, on) { $(id).textContent = on ? 'ON AIR' : 'HIDDEN'; $(id).classList.toggle('air', !!on); }
+
+let carsKey = '';
+function render() {
+  if (!S || !L) return;
+  fillInputs();
+  const st = SD ? SD.state : {};
+  const virt = { '@standings': st.visible, '@info': st.analysis && st.analysis.visible, '@team': st.team && st.team.visible, '@track': trackOnAir(), '@grid': !!(S.gridw && S.gridw.visible) };
+  document.querySelectorAll('.tile').forEach(t => t.classList.toggle('on', t.dataset.k in virt ? !!virt[t.dataset.k] : !!S.show[t.dataset.k]));
+  const lsm = document.querySelector('.tile[data-k="logo"] small'), lst = S.logoStyle === 'straight' ? 'top left · straight' : 'top left · slanted';
+  if (lsm && lsm.textContent !== lst) lsm.textContent = lst;
+  if (S.gfx) { trackList(); }
+  gridRender(); sponsorRender(); rendersRender(); classRowsRender();
+  segOn('towerSeg', S.towerMode); segOn('ltSeg', S.lowerThirdMode);
+  const replay = !!L.isReplay;
+
+  $('dot').className = 'dot ' + (L.connected ? (L.source === 'demo' ? 'demo' : 'on') : '');
+  $('conn').textContent = L.connected ? (L.source === 'demo' ? 'Demo mode' : 'iRacing connected') : 'Waiting for iRacing';
+  $('sess').textContent = L.connected ? `${L.sessionName || ''} · ${L.track || ''}` : '—';
+  $('lapPill').textContent = L.connected ? (L.totalLaps ? `Lap ${Math.max(1, L.lap)} / ${L.totalLaps}` : (L.timeRemain || `Lap ${L.lap || 0}`)) + (replay ? ' · REPLAY' : ' · LIVE') : '—';
+  $('flagPill').textContent = 'Flag: ' + (L.flag || 'none');
+
+  const classes = L.classes || [];
+  const clsSel = $('classFilter'), clsKey = classes.join('|') + '#' + S.classFilter;
+  if (clsSel._k !== clsKey) { clsSel._k = clsKey; clsSel.innerHTML = `<option value="">All classes</option>` + classes.map(c => `<option ${c === S.classFilter ? 'selected' : ''}>${esc(c)}</option>`).join(''); }
+  const groups = L.camGroups || [], gSel = $('camGroup'), gKey = groups.map(g => g.num + g.name).join('|');
+  if (gSel._k !== gKey) { gSel._k = gKey; gSel.innerHTML = groups.map(g => `<option value="${g.num}">${esc(g.name)}</option>`).join(''); }
+  if (document.activeElement !== gSel && L.camGroup != null) gSel.value = L.camGroup;
+  const lc = L.cars || [];
+  const fastest = Math.min(...lc.map(c => c.best > 0 ? c.best : 1e9));
+  const tcls = (t, c) => !(t > 0) ? '' : (Math.abs(t - fastest) < 0.0005 ? 'ob' : (Math.abs(t - c.best) < 0.0005 ? 'pb' : ''));
+  const gainCell = c => c.gained == null ? '<span class="gn">–</span>' : c.gained > 0 ? `<span class="gn up">▲${c.gained}</span>` : c.gained < 0 ? `<span class="gn dn">▼${-c.gained}</span>` : '<span class="gn">–</span>';
+  const head = '<div class="carh"><span>Pos</span><span>#</span><span>Driver</span><span title="Positions gained or lost since the start">+/-</span><span>Gap</span><span title="Current speed">MPH</span><span class="x">Last</span><span class="x">Best</span><span class="x" title="Last pit stop time">Pit</span><span></span></div>';
+  const html = lc.map(c => `<div class="car ${c.idx === L.camCarIdx ? 'cam' : ''}" data-idx="${c.idx}">
+      <span class="p">${c.pos}</span><span class="n">#${esc(c.num)}</span><span>${esc(c.name)}</span>${gainCell(c)}
+      <span class="g ${c.lapsDown ? 'ld' : ''}">${esc(c.gap === 'LEADER' ? 'LEADER' : (c.gap || ''))}</span>
+      <span class="sp">${c.mph != null ? c.mph : ''}</span>
+      <span class="t x ${tcls(c.last, c)}">${esc(c.lastStr || '')}</span><span class="t x ${tcls(c.best, c) === 'ob' ? 'ob' : ''}">${esc(c.bestStr || '')}</span>
+      <span class="t x">${c.lastPit != null ? c.lastPit.toFixed(1) + 's' : ''}</span>
+      <span>${c.pit ? '<span class="pt">PIT</span>' : ''}</span></div>`).join('');
+  if (html !== carsKey) { carsKey = html; $('cars').innerHTML = html ? head + html : '<p class="hint" style="padding:12px">No cars yet.</p>'; }
+  if (SOLO) {
+    const ck = groups.map(g => g.num + g.name).join('|') + '#' + L.camGroup;
+    $('ltCams').classList.toggle('c2', groups.length > 12 && groups.length <= 24); $('ltCams').classList.toggle('c3', groups.length > 24);
+    $('rpLap').textContent = L.camLap != null && L.camLap >= 0 ? 'LAP ' + Math.max(1, L.camLap) : 'LAP –';
+    if ($('ltCams')._k !== ck) { $('ltCams')._k = ck; $('ltCams').innerHTML = groups.length ? groups.map(g => `<button data-g="${g.num}" class="${g.num === L.camGroup ? 'on' : ''}">${esc(g.name)}</button>`).join('') : '<p class="hint">Cameras appear when iRacing is running.</p>'; }
+    const sp = L.replaySpeed ?? 1, slow = !!L.replaySlow, eff = slow ? 1 / (sp + 1) : sp;
+    const label = !L.isReplay ? 'LIVE' : (sp === 0 ? 'REPLAY · PAUSED' : `REPLAY · ${sp < 0 ? '◀◀ ' : ''}×${Math.abs(eff) >= 1 ? Math.abs(eff) : (Math.round(Math.abs(eff) * 100) / 100)}`);
+    $('rpState').textContent = label; $('rpState').classList.toggle('air', !L.isReplay); $('rpState').classList.toggle('rep', !!L.isReplay);
+    document.querySelector('.rp.live').classList.toggle('on', !L.isReplay);
+    document.querySelectorAll('#rpSpeeds [data-sp]').forEach(b => b.classList.toggle('on', L.isReplay && sp > 0 && Math.abs(+b.dataset.sp - eff) < 0.01));
+    $('rpUi').classList.toggle('on', !L.uiHidden); $('rpUi').textContent = '⛶ Sim UI'; $('rpUi').title = (L.uiHidden ? 'iRacing UI is hidden' : 'iRacing UI is showing') + ' (click to toggle)';
+  }
+
+  if (SD) {
+    air('sAir', st.visible); air('aAir', st.analysis.visible); air('tAir', st.team.visible);
+    $('liveStand').classList.toggle('on', !!st.visible);
+    segOn('viewSeg', st.view);
+    $('playoffBtn').textContent = 'Playoff cutoff: ' + (st.playoff ? 'ON' : 'OFF');
+    $('playoffBtn').classList.toggle('go', !!st.playoff);
+    if (document.activeElement !== $('cutoff')) $('cutoff').value = st.cutoff;
+    if (document.activeElement !== $('logoSize')) { $('logoSize').value = st.logoSize; $('logoSizeV').textContent = st.logoSize; }
+    $('logoName').textContent = SD.logoName ? 'Current: ' + SD.logoName : 'No logo set';
+    $('sAge').textContent = SD.age; $('sAge').classList.toggle('stale', SD.stale);
+    const note = (SD.pullErr ? 'Last pull failed: ' + SD.pullErr + (SD.rows.length ? '. Showing the saved copy.' : '') + (SD.note ? '\n' : '') : '') + (SD.note || '');
+    $('sNote').textContent = note; $('sNote').classList.toggle('err', !!SD.pullErr);
+    if (!pullBusy) { $('pullBtn').disabled = !!SD.pulling; $('pullBtn').textContent = SD.pulling ? 'Pulling…' : 'Pull standings now'; }
+    const lg = SD.log.join('\n'); if ($('sLog')._v !== lg) { $('sLog')._v = lg; $('sLog').textContent = lg; $('sLog').scrollTop = 1e6; }
+    renderTable(); renderBracket();
+  }
+}
+
+function connect() {
+  const es = new EventSource('/events');
+  es.onmessage = e => { const d = JSON.parse(e.data); S = d.settings; L = d.live; SD = d.standings; render(); };
+  es.onerror = () => { es.close(); $('conn').textContent = 'Server offline'; $('dot').className = 'dot'; setTimeout(connect, 2000); };
+}
+connect();
+</script>
+</body>
+</html>

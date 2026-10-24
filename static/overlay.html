@@ -1,0 +1,1089 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>VSPEED Overlay</title>
+<style>
+  :root {
+    --red: #FF0D40;
+    --grey: #383839;        /* 92% grey */
+    --grey80: rgba(0,0,0,.74);        /* widget bodies: dark, see-through (rows alternate with --grey80b) */
+    --grey80b: rgba(17,17,17,.89);
+    --poscol: rgba(0,0,0,.88);        /* position column */
+    --blue: #33A1FF;
+    --midgrey: #939598;
+    --black: #0b0b0c;
+    --yellow: #FFE81F;
+    --green: #22C55E;
+    --row: 34px;
+    /* the Windows font is spelled "Bahnschrift"; SemiBold = weight 600, Light = weight 300 */
+    --semi: "Bahnschrift SemiBold", "Bahnschrift", Arial, sans-serif;
+    --light: "Bahnschrift Light", "Bahnschrift", Arial, sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { width: 1920px; height: 1080px; overflow: hidden; background: transparent; }
+  body { font-family: var(--semi); font-weight: 600; color: #fff; position: relative; }
+  body.preview { background: #555 url("/static/assets/preview_bg.jpg") center/cover; }
+
+  .widget { position: absolute; }
+  .widget.off { visibility: hidden; }
+  /* light sweep used by the in-animations (same idea as the standings / race info / team boxes) */
+  .shine { position: absolute; top: 0; bottom: 0; left: 0; width: 140px; pointer-events: none; opacity: 0; z-index: 3;
+           background: linear-gradient(100deg, transparent, rgba(255,255,255,.22), transparent); }
+
+  /* ---------- Top left logo ---------- */
+  #logo { top: 30px; left: 40px; transform-origin: left; }
+  #logo .plate {
+    position: relative; overflow: hidden;
+    width: 330px; height: 72px; background: var(--grey);
+    transform: skewX(-14deg); transform-origin: left bottom; display: flex; align-items: center; justify-content: center;
+    box-shadow: 5px 5px 0 var(--black), 0 4px 18px rgba(0,0,0,.35);   /* hard black drop shadow along the bottom and right */
+  }
+  #logo .plate img { height: 34px; transform: skewX(14deg); }
+  /* straight (non-slanted) version, picked by right-clicking the VSPEED logo tile */
+  #logo.straight .plate, #logo.straight .plate img, #logo.straight .accent { transform: none; }
+  #logo .accent { height: 5px; width: 330px; transform: skewX(-14deg); transform-origin: left top; position: relative; }
+  #logo .accent::after { content: ""; position: absolute; left: 0; top: 0; height: 100%; width: 38%; background: var(--red); }
+
+  /* ---------- Top right league ---------- */
+  #league { top: 30px; right: 40px; display: flex; flex-direction: column; align-items: center; }
+  #league img { max-height: 92px; max-width: 220px; display: block; filter: drop-shadow(0 3px 10px rgba(0,0,0,.4)); }
+  #league .tag {
+    margin-top: 6px; min-width: 120px; padding: 3px 18px; text-align: center;
+    font-size: 18px; letter-spacing: 2px; text-transform: uppercase;
+    background: var(--red); color: #fff; transition: background .3s, color .3s;
+  }
+  #league .tag.replay { background: var(--blue); color: #fff; }
+
+  /* ---------- Timing tower ---------- */
+  #tower { top: 120px; left: 40px; width: 330px; }
+  #tower .head {
+    background: var(--grey); padding: 10px 14px 9px; font-size: 21px; text-transform: uppercase;
+    letter-spacing: .5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; position: relative;
+  }
+  #tower .head::after { content: ""; position: absolute; left: 0; bottom: 0; height: 4px; width: 55%; background: var(--red); transform-origin: left; }
+  #tower .sub {
+    background: var(--black); display: flex; align-items: center; justify-content: space-between;
+    padding: 6px 14px; font-family: var(--light); font-weight: 300; font-size: 17px; letter-spacing: 1px; text-transform: uppercase;
+  }
+  #tower .sub .flag { width: 18px; height: 18px; border-radius: 3px; background: transparent; transition: background .3s; }
+  /* the red accent under the ticker header follows the track state (caution, white, checkered, red flag) */
+  #tower.f-caution .head::after { background: var(--yellow); }
+  #tower.f-white .head::after { background: #fff; }
+  #tower.f-red .head::after { background: #E11; }
+  #tower.f-checkered .head::after { background: repeating-conic-gradient(#111 0 25%, #fff 0 50%) 0 0/8px 8px; }
+  #tower .rows { position: relative; overflow: hidden; transition: height .4s ease; }
+  /* caution: a yellow CAUTION band opens under the lap line, and the rows flash solid yellow for a moment */
+  #tower .cbar { height: 0; overflow: hidden; background: var(--yellow); color: #111; text-align: center; font-size: 16px; letter-spacing: 3px;
+                 line-height: 26px; text-transform: uppercase; transition: height .35s cubic-bezier(.3,.8,.3,1); }
+  #tower .cbar span { padding: 0 12px; }
+  #tower.f-caution .cbar, #tower.f-white .cbar, #tower.f-checkered .cbar { height: 26px; }
+  #tower.f-white .cbar { background: #fff; }
+  #tower.f-checkered .cbar { background: repeating-conic-gradient(#111 0 25%, #fff 0 50%) 0 0/13px 13px; }
+  #tower.f-checkered .cbar span { background: #111; color: #fff; display: inline-block; line-height: 26px; }
+  #tower .cwipe { position: absolute; inset: 0; background: var(--yellow); z-index: 3; opacity: 0; pointer-events: none; }
+  #tower .cwipe.white { background: #fff; }
+  #tower .cwipe.checkered { background: repeating-conic-gradient(#111 0 25%, #fff 0 50%) 0 0/34px 34px; }
+  #tower .chdr { z-index: 4; }
+  .row {
+    position: absolute; left: 0; right: 0; height: var(--row); display: flex; align-items: center;
+    transition: transform .55s cubic-bezier(.3,.8,.3,1), opacity .3s; font-size: 18px;
+  }
+  .row .bg { position: absolute; inset: 0; background: var(--grey80); }
+  .row.alt .bg { background: var(--grey80b); }
+  .row > *:not(.bg) { position: relative; }
+  .row .pos { width: 42px; height: 100%; display: flex; align-items: center; justify-content: center; background: var(--poscol); font-size: 18px; }
+  .row .cls { width: 4px; height: 100%; }
+  .row .num { width: 46px; text-align: center; color: var(--midgrey); font-size: 17px; }
+  .row .name { flex: 1; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: .3px; }
+  .row .gap { width: 92px; text-align: right; padding-right: 12px; font-family: var(--light); font-weight: 300; font-size: 17px; font-variant-numeric: tabular-nums; }
+  .row .pit { font-size: 12px; background: var(--blue); color: #fff; padding: 1px 6px; margin-right: 6px; letter-spacing: 1px; display: none; }
+  .row .pit { display: none !important; }
+  /* pit tags sit outside the ticker, to the right of the driver's row */
+  #tower { position: absolute; }
+  #tower .pits { position: absolute; left: 100%; top: 0; width: 0; pointer-events: none; }
+  .ptag { position: absolute; left: 6px; height: 28px; margin-top: 3px; display: flex; align-items: center; gap: 6px; padding: 0 10px; white-space: nowrap;
+          background: var(--blue); color: #fff; font-size: 15px; letter-spacing: 1px; font-variant-numeric: tabular-nums;
+          transition: transform .55s cubic-bezier(.3,.8,.3,1); box-shadow: 0 2px 8px rgba(0,0,0,.35); }
+  .ptag b { font-weight: 600; }
+  .ptag span { font-family: var(--light); font-weight: 300; font-size: 16px; }
+  .ptag.done { background: #111; border-left: 4px solid var(--blue); }
+  /* meatball flag (repair): orange outline around the driver's row and a tag to the right, for 10 seconds */
+  .row.mb::after { content: ""; position: absolute; inset: 0; border: 3px solid #FF7A00; z-index: 2; pointer-events: none; animation: mbPulse .8s ease-in-out infinite alternate; }
+  @keyframes mbPulse { from { border-color: #FF7A00; } to { border-color: rgba(255,122,0,.35); } }
+  .ptag.mbt { background: transparent; box-shadow: none; padding: 0 2px; }
+  .ptag.mbt svg { height: 28px; width: auto; display: block; filter: drop-shadow(0 2px 4px rgba(0,0,0,.5)); }
+  .row.focus .bg { background: rgba(255,13,64,.30); }
+  .row.focus .pos { background: var(--red); }
+  .row.focus .num { color: #fff; }
+  .row.out { opacity: .55; }
+  /* class header (ticker grouped by class) */
+  .chdr { position: absolute; left: 0; right: 0; height: 30px; display: flex; align-items: center; justify-content: space-between; padding: 0 12px 0 10px;
+          background: linear-gradient(90deg, var(--cc) 0 100%); font-size: 17px; letter-spacing: 1.5px; text-transform: uppercase;
+          transition: transform .55s cubic-bezier(.3,.8,.3,1); box-shadow: inset 0 -2px 0 rgba(0,0,0,.25); }
+  .chdr .cc { font-family: var(--light); font-weight: 300; font-size: 13px; letter-spacing: 1px; opacity: .85; }
+  #tRows.paged::after { content: ""; position: absolute; left: 0; right: 0; height: 2px; top: calc(var(--fixed) * 34px - 1px); background: var(--red); z-index: 2; }
+
+  /* ---------- Lower third (focused driver) ---------- */
+  #lower { left: 420px; bottom: 40px; min-width: 640px; max-width: 980px; }
+  #lower .top { display: flex; align-items: stretch; height: 64px; }
+  #lower .p { width: 78px; background: var(--red); display: flex; align-items: center; justify-content: center; font-size: 34px; }
+  #lower .n { width: 78px; background: var(--black); display: flex; align-items: center; justify-content: center; font-size: 30px; color: #fff; }
+  #lower .nm { flex: 1; background: var(--grey); display: flex; align-items: center; padding: 0 22px; font-size: 34px; text-transform: uppercase; letter-spacing: .5px; white-space: nowrap; position: relative; }
+  /* line under the name: VSPEED red, or in multi-class races the class color, growing up into a small class label */
+  #lower .nm .cline { position: absolute; left: 0; bottom: 0; height: 4px; width: 40%; background: var(--cc, var(--red)); transform-origin: left;
+                      display: flex; align-items: center; padding-left: 22px; overflow: hidden; transition: height .45s cubic-bezier(.2,.8,.2,1); }
+  #lower .nm .cline span { font-size: 13px; letter-spacing: 2px; text-transform: uppercase; white-space: nowrap; opacity: 0; transition: opacity .25s; }
+  #lower.mc .nm .cline { height: 19px; }
+  #lower.mc .nm .cline span { opacity: 1; transition-delay: .2s; }
+  #lower.mc .nm .nt { transform: translateY(-7px); }
+  #lower .nm .nt { transition: transform .45s cubic-bezier(.2,.8,.2,1); }
+  #lower { overflow: hidden; }
+  #lower .info { display: flex; background: var(--grey80b); font-family: var(--light); font-weight: 300; font-size: 19px; text-transform: uppercase; letter-spacing: .5px; }
+  #lower .info span { padding: 8px 18px; border-right: 1px solid rgba(255,255,255,.15); white-space: nowrap; }
+  #lower .info span:last-child { border-right: 0; }
+  #lower .info b { font-family: var(--semi); font-weight: 600; color: var(--red); margin-right: 6px; }
+
+  /* ---------- Standings / race info / team (the existing standings graphic, embedded) ---------- */
+  .holder { position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; pointer-events: none; transform-origin: 0 0; }
+  .sframe { transform-origin: 0 0; position: absolute; left: 0; top: 0; width: 1920px; height: 1080px; border: 0; background: transparent; pointer-events: none; z-index: 20; }
+  /* ---------- Board (grid / results) ---------- */
+  #board { left: 50%; top: 120px; transform: translateX(-50%); width: 1100px; box-shadow: 0 10px 40px rgba(0,0,0,.5); }
+  #board .h { background: var(--grey); font-size: 30px; padding: 12px 22px; position: relative; text-transform: uppercase; letter-spacing: .5px; }
+  #board .h::after { content: ""; position: absolute; left: 0; bottom: 0; height: 5px; width: 45%; background: var(--red); transform-origin: left; }
+  #board .h { overflow: hidden; }
+  #board .h small { float: right; font-family: var(--light); font-weight: 300; font-size: 20px; margin-top: 8px; color: #fff; }
+  #board .cols { display: flex; gap: 0; }
+  #board .col { flex: 1; }
+  #board .sh { display: flex; background: var(--black); font-family: var(--light); font-weight: 300; font-size: 15px; padding: 6px 0; letter-spacing: 1px; }
+  #board .r { display: flex; align-items: center; height: 36px; font-size: 19px; background: var(--grey80); }
+  #board .r:nth-child(even) { background: var(--grey80b); }
+  #board .r .bp, #board .sh .bp { width: 60px; text-align: center; }
+  #board .r .bp { background: var(--poscol); height: 100%; display: flex; align-items: center; justify-content: center; }
+  #board .r .bn, #board .sh .bn { width: 60px; text-align: center; color: var(--midgrey); }
+  #board .sh .bn { color: #fff; }
+  #board .r .bd, #board .sh .bd { flex: 1; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-left: 4px; }
+  #board .r .bg2, #board .sh .bg2 { width: 120px; text-align: right; padding-right: 16px; font-family: var(--light); font-weight: 300; }
+  #board .col + .col { border-left: 2px solid rgba(0,0,0,.5); }
+
+  /* ---------- Drive graphic (ready-made PNG / WebM from the Google Drive folder) ---------- */
+  #gfx { left: 960px; top: 540px; transform: translate(-50%, -50%); }
+  #gfx img, #gfx video { display: block; max-width: none; }
+  #gfx .media.none { display: none; }
+  #gfxShineBox { position: absolute; overflow: hidden; pointer-events: none; }
+
+  /* ---------- Grid (starting grid, one row at a time) ---------- */
+  #grid { left: 960px; bottom: 70px; transform: translateX(-50%); width: 1700px; }
+  #grid .gtop { display: flex; justify-content: center; height: 50px; }
+  #grid .gp { width: 160px; background: var(--red); display: flex; align-items: center; justify-content: center; font-size: 30px; letter-spacing: .5px; overflow: hidden; }
+  #grid .gr { width: 232px; background: #000; display: flex; align-items: center; justify-content: center; font-size: 25px; letter-spacing: 1px; overflow: hidden; }
+  #grid .gbar { position: relative; display: flex; height: 154px; background: rgba(38,38,38,.95); overflow: hidden; }
+  #grid .gmid { flex: 0 0 232px; background: #000; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 6px; }
+  #grid .gmid img { width: 190px; }
+  #grid .gmid div { font-size: 21px; letter-spacing: .3px; }
+  #grid .gside { flex: 1; position: relative; overflow: hidden; }
+  #grid .gin { position: absolute; inset: 0; display: flex; align-items: center; }
+  #grid .gside.l .gin { justify-content: flex-end; }
+  #grid .gside.r .gin { justify-content: flex-start; }
+  #grid .gcar { position: absolute; top: 4px; bottom: 8px; width: 270px; display: flex; flex-direction: column; justify-content: flex-end; }
+  #grid .gcar { align-items: center; }   /* car name centered under the render */
+  #grid .gside.l .gin { padding-left: 300px; }
+  #grid .gside.r .gin { padding-right: 300px; }
+  #grid .gside.l .gcar { left: 18px; }
+  #grid .gside.r .gcar { right: 18px; }
+  #grid .gcar img { max-width: 265px; max-height: 120px; object-fit: contain; margin: 0 auto auto; filter: drop-shadow(0 4px 6px rgba(0,0,0,.5)); }
+  #grid .gcar img.none { display: none; }
+  #grid .gcn { font-family: var(--light); font-weight: 300; font-size: 14px; text-transform: uppercase; letter-spacing: .3px; white-space: nowrap; color: #fff; max-width: 270px; overflow: hidden; text-overflow: ellipsis; text-align: center; }
+  #grid .gtxt { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+  #grid .gside.l .gtxt { align-items: flex-end; text-align: right; }
+  #grid .gside.r .gtxt { align-items: flex-start; text-align: left; }
+  #grid .gname { font-family: var(--light); font-weight: 400; font-size: 46px; text-transform: uppercase; white-space: nowrap; line-height: 1.05; max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+  #grid .gtime { font-size: 30px; color: var(--red); font-variant-numeric: tabular-nums; }
+  /* car number: Industry if it's installed on the broadcast PC, otherwise Impact (built into Windows). Plain white. */
+  #grid .gnum { width: 160px; text-align: center; font-family: "Industry Black", "Industry-Black", "Industry Bold", "Industry-Bold", "Industry", Impact, "Arial Black", sans-serif;
+                font-weight: 400; font-style: normal; font-size: 90px; line-height: 1; letter-spacing: 0; color: #fff;
+                transform: skewX(-10deg); }
+  #grid .gside.l .gnum { margin: 0 14px 0 20px; }
+  #grid .gside.r .gnum { margin: 0 20px 0 14px; }
+  #grid .gside.empty .gin { visibility: hidden; }
+  #grid .gline { height: 7px; background: var(--red); }
+
+  /* ---------- Flag banner ---------- */
+  #flag { top: 34px; left: 50%; transform: translateX(-50%); display: flex; height: 64px; box-shadow: 0 6px 24px rgba(0,0,0,.45); }
+  #flag .sw { width: 64px; }
+  /* sponsor graphic (Race tab): full screen, the loaded image as is (made at 1920x1080 it fills the frame; smaller art is centered) */
+  #sponsor { left: 0; top: 0; width: 1920px; height: 1080px; }
+  #sponsor .pic { width: 100%; height: 100%; }
+  #sponsor img { display: block; width: 100%; height: 100%; object-fit: contain; }
+  #flag .tx { position: relative; overflow: hidden; background: var(--grey); padding: 0 34px; display: flex; align-items: center; font-size: 30px; letter-spacing: 2px; text-transform: uppercase; }
+  #flag.green .sw { background: var(--green); }
+  #flag.caution .sw { background: var(--yellow); }
+  #flag.white .sw { background: #fff; }
+  #flag.red .sw { background: #E11; }
+  #flag.checkered .sw { background: repeating-conic-gradient(#111 0 25%, #fff 0 50%) 0 0/16px 16px; }
+
+</style>
+</head>
+<body>
+
+<div id="gfx" class="widget off"><img id="gfxImg" class="media none" alt=""><video id="gfxVid" class="media none" muted playsinline preload="auto"></video><div id="gfxShineBox"></div></div>
+
+<div id="logo" class="widget"><div class="plate"><img src="/static/assets/vspeed_logo.png" alt=""></div><div class="accent"></div></div>
+
+<div id="league" class="widget"><img id="leagueImg" alt=""><div class="tag" id="liveTag">LIVE</div></div>
+
+<div id="tower" class="widget off">
+  <div class="head" id="tHead">VSPEED</div>
+  <div class="sub"><span id="tSub"></span><span class="flag" id="tFlag"></span></div>
+  <div class="cbar" id="tCbar"><span>Caution</span></div>
+  <div class="rows" id="tRows"><div class="cwipe" id="tCwipe"></div></div>
+  <div class="pits" id="tPits"></div>
+</div>
+
+<div id="lower" class="widget off">
+  <div class="top"><div class="p" id="lP"></div><div class="n" id="lN"></div><div class="nm"><span class="nt" id="lName"></span><div class="cline"><span id="lCls"></span></div></div></div>
+  <div class="info" id="lInfo"></div>
+</div>
+
+<div id="board" class="widget off">
+  <div class="h"><span id="bTitle"></span><small id="bSub"></small></div>
+  <div class="cols" id="bCols"></div>
+</div>
+
+<iframe class="sframe" id="fStandings" allowtransparency="true"></iframe>
+<iframe class="sframe" id="fAnalysis" allowtransparency="true"></iframe>
+<iframe class="sframe" id="fTeam" allowtransparency="true"></iframe>
+
+<div id="grid" class="widget off">
+  <div class="gtop"><div class="gp" id="gpL"></div><div class="gr" id="gRow">ROW 1</div><div class="gp" id="gpR"></div></div>
+  <div class="gbar"><div class="gside l"><div class="gin"><div class="gcar"><img class="none" alt=""><div class="gcn"></div></div><div class="gtxt"><div class="gname"></div><div class="gtime"></div></div><div class="gnum"></div></div></div><div class="gmid"><img src="/static/assets/vspeed_logo.png" alt=""><div id="gSite">vspeedsim.com</div></div><div class="gside r"><div class="gin"><div class="gnum"></div><div class="gtxt"><div class="gname"></div><div class="gtime"></div></div><div class="gcar"><img class="none" alt=""><div class="gcn"></div></div></div></div></div>
+  <div class="gline"></div>
+</div>
+
+<div id="sponsor" class="widget off"><div class="pic"><img id="spImg" alt=""></div></div>
+<div id="flag" class="widget off"><div class="sw"></div><div class="tx" id="flagText"></div></div>
+
+
+<script>
+const $ = id => document.getElementById(id);
+if (new URLSearchParams(location.search).has('preview')) document.body.classList.add('preview');
+
+let S = null, L = null, SD = null, RAW = null;
+let lowerMcAt = 0, lastCam = null, camShownAt = 0, towerPage = 0, pageAt = 0;
+let lastFlag = null, flagTimer = null, lastTrigger = 0, trigInit = false;
+const rowEls = new Map();
+
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function cleanName(n) { return String(n || '').replace(/\d+$/, '').trim(); }
+function lastName(n) {
+  const parts = cleanName(n).split(/\s+/);
+  let last = parts.pop() || '';
+  if (/^(jr\.?|sr\.?|ii|iii|iv)$/i.test(last) && parts.length) last = parts.pop();
+  return last.toUpperCase();
+}
+function tickerName(n) {   // first initial + last name: Ryan Carter -> R. CARTER
+  const first = cleanName(n).split(/\s+/)[0] || '', last = lastName(n);
+  return first && first.toUpperCase() !== last ? first[0].toUpperCase() + '. ' + last : last;
+}
+/* ---------- in / out animations ----------
+   show(id, on) plays the widget's intro or exit once per change (like the standings,
+   race info and team boxes): headers wipe in with a red accent and a light sweep,
+   bodies unfold underneath. The ticker grows down when it shows and folds up when it hides. */
+const EASE = 'cubic-bezier(.2,.8,.2,1)', EASE_IN = 'cubic-bezier(.6,0,.8,.3)';
+const VIS = {};
+function anim(el, frames, o) { if (!el || !el.animate) return null; return el.animate(frames, Object.assign({ easing: EASE, fill: 'backwards' }, o)); }
+function shineOn(box, delay) {
+  if (!box) return;
+  let sh = box.querySelector(':scope > .shine');
+  if (!sh) { sh = document.createElement('div'); sh.className = 'shine'; box.appendChild(sh); }
+  anim(sh, [{ transform: 'translateX(-200px)', opacity: 1 }, { transform: `translateX(${box.offsetWidth + 200}px)`, opacity: 1 }], { duration: 850, delay, easing: 'ease-in-out', fill: 'none' });
+}
+const wipeIn  = [{ clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0 0 0)' }];
+const wipeOut = [{ clipPath: 'inset(0 0 0 0)' }, { clipPath: 'inset(0 0 0 100%)' }];
+const dropIn  = [{ clipPath: 'inset(0 0 100% 0)' }, { clipPath: 'inset(0 0 0 0)' }];   // grows down
+const foldUp  = [{ clipPath: 'inset(0 0 0 0)' }, { clipPath: 'inset(0 0 100% 0)' }];   // folds up
+const lineIn  = [{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }];
+const lineOut = [{ transform: 'scaleX(1)' }, { transform: 'scaleX(0)' }];
+const q = (id, sel) => $(id).querySelector(sel);
+
+// each returns how long its animation lasts (ms)
+const IN = {
+  sponsor(el) {
+    anim(q('sponsor', '.pic'), [{ opacity: 0 }, { opacity: 1 }], { duration: 350, easing: 'ease-out' });
+    return 350;
+  },
+  logo(el) {
+    anim(q('logo', '.plate'), wipeIn, { duration: 650 });
+    const k = logoSkew();
+    anim(q('logo', '.plate img'), [{ opacity: 0, transform: `skewX(${k}deg) translateX(-40px)` }, { opacity: 1, transform: `skewX(${k}deg)` }], { duration: 600, delay: 250 });
+    anim(q('logo', '.accent'), [{ transform: `skewX(${-k}deg) scaleX(0)`, transformOrigin: 'left' }, { transform: `skewX(${-k}deg) scaleX(1)`, transformOrigin: 'left' }], { duration: 750, delay: 400 });
+    shineOn(q('logo', '.plate'), 750);
+    return 1600;
+  },
+  league(el) {
+    anim(q('league', 'img'), [{ opacity: 0, transform: 'scale(.85)' }, { opacity: 1, transform: 'none' }], { duration: 600 });
+    anim(q('league', '.tag'), wipeIn, { duration: 550, delay: 300 });
+    return 900;
+  },
+  tower(el) {
+    const head = q('tower', '.head');
+    anim(head, wipeIn, { duration: 550 });
+    anim(head, lineIn, { duration: 700, delay: 350, pseudoElement: '::after' });
+    anim(q('tower', '.sub'), dropIn, { duration: 350, delay: 300 });
+    const rows = $('tRows'), n = rows.children.length;
+    const dur = 350 + n * 30;
+    anim(rows, dropIn, { duration: dur, delay: 500, easing: 'cubic-bezier(.3,.6,.3,1)' });
+    anim($('tPits'), [{ opacity: 0 }, { opacity: 1 }], { duration: 300, delay: 500 + dur - 200 });
+    shineOn(head, 650);
+    return 500 + dur;
+  },
+  lower(el) {
+    anim(q('lower', '.p'), [{ opacity: 0, transform: 'scale(.6)' }, { opacity: 1, transform: 'none' }], { duration: 450, easing: 'cubic-bezier(.2,1.4,.4,1)' });
+    anim(q('lower', '.n'), wipeIn, { duration: 400, delay: 150 });
+    const nm = q('lower', '.nm');
+    anim(nm, wipeIn, { duration: 600, delay: 250 });
+    $('lower').classList.remove('mc'); lowerMcAt = Date.now() + 1300;
+    anim(q('lower', '.cline'), lineIn, { duration: 700, delay: 550 });
+    anim(q('lower', '.info'), dropIn, { duration: 450, delay: 600 });
+    shineOn(nm, 800);
+    return 1650;
+  },
+  board(el) {
+    const h = q('board', '.h');
+    anim(h, wipeIn, { duration: 600 });
+    anim(h, lineIn, { duration: 750, delay: 400, pseudoElement: '::after' });
+    anim($('bCols'), dropIn, { duration: 750, delay: 450, easing: 'cubic-bezier(.3,.6,.3,1)' });
+    shineOn(h, 700);
+    return 1550;
+  },
+  flag(el) {
+    anim(q('flag', '.sw'), [{ transform: 'scaleY(0)' }, { transform: 'scaleY(1)' }], { duration: 400 });
+    anim(q('flag', '.tx'), wipeIn, { duration: 600, delay: 200 });
+    shineOn(q('flag', '.tx'), 550);
+    return 1400;
+  },
+};
+const OUT = {
+  sponsor(el) {
+    anim(q('sponsor', '.pic'), [{ opacity: 1 }, { opacity: 0 }], { duration: 350, easing: 'ease-in', fill: 'forwards' });
+    return 350;
+  },
+  logo() {
+    const k = logoSkew();
+    anim(q('logo', '.accent'), [{ transform: `skewX(${-k}deg) scaleX(1)`, transformOrigin: 'left' }, { transform: `skewX(${-k}deg) scaleX(0)`, transformOrigin: 'left' }], { duration: 350, easing: 'ease-in', fill: 'forwards' });
+    anim(q('logo', '.plate'), wipeOut, { duration: 500, delay: 200, easing: EASE_IN, fill: 'forwards' });
+    return 700;
+  },
+  league() {
+    anim(q('league', '.tag'), wipeOut, { duration: 350, easing: EASE_IN, fill: 'forwards' });
+    anim(q('league', 'img'), [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.85)' }], { duration: 400, delay: 200, easing: 'ease-in', fill: 'forwards' });
+    return 600;
+  },
+  tower() {
+    const rows = $('tRows'), n = rows.children.length, dur = 300 + n * 20;
+    anim(rows, foldUp, { duration: dur, easing: 'cubic-bezier(.5,0,.7,.4)', fill: 'forwards' });
+    anim($('tPits'), [{ opacity: 1 }, { opacity: 0 }], { duration: 200, fill: 'forwards' });
+    anim(q('tower', '.sub'), foldUp, { duration: 250, delay: dur - 50, easing: 'ease-in', fill: 'forwards' });
+    anim(q('tower', '.head'), lineOut, { duration: 300, delay: dur, easing: 'ease-in', fill: 'forwards', pseudoElement: '::after' });
+    anim(q('tower', '.head'), wipeOut, { duration: 450, delay: dur + 150, easing: EASE_IN, fill: 'forwards' });
+    return dur + 600;
+  },
+  lower() {
+    anim(q('lower', '.info'), foldUp, { duration: 300, easing: 'ease-in', fill: 'forwards' });
+    anim(q('lower', '.cline'), lineOut, { duration: 300, delay: 100, easing: 'ease-in', fill: 'forwards' });
+    anim(q('lower', '.nm'), wipeOut, { duration: 450, delay: 250, easing: EASE_IN, fill: 'forwards' });
+    anim(q('lower', '.n'), wipeOut, { duration: 350, delay: 450, easing: EASE_IN, fill: 'forwards' });
+    anim(q('lower', '.p'), [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.6)' }], { duration: 300, delay: 550, easing: 'ease-in', fill: 'forwards' });
+    return 850;
+  },
+  board() {
+    anim($('bCols'), foldUp, { duration: 550, easing: 'cubic-bezier(.5,0,.7,.4)', fill: 'forwards' });
+    anim(q('board', '.h'), lineOut, { duration: 300, delay: 450, easing: 'ease-in', fill: 'forwards', pseudoElement: '::after' });
+    anim(q('board', '.h'), wipeOut, { duration: 450, delay: 550, easing: EASE_IN, fill: 'forwards' });
+    return 1000;
+  },
+  flag() {
+    anim(q('flag', '.tx'), wipeOut, { duration: 450, easing: EASE_IN, fill: 'forwards' });
+    anim(q('flag', '.sw'), [{ transform: 'scaleY(1)' }, { transform: 'scaleY(0)' }], { duration: 300, delay: 350, easing: 'ease-in', fill: 'forwards' });
+    return 650;
+  },
+};
+function stopAnims(el) { el.getAnimations({ subtree: true }).forEach(a => { if (!(window.CSSTransition && a instanceof CSSTransition)) a.cancel(); }); }
+function show(id, on) {
+  on = !!on;
+  const el = $(id), st = VIS[id] || (VIS[id] = { on: null, timer: 0 });
+  if (st.on === on) return;
+  const first = st.on === null;
+  st.on = on;
+  clearTimeout(st.timer);
+  if (el.getAnimations) stopAnims(el);
+  if (on) {
+    el.classList.remove('off');
+    if (!LAYOUT_MODE && IN[id]) IN[id](el);
+  } else if (first || LAYOUT_MODE || !OUT[id]) {
+    el.classList.add('off');
+  } else {
+    const ms = OUT[id](el);
+    st.timer = setTimeout(() => { if (!st.on) { el.classList.add('off'); stopAnims(el); } }, ms + 30);
+  }
+}
+
+function filteredCars() {
+  let cars = (L && L.cars) || [];
+  if (S.classFilter) cars = cars.filter(c => c.cls === S.classFilter);
+  return cars;
+}
+
+/* ---------- tower ---------- */
+function renderTower() {
+  const on = S.show.tower && L.connected && L.cars.length;
+  show('tower', on);
+  if (!on) return;
+  $('tHead').textContent = S.raceName || L.track || 'VSPEED';
+  let sub;
+  if (L.isRace && L.sessionState >= 5) sub = 'FINISHED';   // checkered flag is out (and cool-down after it)
+  else if (L.isRace && L.totalLaps) {
+    const lap = Math.max(1, L.lap), togo = L.totalLaps - lap;   // e.g. lap 50 of 60 -> 10 TO GO
+    sub = L.sessionState < 4 ? 'START · ' + L.totalLaps + ' LAPS'
+        : (L.sessionState === 4 && togo >= 1 && togo <= 10) ? `${togo} TO GO`
+        : (L.sessionState === 4 && togo === 0) ? 'FINAL LAP'
+        : `LAP ${lap} / ${L.totalLaps}`;
+  }
+  else if (L.isRace) sub = `LAP ${Math.max(1, L.lap)}` + (L.timeRemain ? ' · ' + L.timeRemain : '');
+  else sub = (L.sessionName || '') + (L.timeRemain ? ' · ' + L.timeRemain : '');
+  $('tSub').textContent = sub;
+  const flagColors = { green: 'var(--green)', caution: 'var(--yellow)', white: '#fff', red: '#E11', checkered: 'repeating-conic-gradient(#111 0 25%, #fff 0 50%) 0 0/7px 7px' };
+  $('tFlag').style.background = flagColors[L.flag] || 'transparent';
+  ['caution', 'white', 'red', 'checkered'].forEach(f => $('tower').classList.toggle('f-' + f, L.flag === f));
+  const band = FLAG_BAND[L.flag];
+  if (band && $('tCbar').firstChild.textContent !== band) $('tCbar').firstChild.textContent = band;
+
+  const multi = (L.classes || []).length > 1 && !S.classFilter;
+  const split = multi && S.classSplit !== false;
+  const max = Math.max(5, Math.min(40, +S.towerRows || 20));
+  const fixedAll = Math.max(0, Math.min(max - 1, +(S.towerFixed ?? 14)));
+  const now = Date.now(), every = Math.max(3, +S.towerPageSec || 8) * 1000;
+  // Show `rows` of a list; if it's longer, keep the top `fixed` and page the remaining slots through the rest.
+  const pageList = (list, rows, fixed) => {
+    if (list.length <= rows) return { shown: list, paged: false };
+    const slots = Math.max(1, rows - fixed), rest = list.slice(fixed), pages = Math.ceil(rest.length / slots);
+    const pg = towerPage % pages;
+    return { shown: list.slice(0, fixed).concat(rest.slice(pg * slots, pg * slots + slots)), paged: true };
+  };
+  const all = filteredCars();
+  const items = [];          // what goes on the board, top to bottom: class headers and cars, each with its y
+  let y = 0, anyPaged = false;
+  if (split) {
+    // IMSA style: one group per class, fastest class first, positions and gaps within the class
+    const classes = [...new Set(all.map(c => c.cls))];
+    const pace = cls => Math.min(...all.filter(c => c.cls === cls).map(c => c.est || 999));
+    classes.sort((a, b) => pace(a) - pace(b));
+    const slots = S.classRowSlots || [5, 15];   // first box = fastest class, second box = the next class
+    classes.forEach((cls, ci) => {
+      const list = all.filter(c => c.cls === cls);
+      const rows = Math.max(1, +(slots[Math.min(ci, slots.length - 1)] ?? 10));
+      const fixed = Math.min(rows - 1, Math.round(rows * fixedAll / max));
+      const r = pageList(list, rows, Math.max(0, fixed));
+      anyPaged = anyPaged || r.paged;
+      items.push({ hdr: cls, color: (list[0] && list[0].clsColor) || '#888', count: list.length, y }); y += HDR_H;
+      r.shown.forEach((c, i) => { items.push({ c, y, i }); y += 34; });
+    });
+  } else {
+    const r = pageList(all, max, fixedAll);
+    anyPaged = r.paged;
+    r.shown.forEach((c, i) => { items.push({ c, y, i }); y += 34; });
+  }
+  if (all.length > max || anyPaged) { if (!pageAt) pageAt = now; if (now - pageAt >= every) { towerPage++; pageAt = now; } }
+  else { towerPage = 0; pageAt = 0; }
+  $('tRows').classList.toggle('paged', anyPaged && !split);
+  $('tRows').style.setProperty('--fixed', fixedAll);
+  const wasShown = VIS.tower && VIS.tower.on && $('tRows').children.length > 0;
+  let newCount = 0;
+  const seen = new Set();
+  const rowsEl = $('tRows');
+  items.forEach(it => {
+    if (it.hdr) {               // class header bar in the class color
+      const key = 'h:' + it.hdr;
+      let el = rowEls.get(key);
+      if (!el) {
+        el = document.createElement('div'); el.className = 'chdr';
+        el.innerHTML = '<span class="cn"></span><span class="cc"></span>';
+        el.style.transform = `translateY(${it.y}px)`;
+        rowsEl.appendChild(el); rowEls.set(key, el);
+        if (wasShown) anim(el, wipeIn, { duration: 450 });
+      }
+      seen.add(key);
+      el.style.transform = `translateY(${it.y}px)`;
+      el.style.setProperty('--cc', it.color);
+      el.style.color = textOn(it.color);
+      el.children[0].textContent = it.hdr;
+      el.children[1].textContent = it.count + (it.count === 1 ? ' CAR' : ' CARS');
+      return;
+    }
+    const c = it.c;
+    let el = rowEls.get(c.idx);
+    if (!el) {
+      el = document.createElement('div');
+      el.className = 'row';
+      el.innerHTML = '<div class="bg"></div><div class="pos"></div><div class="cls"></div><div class="num"></div><div class="name"></div><span class="pit">PIT</span><div class="gap"></div>';
+      el.style.transform = `translateY(${it.y}px)`;
+      rowsEl.appendChild(el);
+      rowEls.set(c.idx, el);
+      // a new driver on the board (page flip or a car moving into view): wipe their row in
+      if (wasShown) anim(el, wipeIn, { duration: 450, delay: 60 * newCount++ });
+    }
+    seen.add(c.idx);
+    el.style.transform = `translateY(${it.y}px)`;
+    el.classList.toggle('alt', it.i % 2 === 1);
+    el.classList.toggle('focus', c.idx === L.camCarIdx);
+    el.classList.toggle('inpit', !!c.pit);
+    el.classList.toggle('out', !c.onTrack);
+    el.classList.toggle('mb', meatOn(c));
+    el.children[1].textContent = S.classFilter || multi ? c.classPos : c.pos;
+    el.children[2].style.background = multi ? (c.clsColor || 'transparent') : 'transparent';
+    el.children[3].textContent = c.num;
+    el.children[4].textContent = tickerName(c.name);
+    const inClass = !!S.classFilter || split;
+    const g = S.towerMode === 'leader' ? (inClass ? c.classGap : c.gap) : (inClass ? c.classInterval : c.interval);
+    el.children[6].textContent = (g === 'LEADER' ? (L.isRace ? 'LEADER' : '') : g) || '';
+  });
+  for (const [key, el] of rowEls) if (!seen.has(key)) { el.remove(); rowEls.delete(key); }
+  rowsEl.style.height = y + 'px';
+  renderPits(items.filter(it => it.c));
+}
+const HDR_H = 30;
+function textOn(hex) {   // black or white text, whichever reads better on the class color
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex || ''); if (!m) return '#fff';
+  const n = parseInt(m[1], 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+  return (0.299 * r + 0.587 * g + 0.114 * b) > 150 ? '#111' : '#fff';
+}
+
+
+/* ---------- pit tags: PIT on pit road, a running timer while stopped in the box, then the final stop time ---------- */
+const pitEls = new Map();
+const MB = new Map();   // car idx -> when its meatball flag was first seen
+const MB_SHOW = 10000;
+// meatball flag graphic: black flag with an orange disc, on a short pole
+const MEATBALL_SVG = '<svg viewBox="0 0 46 30" xmlns="http://www.w3.org/2000/svg" aria-label="Meatball flag">' +
+  '<rect x="1" y="0" width="3" height="30" rx="1" fill="#d9d9d9"/>' +
+  '<path d="M4 1 H44 Q42 13 44 25 H4 Z" fill="#111" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/>' +
+  '<circle cx="24" cy="13" r="7.5" fill="#FF7A00"/></svg>';
+function meatOn(c) {
+  if (!c.meatball) { MB.delete(c.idx); return false; }
+  if (!MB.has(c.idx)) MB.set(c.idx, Date.now());
+  return Date.now() - MB.get(c.idx) < MB_SHOW;
+}
+function renderPits(rows) {
+  const layer = $('tPits');
+  layer.style.top = $('tRows').offsetTop + 'px';
+  const seen = new Set();
+  rows.forEach(({ c, y }) => {
+    const mb = meatOn(c);
+    if (!c.pitState && !mb) return;
+    seen.add(c.idx);
+    let el = pitEls.get(c.idx);
+    if (!el) {
+      el = document.createElement('div'); el.className = 'ptag';
+      el.style.transform = `translateY(${y}px)`;
+      layer.appendChild(el); pitEls.set(c.idx, el);
+      anim(el, [{ clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0 0 0)' }], { duration: 350 });
+    }
+    el.style.transform = `translateY(${y}px)`;
+    el.classList.toggle('done', !mb && c.pitState === 'done');
+    el.classList.toggle('mbt', mb);
+    const t = c.pitTime != null ? c.pitTime.toFixed(1) : '';
+    const html = mb ? MEATBALL_SVG : c.pitState === 'stall' ? `<b>PIT</b><span>${t}</span>` : c.pitState === 'done' ? `<b>PIT</b><span>${t}s</span>` : '<b>PIT</b>';
+    if (el.innerHTML !== html) el.innerHTML = html;
+  });
+  for (const [idx, el] of pitEls) if (!seen.has(idx) && !el._leaving) {
+    el._leaving = true; pitEls.delete(idx);
+    const a = anim(el, [{ clipPath: 'inset(0 0 0 0)' }, { clipPath: 'inset(0 100% 0 0)' }], { duration: 300, easing: 'ease-in', fill: 'forwards' });
+    setTimeout(() => el.remove(), 320);
+  }
+}
+
+/* ---------- lower third ---------- */
+function renderLower() {
+  const car = L.connected ? (L.cars || []).find(c => c.idx === L.camCarIdx) : null;
+  if (L.camCarIdx !== lastCam) { lastCam = L.camCarIdx; camShownAt = Date.now(); }
+  let on = S.show.lowerthird && !!car && (LAYOUT_MODE || !S.show.board);
+  if (on && S.lowerThirdMode === 'oncut') on = Date.now() - camShownAt < 8000;
+  show('lower', on);
+  if (!car) return;
+  if (VIS.lower && VIS.lower.on && $('lName').dataset.idx && $('lName').dataset.idx !== String(car.idx)) {
+    $('lower').classList.remove('mc'); lowerMcAt = Date.now() + 550;
+    anim(q('lower', '.nm'), wipeIn, { duration: 500 }); anim(q('lower', '.n'), wipeIn, { duration: 400 }); shineOn(q('lower', '.nm'), 250);
+  }
+  $('lName').dataset.idx = car.idx;
+  const mc = (L.classes || []).length > 1;
+  // multi-class: the line under the name takes the class color and grows into a small class label
+  const nmEl = q('lower', '.nm');
+  nmEl.style.setProperty('--cc', mc ? (car.clsColor || 'var(--red)') : 'var(--red)');
+  $('lCls').textContent = mc ? car.cls : '';
+  $('lCls').style.color = mc ? textOn(car.clsColor) : '#fff';
+  $('lower').classList.toggle('mc', mc && Date.now() >= lowerMcAt);
+  $('lP').textContent = 'P' + car.pos;
+  $('lN').textContent = car.num;
+  $('lName').textContent = cleanName(car.name).toUpperCase();
+  const parts = [];
+  if (mc) parts.push(`<span><b>${esc(car.cls)}</b>P${car.classPos}</span>`);
+  if (L.isRace && car.pos > 1 && car.gap && car.gap !== 'LEADER') parts.push(`<span><b>GAP</b>${esc(car.gap)}</span>`);
+  if (car.lastStr) parts.push(`<span><b>LAST</b>${esc(car.lastStr)}</span>`);
+  if (car.bestStr) parts.push(`<span><b>BEST</b>${esc(car.bestStr)}</span>`);
+  if (car.pit) parts.push(`<span><b>PIT ROAD</b></span>`);
+  if (!parts.length && car.car) parts.push(`<span>${esc(car.car)}</span>`);
+  $('lInfo').innerHTML = parts.join('');
+  $('lInfo').style.display = parts.length ? 'flex' : 'none';
+}
+
+/* ---------- board ---------- */
+function renderBoard() {
+  const on = S.show.board && L.connected && L.cars.length;
+  show('board', on);
+  if (!on) return;
+  const mode = 'results';
+  $('bTitle').textContent = S.boardTitle || 'RESULTS';
+  $('bSub').textContent = (S.raceName || '') + (L.track ? ' · ' + L.track : '');
+  const cars = filteredCars().slice(0, 40);
+  const per = Math.max(10, Math.ceil(cars.length / 2));
+  const gapHead = mode === 'grid' ? '' : (L.isRace ? 'GAP' : 'TIME');
+  const col = list => `<div class="col"><div class="sh"><div class="bp">POS</div><div class="bn">#</div><div class="bd">DRIVER</div><div class="bg2">${gapHead}</div></div>` +
+    list.map(c => `<div class="r"><div class="bp">${S.classFilter ? c.classPos : c.pos}</div><div class="bn">${esc(c.num)}</div><div class="bd">${esc(cleanName(c.name))}</div><div class="bg2">${mode === 'grid' ? '' : esc(((S.classFilter ? c.classGap : c.gap) === 'LEADER') ? '' : (S.classFilter ? c.classGap : c.gap))}</div></div>`).join('') + '</div>';
+  $('bCols').innerHTML = col(cars.slice(0, per)) + (cars.length > per ? col(cars.slice(per)) : '');
+}
+
+/* ---------- flag banner ---------- */
+const FLAG_TEXT = { green: 'GREEN FLAG', caution: 'CAUTION', white: 'WHITE FLAG · FINAL LAP', checkered: 'CHECKERED FLAG', red: 'RED FLAG' };
+function flashFlag(f) {
+  if (!FLAG_TEXT[f]) return;
+  const el = $('flag');
+  Object.keys(FLAG_TEXT).forEach(k => el.classList.toggle(k, k === f));
+  $('flagText').textContent = FLAG_TEXT[f];
+  clearTimeout(flagTimer);
+  if (VIS.flag && VIS.flag.on) {   // already showing: swap the text with a quick wipe
+    anim(q('flag', '.tx'), wipeIn, { duration: 450 }); shineOn(q('flag', '.tx'), 200);
+  } else show('flag', true);
+  flagTimer = setTimeout(() => show('flag', false), 6000);
+}
+/* flag wipe on the ticker (caution, white, checkered): the rows flicker to the flag, hold, then the order fades back through it */
+const FLAG_BAND = { caution: 'Caution', white: 'White flag', checkered: 'Checkered' };
+function flagWipe(flag) {
+  if (!(VIS.tower && VIS.tower.on)) return;
+  const w = $('tCwipe');
+  w.className = 'cwipe ' + flag;
+  w.getAnimations().forEach(a => a.cancel());
+  w.animate([
+    { opacity: 0, offset: 0 },     { opacity: 1, offset: .05 },  { opacity: .35, offset: .09 },
+    { opacity: 1, offset: .13 },   { opacity: .5, offset: .16 }, { opacity: 1, offset: .20 },
+    { opacity: 1, offset: .78 },   { opacity: 0, offset: 1 }
+  ], { duration: 3000, easing: 'linear' });
+  anim(q('tower', '.cbar'), [{ filter: 'brightness(1.6)' }, { filter: 'none' }], { duration: 600, delay: 100 });
+}
+const FLAG_BANNERS = false;   // top-center flag pop-ups are switched off for now (set to true to bring them back)
+function renderFlag() {
+  if ((!FLAG_BANNERS || !S.show.flags) && VIS.flag && VIS.flag.on) { clearTimeout(flagTimer); show('flag', false); }
+  const trig = S.flagTrigger || {};
+  if (!trigInit) { trigInit = true; lastTrigger = trig.t || 0; }
+  else if (trig.t && trig.t !== lastTrigger) { lastTrigger = trig.t; if (FLAG_BANNERS) flashFlag(trig.flag); if (FLAG_BAND[trig.flag]) flagWipe(trig.flag); }
+  if (L.flag !== lastFlag) {
+    const first = lastFlag === null;
+    lastFlag = L.flag;
+    if (!first && FLAG_BANNERS && S.show.flags && L.connected && !L.isReplay) flashFlag(L.flag);
+    if (!first && FLAG_BAND[L.flag] && L.connected && !L.isReplay) flagWipe(L.flag);
+  }
+}
+
+/* ---------- sponsor graphic: one of six loaded images, one on air at a time ---------- */
+const SP = { t: 0, seenAt: 0, src: '' };
+function sponsorLive(set) {   // is a sponsor on air right now (also used to clear the driver info)
+  const sp = (set && set.sponsor) || {}, file = (sp.files || {})[sp.active] || '';
+  if (sp.t !== SP.t) { SP.t = sp.t; SP.seenAt = Date.now(); }
+  let on = !LAYOUT_MODE && !!sp.active && !!file;   // full screen, so it stays out of the Layout preview
+  if (on && +sp.hold > 0 && Date.now() - SP.seenAt > sp.hold * 1000) on = false;
+  return on;
+}
+function renderSponsor() {
+  const sp = S.sponsor || {}, files = sp.files || {};
+  const file = files[sp.active] || '';
+  const on = sponsorLive(S);
+  const src = file ? '/sponsor/' + file : '';
+  if (src && src !== SP.src) {   // when hiding, the last image stays in place while it fades out
+    const swap = SP.src && src && VIS.sponsor && VIS.sponsor.on && on;
+    SP.src = src;
+    if (src) $('spImg').src = src;
+    if (swap && !LAYOUT_MODE) anim(q('sponsor', '.pic'), [{ opacity: 0 }, { opacity: 1 }], { duration: 350 });
+  }
+  show('sponsor', on);
+}
+
+/* ---------- static-ish widgets ---------- */
+let leagueSrc = null;
+function logoSkew() { return $('logo').classList.contains('straight') ? 0 : 14; }
+function renderChrome() {
+  $('logo').classList.toggle('straight', S.logoStyle === 'straight');
+  show('logo', S.show.logo);
+  show('league', S.show.league);
+  const src = '/static/assets/' + (S.leagueLogo || 'league_logo.png');
+  if (src !== leagueSrc) {
+    leagueSrc = src;
+    const img = $('leagueImg');
+    img.style.display = '';
+    img.onerror = () => img.style.display = 'none';
+    img.src = src;
+  }
+  const replay = !!L.isReplay;   // LIVE / REPLAY tag follows iRacing automatically
+  const tag = $('liveTag');
+  tag.textContent = replay ? 'REPLAY' : 'LIVE';
+  tag.classList.toggle('replay', replay);
+}
+
+
+
+/* ---------- Drive graphic ----------
+   Shows a ready-made PNG/JPG/WebM from the Google Drive folder. A flat picture animates as one
+   piece: wipe (default), slide, fade or pop, measured on the part of the image that isn't
+   transparent so the wipe and light sweep run across the actual graphic. WebM plays its own animation. */
+const G = { on: false, file: '', t: null, busy: null, box: null, video: false };
+function gfxMedia() { return G.video ? $('gfxVid') : $('gfxImg'); }
+function contentBox(img) {
+  // bounding box of non-transparent pixels, in the image's own pixels
+  const W = img.naturalWidth, H = img.naturalHeight, k = Math.min(1, 480 / W);
+  try {
+    const c = document.createElement('canvas'); c.width = Math.max(1, Math.round(W * k)); c.height = Math.max(1, Math.round(H * k));
+    const x = c.getContext('2d'); x.drawImage(img, 0, 0, c.width, c.height);
+    const d = x.getImageData(0, 0, c.width, c.height).data;
+    let x0 = c.width, y0 = c.height, x1 = -1, y1 = -1;
+    for (let yy = 0; yy < c.height; yy++) for (let xx = 0; xx < c.width; xx++) {
+      if (d[(yy * c.width + xx) * 4 + 3] > 12) { if (xx < x0) x0 = xx; if (xx > x1) x1 = xx; if (yy < y0) y0 = yy; if (yy > y1) y1 = yy; }
+    }
+    if (x1 < 0) return { x: 0, y: 0, w: W, h: H };
+    return { x: x0 / k, y: y0 / k, w: (x1 - x0 + 1) / k, h: (y1 - y0 + 1) / k };
+  } catch (e) { return { x: 0, y: 0, w: W, h: H }; }
+}
+function gfxRect() {
+  if (!G.box || !G.file) return null;
+  const m = gfxMedia(), r = m.getBoundingClientRect(), W = m.offsetWidth || 1, H = m.offsetHeight || 1;
+  return { x: r.left + G.box.x / W * r.width, y: r.top + G.box.y / H * r.height, w: G.box.w / W * r.width, h: G.box.h / H * r.height };
+}
+function loadGfx(file) {
+  const url = '/gfx/' + file.split('/').map(encodeURIComponent).join('/') + '?t=' + Date.now();
+  const video = /\.(webm|mp4)$/i.test(file);
+  const img = $('gfxImg'), vid = $('gfxVid');
+  return new Promise(res => {
+    if (video) {
+      img.classList.add('none'); vid.classList.remove('none');
+      vid.onloadeddata = () => { G.video = true; G.box = { x: 0, y: 0, w: vid.videoWidth, h: vid.videoHeight }; res(true); };
+      vid.onerror = () => res(false);
+      vid.src = url; vid.load();
+    } else {
+      vid.pause(); vid.classList.add('none'); vid.removeAttribute('src'); img.classList.remove('none');
+      img.onload = () => { G.video = false; G.box = contentBox(img); res(true); };
+      img.onerror = () => res(false);
+      img.src = url;
+    }
+  });
+}
+function placeShine() {
+  const b = G.box, sb = $('gfxShineBox'), m = gfxMedia();
+  sb.style.left = (m.offsetLeft + b.x) + 'px'; sb.style.top = (m.offsetTop + b.y) + 'px'; sb.style.width = b.w + 'px'; sb.style.height = b.h + 'px';
+}
+function gfxClip(b, W, H, left, right) {   // clip to the content box, with custom left / right edges
+  return `inset(${b.y}px ${W - right}px ${H - b.y - b.h}px ${left}px)`;
+}
+function gfxIn(kind) {
+  const el = $('gfx'), m = gfxMedia(), b = G.box, W = m.offsetWidth, H = m.offsetHeight;
+  m.getAnimations().forEach(x => x.cancel());
+  el.classList.remove('off');
+  if (G.video) { m.currentTime = 0; m.play().catch(() => {}); }
+  if (LAYOUT_MODE) return;
+  if (G.video && kind === 'wipe') kind = 'fade';     // a video brings its own animation
+  if (kind === 'slide') anim(m, [{ opacity: 0, transform: 'translateX(-90px)' }, { opacity: 1, transform: 'none' }], { duration: 650 });
+  else if (kind === 'fade') anim(m, [{ opacity: 0 }, { opacity: 1 }], { duration: 500 });
+  else if (kind === 'pop') {
+    m.style.transformOrigin = `${b.x + b.w / 2}px ${b.y + b.h / 2}px`;
+    anim(m, [{ opacity: 0, transform: 'scale(.86)' }, { opacity: 1, transform: 'none' }], { duration: 550, easing: 'cubic-bezier(.2,1.35,.4,1)' });
+  } else {
+    anim(m, [{ clipPath: gfxClip(b, W, H, b.x, b.x) }, { clipPath: gfxClip(b, W, H, b.x, b.x + b.w) }], { duration: 800 });
+  }
+  if (!G.video) { placeShine(); shineOn($('gfxShineBox'), kind === 'wipe' ? 650 : 400); }
+}
+function gfxOut(kind) {
+  const el = $('gfx'), m = gfxMedia(), b = G.box, W = m.offsetWidth, H = m.offsetHeight;
+  if (G.video && kind === 'wipe') kind = 'fade';
+  if (kind === 'slide') anim(m, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateX(90px)' }], { duration: 500, easing: EASE_IN, fill: 'forwards' });
+  else if (kind === 'fade') anim(m, [{ opacity: 1 }, { opacity: 0 }], { duration: 450, easing: 'ease-in', fill: 'forwards' });
+  else if (kind === 'pop') anim(m, [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.9)' }], { duration: 400, easing: 'ease-in', fill: 'forwards' });
+  else anim(m, [{ clipPath: gfxClip(b, W, H, b.x, b.x + b.w) }, { clipPath: gfxClip(b, W, H, b.x + b.w, b.x + b.w) }], { duration: 550, easing: EASE_IN, fill: 'forwards' });
+  return new Promise(res => setTimeout(() => { el.classList.add('off'); m.getAnimations().forEach(x => x.cancel()); if (G.video) m.pause(); res(); }, 580));
+}
+let gfxQueue = Promise.resolve(), gfxLayoutPicked = false;
+async function gfxLayoutFile() {
+  if (gfxLayoutPicked) return; gfxLayoutPicked = true;
+  try { const r = await (await fetch('/api/graphics')).json(); G.layoutFile = (r.files && r.files.find(f => !f.video) || r.files[0] || {}).path || ''; } catch (e) {}
+}
+function renderGfx() {
+  const want = (RAW && RAW.gfx) || {};
+  let file = want.file || '', on = !!want.visible && !!file, t = want.t;
+  if (LAYOUT_MODE) { if (!file) { gfxLayoutFile(); file = G.layoutFile || ''; } on = !!file; t = 0; }
+  const kind = want.anim || 'wipe';
+  if (on === G.on && file === G.file && (t === G.t || !on)) return;
+  const wasOn = G.on, changed = file !== G.file || t !== G.t;
+  G.on = on; G.file = file; G.t = t;
+  gfxQueue = gfxQueue.then(async () => {
+    if (wasOn && (!on || changed) && !$('gfx').classList.contains('off')) await gfxOut(kind);
+    if (!on || G.file !== file || G.t !== t) return;    // something newer is queued
+    if (!(await loadGfx(file))) { console.error('Could not load graphic', file); return; }
+    await new Promise(r => requestAnimationFrame(r));
+    gfxIn(kind);
+  });
+}
+
+
+/* ---------- Grid: the starting grid, one row (two cars) at a time ---------- */
+const GR = { on: false, t: null, row: 0, at: 0, step: null, shownRow: -1 };
+const ordinal = n => n + (n % 100 >= 11 && n % 100 <= 13 ? 'TH' : ({ 1: 'ST', 2: 'ND', 3: 'RD' }[n % 10] || 'TH'));
+function gridFill(side, c) {
+  const el = q('grid', '.gside.' + side);
+  el.classList.toggle('empty', !c);
+  if (!c) return;
+  const nm = el.querySelector('.gname');
+  if (nm.textContent !== cleanName(c.name).toUpperCase()) {   // long names shrink to fit between the car and the number
+    nm.textContent = cleanName(c.name).toUpperCase(); nm.style.fontSize = '';
+    for (let f = 46; f > 24 && nm.scrollWidth > nm.clientWidth; f -= 2) nm.style.fontSize = f + 'px';
+  }
+  el.querySelector('.gtime').textContent = c.time || '';
+  el.querySelector('.gnum').textContent = c.num;
+  el.querySelector('.gcn').textContent = c.car || '';
+  const img = el.querySelector('.gcar img');
+  const want = c.img || '';   // a folder image (/carimg/...) or an iRacing render (/carrender/...)
+  if (img.dataset.src === want) return;
+  img.dataset.src = want;
+  if (want) { img.onerror = () => img.classList.add('none'); img.onload = () => img.classList.remove('none'); img.src = want; }
+  else { img.classList.add('none'); img.removeAttribute('src'); }
+}
+function gridShowRow(grid, row, animate) {
+  const a = grid[row * 2], b = grid[row * 2 + 1];
+  const apply = () => {
+    $('gpL').textContent = a ? ordinal(a.pos) : ''; $('gpR').textContent = b ? ordinal(b.pos) : '';
+    $('gpL').style.visibility = a ? '' : 'hidden'; $('gpR').style.visibility = b ? '' : 'hidden';
+    $('gRow').textContent = 'ROW ' + (row + 1);
+    gridFill('l', a); gridFill('r', b);
+  };
+  GR.shownRow = row;
+  if (!animate) return apply();
+  const ins = [q('grid', '.gside.l .gin'), q('grid', '.gside.r .gin')];
+  anim(ins[0], [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateX(-60px)' }], { duration: 260, easing: EASE_IN, fill: 'forwards' });
+  anim(ins[1], [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateX(60px)' }], { duration: 260, easing: EASE_IN, fill: 'forwards' });
+  setTimeout(() => {
+    ins.forEach(x => x.getAnimations().forEach(z => z.cancel()));
+    apply();
+    anim(ins[0], [{ clipPath: 'inset(0 0 0 100%)' }, { clipPath: 'inset(0 0 0 0)' }], { duration: 550 });
+    anim(ins[1], [{ clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0 0 0)' }], { duration: 550 });
+    [$('gpL'), $('gRow'), $('gpR')].forEach((x, i) => anim(x, [{ clipPath: 'inset(100% 0 0 0)' }, { clipPath: 'inset(0 0 0 0)' }], { duration: 380, delay: 80 * i }));
+    shineOn(q('grid', '.gbar'), 250);
+  }, 280);
+}
+IN.grid = () => {
+  anim(q('grid', '.gbar'), [{ clipPath: 'inset(0 50% 0 50%)' }, { clipPath: 'inset(0 0 0 0)' }], { duration: 750 });
+  anim(q('grid', '.gline'), [{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }], { duration: 750, delay: 150 });
+  anim(q('grid', '.gmid'), [{ opacity: 0 }, { opacity: 1 }], { duration: 400 });
+  anim(q('grid', '.gtop'), [{ clipPath: 'inset(100% 0 0 0)', transform: 'translateY(30px)' }, { clipPath: 'inset(0 0 0 0)', transform: 'none' }], { duration: 500, delay: 550 });
+  anim(q('grid', '.gside.l .gin'), [{ opacity: 0, transform: 'translateX(80px)' }, { opacity: 1, transform: 'none' }], { duration: 550, delay: 500 });
+  anim(q('grid', '.gside.r .gin'), [{ opacity: 0, transform: 'translateX(-80px)' }, { opacity: 1, transform: 'none' }], { duration: 550, delay: 500 });
+  shineOn(q('grid', '.gbar'), 900);
+  return 1500;
+};
+OUT.grid = () => {
+  anim(q('grid', '.gtop'), [{ clipPath: 'inset(0 0 0 0)' }, { clipPath: 'inset(100% 0 0 0)' }], { duration: 300, easing: 'ease-in', fill: 'forwards' });
+  anim(q('grid', '.gside.l .gin'), [{ opacity: 1 }, { opacity: 0, transform: 'translateX(80px)' }], { duration: 300, easing: 'ease-in', fill: 'forwards' });
+  anim(q('grid', '.gside.r .gin'), [{ opacity: 1 }, { opacity: 0, transform: 'translateX(-80px)' }], { duration: 300, easing: 'ease-in', fill: 'forwards' });
+  anim(q('grid', '.gline'), [{ transform: 'scaleX(1)' }, { transform: 'scaleX(0)' }], { duration: 400, delay: 200, easing: 'ease-in', fill: 'forwards' });
+  anim(q('grid', '.gbar'), [{ clipPath: 'inset(0 0 0 0)' }, { clipPath: 'inset(0 50% 0 50%)' }], { duration: 500, delay: 250, easing: EASE_IN, fill: 'forwards' });
+  return 800;
+};
+function renderGrid() {
+  const w = (RAW && RAW.gridw) || {};
+  const grid = (L && L.grid) || [];
+  const rows = Math.ceil(grid.length / 2);
+  $('gSite').textContent = w.site ?? 'vspeedsim.com';
+  if (LAYOUT_MODE) { if (GR.shownRow !== 0) gridShowRow(grid, 0, false); GR.on = true; show('grid', grid.length > 0); return; }
+  const on = !!w.visible && rows > 0;
+  const now = Date.now();
+  if (on && (!GR.on || w.t !== GR.t)) {          // (re)start from row 1
+    GR.on = true; GR.t = w.t; GR.row = 0; GR.at = now; GR.step = w.step && w.step.n;
+    if (VIS.grid && VIS.grid.on) gridShowRow(grid, 0, true); else { gridShowRow(grid, 0, false); show('grid', true); }
+    return;
+  }
+  if (!on) { if (GR.on) { GR.on = false; show('grid', false); } return; }
+  const manual = w.mode === 'manual';
+  if (w.step && w.step.n !== GR.step) {           // Prev / Next row from the panel
+    GR.step = w.step.n;
+    if (manual && w.step.dir > 0 && GR.row + 1 >= rows) {   // Next on the last row: same as the end of the auto cycle
+      if (w.end === 'loop') { GR.row = 0; GR.at = now; gridShowRow(grid, 0, true); }
+      else { GR.on = false; show('grid', false); post_('/api/settings', { gridw: { visible: false } }); }
+      return;
+    }
+    const to = Math.max(0, Math.min(rows - 1, GR.row + (w.step.dir < 0 ? -1 : 1)));
+    if (to !== GR.row) { GR.row = to; gridShowRow(grid, GR.row, true); }
+    GR.at = now; return;
+  }
+  if (!manual && now - GR.at >= Math.max(2, +w.rowSec || 6) * 1000) {
+    GR.at = now;
+    if (GR.row + 1 >= rows) {
+      if (w.end === 'loop') { GR.row = 0; gridShowRow(grid, 0, true); }
+      else { GR.on = false; show('grid', false); post_('/api/settings', { gridw: { visible: false } }); }
+      return;
+    }
+    GR.row++; gridShowRow(grid, GR.row, true); return;
+  }
+  if (GR.shownRow === GR.row) {                   // keep names / times fresh without animating
+    const a = grid[GR.row * 2], b = grid[GR.row * 2 + 1];
+    if (a) gridFill('l', a); if (b) gridFill('r', b);
+  }
+}
+function post_(url, body) { return fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }).catch(() => {}); }
+
+/* ---------- Layout: every widget can be moved and resized from the control panel ----------
+   Each widget has an anchor point (where it sits by default) and is drawn at
+   translate(...) scale(...) so that anchor lands on its saved spot at its saved size.
+   Settings: layout = { id: { x, y, s } }  (x, y = anchor on screen, s = size multiplier). */
+const LAYOUT_MODE = new URLSearchParams(location.search).has('layout');
+const WIDGETS = {
+  gfx:       { name: 'Track graphic',  el: 'gfx',        from: [960, 540] },
+  logo:      { name: 'VSPEED logo',    el: 'logo',       from: [40, 30] },
+  league:    { name: 'League + tag',   el: 'league',     from: [1880, 30] },
+  tower:     { name: 'Ticker',         el: 'tower',      from: [40, 120] },
+  lower:     { name: 'Driver info',    el: 'lower',      from: [420, 1040] },
+  board:     { name: 'Results',        el: 'board',      from: [960, 120] },
+  grid:      { name: 'Grid',           el: 'grid',       from: [960, 1010] },
+  standings: { name: 'Standings',      el: 'fStandings', from: [80, 100],   to: [410, 170],   s: 0.82, frame: true },
+  info:      { name: 'Race info',      el: 'fAnalysis',  from: [1840, 960], to: [1880, 1040], s: 0.70, frame: true },
+  team:      { name: 'Broadcast team', el: 'fTeam',      from: [995, 1000], to: [880, 1040], s: 0.72, frame: true },
+};
+// native widgets get a full-screen holder that carries the layout transform (the widget keeps its own show/hide animation)
+for (const id in WIDGETS) {
+  const w = WIDGETS[id], el = $(w.el);
+  w.to = w.to || w.from.slice(); w.s = w.s || 1;
+  if (w.frame) { w.holder = el; continue; }
+  const h = document.createElement('div');
+  h.className = 'holder';
+  el.parentNode.insertBefore(h, el);
+  h.appendChild(el);
+  w.holder = h;
+}
+const XF = {};   // current transform of each widget: { tx, ty, s, x, y, mult }
+function applyLayout() {
+  const lay = (RAW && RAW.layout) || {};
+  for (const id in WIDGETS) {
+    const w = WIDGETS[id], o = lay[id] || {};
+    const x = o.x ?? w.to[0], y = o.y ?? w.to[1], mult = o.s ?? 1, sc = w.s * mult;
+    const tx = x - w.from[0] * sc, ty = y - w.from[1] * sc;
+    XF[id] = { tx, ty, s: sc, x, y, mult };
+    const t = `translate(${tx}px, ${ty}px) scale(${sc})`;
+    if (w.holder.style.transform !== t) w.holder.style.transform = t;
+  }
+}
+// on-screen rectangle of a widget (in 1920x1080 overlay pixels)
+const FRAME_EL = { fAnalysis: 'analysis', fTeam: 'team' };
+function rectOf(id) {
+  const w = WIDGETS[id];
+  try {
+    if (id === 'gfx') return gfxRect();
+    if (!w.frame) {
+      const r = $(w.el).getBoundingClientRect();
+      return { x: r.left, y: r.top, w: r.width, h: r.height };
+    }
+    const doc = $(w.el).contentDocument;
+    let inner = FRAME_EL[w.el];
+    if (!inner) inner = (SD && SD.state && SD.state.view === 'bracket' && !LAYOUT_MODE) ? 'bracket' : 'panel';
+    const el = doc && doc.getElementById(inner);
+    if (!el) return null;
+    let r = el.getBoundingClientRect();
+    if (inner === 'panel' || inner === 'bracket') {           // include the rows below the header bar
+      const kids = [...el.querySelectorAll('#head, #cols, #bhead, #bcols')].map(k => k.getBoundingClientRect()).filter(k => k.height);
+      if (kids.length) {
+        const top = Math.min(...kids.map(k => k.top)), bot = Math.max(...kids.map(k => k.bottom));
+        r = { left: r.left, top: Math.min(r.top, top), width: r.width, height: Math.max(bot, r.bottom) - Math.min(r.top, top) };
+      }
+    }
+    const f = XF[id];
+    return { x: f.tx + r.left * f.s, y: f.ty + r.top * f.s, w: r.width * f.s, h: r.height * f.s };
+  } catch (e) { return null; }
+}
+const hits = (a, b) => a && b && a.x < b.x + b.w && b.x < a.x + a.w && a.y < b.y + b.h && b.y < a.y + a.h;
+// for the control panel's Layout tab
+window.layoutInfo = () => {
+  const out = {};
+  for (const id in WIDGETS) out[id] = { name: WIDGETS[id].name, rect: rectOf(id), x: XF[id].x, y: XF[id].y, mult: XF[id].mult };
+  return out;
+};
+
+/* ---------- standings / race info / team: embedded pages + ducking ----------
+   The embedded pages animate themselves (they poll /state). While one is on screen, any
+   live-race graphic it overlaps steps aside, and comes back after it has animated out. */
+const origin = encodeURIComponent(location.origin);
+$('fStandings').src = '/standings?control=' + origin;
+$('fAnalysis').src = '/analysis?align=right&control=' + origin;
+$('fTeam').src = '/team?control=' + origin;
+const duck = { standings: 0, info: 0, team: 0, gfx: 0, grid: 0 };   // time until which each is considered on screen
+function onScreen() {
+  const st = (SD && SD.state) || {}, now = Date.now();
+  if (st.visible) duck.standings = now + 1500;
+  if (st.analysis && st.analysis.visible) duck.info = now + 1500;
+  if (st.team && st.team.visible) duck.team = now + 1700;
+  if (G.on) duck.gfx = now + 900;
+  if (GR.on) duck.grid = now + 1100;
+  return Object.keys(duck).filter(k => duck[k] > now);
+}
+const SHOW_KEY = { logo: 'logo', league: 'league', tower: 'tower', lower: 'lowerthird', flag: 'flags', board: 'board' };
+
+/* ---------- layout mode (/overlay?layout=1): everything on screen with sample data, for positioning ---------- */
+function sampleLive() {
+  const names = ['Ryan Carter','Jake Morrison','Tyler Brooks','Cody Hensley','Austin Reed','Mason Pike','Dylan Hart','Chase Whitaker','Brandon Cole','Logan Fisher',
+                 'Evan Sutton','Kyle Barrett','Nate Delgado','Garrett Lowe','Hunter Vance','Jordan Mills','Cole Ramsey','Blake Turner','Trent Hollis','Wyatt Doyle'];
+  const cars = names.map((n, i) => ({ idx: i + 1, num: String((i * 37 + 3) % 99), name: n, pos: i + 1, classPos: i + 1, cls: '', gap: i ? '+' + (i * 0.4).toFixed(1) : 'LEADER',
+    interval: i ? '+0.4' : 'LEADER', classGap: '', classInterval: '', onTrack: true, pit: false, lastStr: '29.812', bestStr: '29.640', car: 'Next Gen Camaro' }));
+  return { connected: true, source: 'sample', track: 'Sample Speedway', sessionName: 'RACE', isRace: true, sessionState: 4, lap: 12, totalLaps: 60,
+           flag: 'green', cars, classes: [], camCarIdx: 1, camGroups: [], isReplay: false,
+           grid: cars.map((c, i) => ({ pos: i + 1, idx: c.idx, num: c.num, name: c.name, car: 'NASCAR Chevrolet Camaro ZL1', time: (33.5 + i * 0.031).toFixed(3), img: '' })) };
+}
+function layoutForce() {
+  const fr = (id) => { try { return $(id).contentWindow; } catch (e) { return null; } };
+  const sw = fr('fStandings'), aw = fr('fAnalysis'), tw = fr('fTeam');
+  try { if (sw && sw.setView && !sw.document.getElementById('panel').classList.contains('show')) sw.setView('standings'); } catch (e) {}
+  try { if (aw && aw.aShow && aw.document.getElementById('analysis').style.visibility !== 'visible') aw.aShow(); } catch (e) {}
+  try { if (tw && tw.tShow && tw.document.getElementById('team').style.visibility !== 'visible') tw.tShow(); } catch (e) {}
+}
+if (LAYOUT_MODE) setInterval(layoutForce, 1500);
+
+function render() {
+  if (!RAW || !L) return;
+  applyLayout();
+  const base = RAW.show, vis = Object.assign({}, base);
+  if (LAYOUT_MODE) {
+    Object.values(SHOW_KEY).forEach(k => vis[k] = true);
+  } else {
+    const up = onScreen().map(rectOf);
+    for (const id in SHOW_KEY) {
+      if (up.length && base[SHOW_KEY[id]] && up.some(r => hits(r, rectOf(id)))) vis[SHOW_KEY[id]] = false;
+    }
+  }
+  if (sponsorLive(RAW)) vis.lowerthird = false;   // driver info steps aside while a sponsor graphic is up
+  S = Object.assign({}, RAW, { show: vis }, LAYOUT_MODE ? { lowerThirdMode: 'always' } : {});
+  const realL = L;
+  if (LAYOUT_MODE && !(L.connected && L.cars && L.cars.length)) L = sampleLive();
+  renderChrome(); renderTower(); renderLower(); renderBoard(); renderGfx(); renderGrid(); renderSponsor();
+  if (LAYOUT_MODE && FLAG_BANNERS) { const fl = $('flag'); Object.keys(FLAG_TEXT).forEach(k => fl.classList.toggle(k, k === 'green')); $('flagText').textContent = 'GREEN FLAG'; show('flag', true); } else renderFlag();
+  L = realL;
+}
+setInterval(render, 1000); // keeps time-based things (on-cut lower third, ducking) moving
+
+function connect() {
+  const es = new EventSource('/events');
+  es.onmessage = e => { const d = JSON.parse(e.data); RAW = d.settings; L = d.live; SD = d.standings; render(); };
+  es.onerror = () => { es.close(); setTimeout(connect, 2000); };
+}
+connect();
+</script>
+</body>
+</html>
