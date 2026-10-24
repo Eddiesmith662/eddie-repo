@@ -183,10 +183,11 @@ PIT_SHOW_AFTER = 8.0   # seconds the final stop time stays up after the car leav
 PIT_HIDE_AT = 50.0     # a stop this long means the car is just parked: drop the tag until the next visit
 
 
-def pit_timer(store, idx, now, on_pit_road, in_stall):
+def pit_timer(store, idx, now, on_pit_road, in_stall, count=True):
     """Time each stop in the pit box. Returns (state, seconds): ('road', None) on pit road,
     ('stall', running time) while stopped, ('done', final time) for a while after the stop, else (None, None).
-    Once a stop reaches PIT_HIDE_AT seconds the tag is hidden for the rest of that pit visit."""
+    Once a stop reaches PIT_HIDE_AT seconds the tag is hidden for the rest of that pit visit.
+    Also counts stops in the pit box ("stops"); count=False while a replay plays so nothing is counted twice."""
     st = store.setdefault(idx, {"start": None, "last": None, "endAt": None, "parked": False, "lastStop": None})
     if st["endAt"] is not None and now < st["endAt"]:      # time went backwards (replay jump): forget
         st.update(start=None, last=None, endAt=None, parked=False)
@@ -202,6 +203,9 @@ def pit_timer(store, idx, now, on_pit_road, in_stall):
             st.update(start=None, last=None, endAt=None, parked=False)
             return None, None
     if in_stall:
+        if st["start"] is None and count and now - st.get("countAt", -1e9) > 20:   # a new stop (ignores a brief flicker)
+            st["stops"] = st.get("stops", 0) + 1
+            st["countAt"] = now
         if st["start"] is None or now < st["start"]:
             st["start"] = now
         t = max(0.0, now - st["start"])
@@ -398,6 +402,9 @@ class IRacingSource:
         try:
             self.read_session_info()
             sess_num = ir["SessionNum"] or 0
+            if self.__dict__.get("pit_sess") != sess_num:   # new session: stop counts and pit times start over
+                self.pit_sess = sess_num
+                self.pit_store.clear()
             sessions = self.info.get("sessions", [])
             sess = sessions[sess_num] if 0 <= sess_num < len(sessions) else {}
             stype = (sess.get("SessionType") or "").lower()
@@ -420,6 +427,7 @@ class IRacingSource:
             now_s = ir["SessionTime"] or 0.0
             last = ir["CarIdxLastLapTime"] or []
             best = ir["CarIdxBestLapTime"] or []
+            replaying = bool(ir["IsReplayPlaying"]) and (ir["ReplayFrameNumEnd"] or 0) > 30
             try:
                 cflags = ir["CarIdxSessionFlags"] or []   # per-car flags (meatball = repair)
             except Exception:
@@ -441,7 +449,7 @@ class IRacingSource:
                     "pit": bool(pit[idx]) if idx < len(pit) else False,
                     "onTrack": in_world,
                 })
-                c["pitState"], c["pitTime"] = pit_timer(self.pit_store, idx, now_s, c["pit"],
+                c["pitState"], c["pitTime"] = pit_timer(self.pit_store, idx, now_s, c["pit"], count=not replaying, in_stall=
                                                         idx < len(surf) and surf[idx] == 1)
                 c.update({
                     "last": last[idx] if last[idx] and last[idx] > 0 else 0,
@@ -635,6 +643,7 @@ def add_extras(cars, is_race, start_order, pit_store, speed_store, now_s, track_
         c["mph"] = round(mph) if mph is not None and c.get("onTrack", True) else None
         st = pit_store.get(idx) or {}
         c["lastPit"] = round(st["lastStop"], 1) if st.get("lastStop") else None
+        c["stops"] = st.get("stops", 0)
 
 
 def finalize_positions(cars):
