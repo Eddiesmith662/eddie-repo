@@ -261,7 +261,7 @@
   #grid.aw .gaw { display: flex; }
   #grid .gwash { inset: 0; background: linear-gradient(90deg, rgba(255,13,64,.34), rgba(255,13,64,.06) 75%); }
   #grid .gframe { inset: 0; width: 100%; height: 100%; overflow: visible; }
-  #grid .gframe rect { fill: none; stroke: #fff; stroke-width: 4px; vector-effect: non-scaling-stroke; }
+  #grid .gframe rect { fill: none; stroke: var(--blue); stroke-width: 4px; vector-effect: non-scaling-stroke; x: 2px; y: 2px; width: calc(100% - 4px); height: calc(100% - 4px); }   /* VSPEED blue frame, kept fully inside the box */
   #grid .gaw { left: 18px; top: 6px; bottom: 8px; width: 270px; flex-direction: column; align-items: center; justify-content: flex-end; overflow: hidden; }
   #grid .gaw img { height: 112px; margin: 0 auto auto; filter: drop-shadow(0 4px 8px rgba(0,0,0,.6)); }
   #grid .gawc { font-size: 15px; letter-spacing: 3px; white-space: nowrap; }
