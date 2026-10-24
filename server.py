@@ -53,6 +53,7 @@ DEFAULT_SETTINGS = {
         "flags": True,         # automatic flag banners
         "board": False,        # starting grid / results board
         "movers": False,       # biggest movers: top 5 positions gained since the start
+        "penalty": True,       # penalty box pops up on its own when a driver gets a black flag
     },
     "raceName": "VSPEED SIM RACING",
     "leagueLogo": "league_logo.png",
@@ -141,7 +142,8 @@ class State:
             self.bump()
 
     def snapshot(self):
-        return json.dumps({"settings": self.settings, "live": self.live, "standings": standings.summary(), "app": APP})
+        return json.dumps({"settings": self.settings, "live": self.live, "standings": standings.summary(), "app": APP,
+                           "penalties": {"list": PEN["list"], "hide": PEN["hide"], "reasons": PEN_REASONS, "now": time.time()}})
 
     def notify(self):
         with self.lock:
@@ -445,6 +447,7 @@ class IRacingSource:
                     "last": last[idx] if last[idx] and last[idx] > 0 else 0,
                     "best": best[idx] if best[idx] and best[idx] > 0 else 0,
                     "meatball": bool(idx < len(cflags) and (cflags[idx] or 0) & REPAIR_FLAG),
+                    "blackFlag": bool(idx < len(cflags) and (cflags[idx] or 0) & BLACK_FLAG),
                 })
                 cars.append(c)
 
@@ -588,6 +591,7 @@ def compute_class_gaps(cars, is_race, racing):
 
 
 REPAIR_FLAG = 0x00100000   # irsdk_repair: the meatball (black flag with orange circle)
+BLACK_FLAG = 0x00010000    # irsdk_black: a penalty to serve (iRacing doesn't say what for)
 
 
 def track_meters(text):
@@ -734,6 +738,9 @@ class DemoSource:
             elif before < 0 <= c["progress"]:
                 c["lapStart"] = now
 
+        if self.state == 4 and now > self.__dict__.get("next_black", self.t0 + 25):   # demo: a black flag every ~45s
+            self.next_black = now + 45
+            random.choice(self.cars[2:18])["blackUntil"] = now + 30
         if self.state == 4 and now > self.__dict__.get("next_meat", self.t0 + 40):   # demo: a meatball flag every ~50s
             self.next_meat = now + 50
             random.choice(self.cars[3:15])["meatUntil"] = now + 18
@@ -766,6 +773,7 @@ class DemoSource:
                 "pitState": None, "pitTime": None,
                 "last": c["last"], "best": c["best"],
                 "meatball": c.get("meatUntil", 0) > now,
+                "blackFlag": c.get("blackUntil", 0) > now,
             })
         store = self.__dict__.setdefault("pit_store", {})
         src = {c["idx"]: c for c in self.cars}
@@ -842,6 +850,55 @@ SOURCE = None
 SOURCE_LOCK = threading.Lock()
 
 
+PEN = {"seq": 0, "list": [], "prev": {}, "init": False, "hide": 0}
+PEN_REASONS = ["SPEEDING", "PASSING UNDER YELLOW"]   # picked in the live timing window
+
+
+def track_penalties(live):
+    """A car's black flag switching on = a new penalty (shown by the penalty box). Flags already
+    out when the overlay starts, and anything seen during a replay, don't count."""
+    cars = live.get("cars") or []
+    multi = len(live.get("classes") or []) > 1
+    replay = bool(live.get("isReplay"))
+    now = time.time()
+    with STATE.lock:
+        events = list(PEN["list"])
+        for c in cars:
+            idx, on = c["idx"], bool(c.get("blackFlag"))
+            was = PEN["prev"].get(idx, False)
+            PEN["prev"][idx] = on
+            if on and not was and PEN["init"] and not replay:
+                PEN["seq"] += 1
+                events.append({"id": PEN["seq"], "idx": idx, "num": c.get("num", ""), "name": c.get("name", ""),
+                               "pos": c.get("classPos") if multi else c.get("pos"), "reason": "",
+                               "active": True, "t": now, "show": now})
+            elif was and not on:
+                for e in reversed(events):
+                    if e["idx"] == idx and e["active"]:
+                        e["active"] = False
+                        break
+        PEN["init"] = True
+        PEN["list"] = events[-20:]
+
+
+def penalty_command(data):
+    cmd = str(data.get("cmd") or "")
+    with STATE.lock:
+        if cmd == "hide":
+            PEN["hide"] = time.time()
+        else:
+            ev = next((e for e in PEN["list"] if e["id"] == data.get("id")), None)
+            if not ev:
+                return {"ok": False, "error": "no such penalty"}
+            if cmd == "reason":
+                r = str(data.get("reason") or "")
+                ev["reason"] = r if r in PEN_REASONS else ""
+            elif cmd == "show":
+                ev["show"] = time.time()
+        STATE.bump()
+    return {"ok": True}
+
+
 def telemetry_loop(demo, multiclass=False):
     global SOURCE
     if demo:
@@ -867,6 +924,7 @@ def telemetry_loop(demo, multiclass=False):
                 time.sleep(1.0)
                 continue
             waiting_printed = False
+            track_penalties(live)
             STATE.set_live(live)
         except Exception as e:  # keep the broadcast alive no matter what
             print("Telemetry error:", repr(e))
@@ -1070,6 +1128,8 @@ class Handler(BaseHTTPRequestHandler):
                 fresh["sponsor"]["files"] = copy.deepcopy(STATE.settings.get("sponsor", {}).get("files", {}))   # keep loaded sponsor images
             STATE.update_settings(fresh)
             return self.send_json({"ok": True})
+        if path == "/api/penalty":
+            return self.send_json(penalty_command(data))
         if path == "/api/camera":
             with SOURCE_LOCK:
                 if "carIdx" in data:

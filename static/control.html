@@ -72,6 +72,7 @@
   .car .t { text-align: right; font-variant-numeric: tabular-nums; color: #cfcfcf; }
   .car .t.pb { color: var(--green); } .car .t.ob { color: #c86bff; }
   .car .g.ld { color: #ffb347; }
+  .car .bflag { height: 20px; width: auto; vertical-align: -4px; margin-left: 10px; filter: drop-shadow(0 0 3px rgba(255,255,255,.35)); }
   .car .sp { text-align: right; font-variant-numeric: tabular-nums; color: #cfcfcf; }
   @media (max-width: 760px) { .car, .carh { grid-template-columns: 30px 40px minmax(80px, 1fr) 34px 66px 34px 32px; gap: 4px; } .car .x, .carh .x { display: none; } }
   .car:nth-child(even) { background: #1f1f20; }
@@ -122,6 +123,19 @@
   .ltcams button { text-align: left; padding: 9px 10px; font-size: 14px; }
   .ltcams button.on { background: var(--red); border-color: var(--red); }
   body.solo .cars { flex: 1; max-height: none; min-height: 120px; }
+  /* penalties (live timing window): who has a black flag, pick the reason for the penalty box */
+  .pens { margin-bottom: 10px; border: 1px solid #5a5a5b; border-left: 4px solid #fff; border-radius: 5px; background: #1a1a1b; }
+  .pens .ph { display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; font-size: 12px; letter-spacing: 1.5px; color: var(--dim); text-transform: uppercase; }
+  .pens .ph button { padding: 4px 10px; font-size: 12px; }
+  .pen { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-top: 1px solid #2f2f30; flex-wrap: wrap; }
+  .pen .pn { font-weight: 600; min-width: 46px; }
+  .pen .nm { flex: 1; min-width: 120px; }
+  .pen .ps { color: var(--dim); }
+  .pen .sf { font-size: 11px; letter-spacing: 1.5px; padding: 2px 7px; border-radius: 3px; background: #fff; color: #111; }
+  .pen .sf.done { background: #3a3a3b; color: #bbb; }
+  .pen button { padding: 6px 10px; font-size: 13px; }
+  .pen button.on { background: var(--red); border-color: var(--red); }
+  .pen.old { opacity: .55; }
   .rpbox { margin-top: 10px; background: #2a2a2b; border: 1px solid var(--line); border-radius: 8px; padding: 12px; display: flex; flex-direction: column; gap: 10px; }
   .rprow { display: grid; gap: 8px; }
   .rprow.six { grid-template-columns: repeat(6, 1fr); }
@@ -314,6 +328,7 @@
       </div>
       <div class="ltmain">
         <h2><span class="t">Live timing</span><span class="pill" id="rpState">LIVE</span></h2>
+        <div class="pens" id="pens" hidden></div>
         <div class="cars" id="cars"></div>
         <div class="rpbox">
           <div class="rprow six">
@@ -516,14 +531,14 @@
 
 <script>
 const $ = id => document.getElementById(id);
-let APP = {}, S = null, L = null, SD = null, filled = false, sFilled = false, pullBusy = false;
+let APP = {}, PEN = { list: [], reasons: [] }, S = null, L = null, SD = null, filled = false, sFilled = false, pullBusy = false;
 const TILES = [
   ['logo', 'VSPEED logo', 'top left'], ['league', 'League + live tag', 'top right'],
   ['tower', 'Ticker', 'timing tower'], ['lowerthird', 'Driver info', 'camera car'],
-  ['board', 'Results', 'live order'], ['movers', 'Biggest movers', 'top 5 gained'], ['@grid', 'Grid', 'row by row'],
+  ['board', 'Results', 'live order'], ['movers', 'Biggest movers', 'top 5 gained'], ['penalty', 'Penalty box', 'auto on black flag'], ['@grid', 'Grid', 'row by row'],
   ['@standings', 'Standings', 'points / bracket'], ['@info', 'Race info', 'analysis box'], ['@team', 'Broadcast team', 'lower third'], ['@track', 'Track graphic', 'from Drive'],
 ];
-const BASE = { logo: true, league: true, tower: true, lowerthird: true, flags: true, board: false, movers: false };
+const BASE = { logo: true, league: true, tower: true, lowerthird: true, flags: true, board: false, movers: false, penalty: true };
 const A_EXAMPLE = { title: 'RACE ANALYSIS', lines: ['RACE LENGTH: 100 LAPS', 'PITROAD SPEED: 50MPH', 'TIRE SETS AVAILABLE: 4', '2 GWC ATTEMPTS', '100% FUEL | PREMIER SETUP'] };
 const T_EXAMPLE = { title: 'BROADCASTING TEAM', people: [['Sam Rivera', 'Lead Commentary'], ['Jordan Lee', 'Co-Commentary'], ['Casey Hart', 'Producer']] };
 
@@ -903,6 +918,30 @@ function sponsorRender() {
   if (document.activeElement !== $('spHold')) $('spHold').value = sp.hold || 0;
 }
 setInterval(() => { if (S) sponsorRender(); }, 1000);
+/* ---------- penalties (live timing window) ---------- */
+const reasonLabel = r => r.charAt(0) + r.slice(1).toLowerCase();
+function pensRender() {
+  const now = PEN.now || Date.now() / 1000;
+  const list = (PEN.list || []).filter(e => e.active || now - e.t < 180).slice().reverse();   // active ones, plus the last 3 minutes
+  const box = $('pens');
+  box.hidden = !list.length;
+  const html = !list.length ? '' : `<div class="ph"><span>Penalties · pick a reason for the penalty box</span><button data-pcmd="hide">Hide box</button></div>` +
+    list.map(e => `<div class="pen ${e.active ? '' : 'old'}" data-pid="${e.id}"><span class="pn">#${esc(e.num)}</span><span class="nm">${esc(e.name)} <span class="ps">${e.pos ? 'P' + e.pos : ''}</span></span>
+      <span class="sf ${e.active ? '' : 'done'}">${e.active ? 'BLACK FLAG' : 'SERVED'}</span>
+      ${(PEN.reasons || []).map(r => `<button data-reason="${esc(r)}" class="${e.reason === r ? 'on' : ''}">${esc(reasonLabel(r))}</button>`).join('')}
+      <button data-pcmd="show">Show again</button></div>`).join('');
+  if (box._h !== html) { box._h = html; box.innerHTML = html; }
+}
+$('pens').onclick = e => {
+  const b = e.target.closest('button'); if (!b) return;
+  const row = b.closest('[data-pid]'), id = row ? +row.dataset.pid : null;
+  if (b.dataset.pcmd === 'hide') return post('/api/penalty', { cmd: 'hide' });
+  if (b.dataset.pcmd === 'show') return post('/api/penalty', { cmd: 'show', id });
+  if (b.dataset.reason) {
+    const ev = (PEN.list || []).find(x => x.id === id);
+    post('/api/penalty', { cmd: 'reason', id, reason: ev && ev.reason === b.dataset.reason ? '' : b.dataset.reason });   // click again to clear
+  }
+};
 function gridRender() {
   const g = gw();
   air('grAir', g.visible);
@@ -1115,7 +1154,7 @@ function render() {
   const lsm = document.querySelector('.tile[data-k="logo"] small'), lst = S.logoStyle === 'straight' ? 'top left · straight' : 'top left · slanted';
   if (lsm && lsm.textContent !== lst) lsm.textContent = lst;
   if (S.gfx) { trackList(); }
-  gridRender(); sponsorRender(); rendersRender(); classRowsRender();
+  gridRender(); sponsorRender(); pensRender(); rendersRender(); classRowsRender();
   segOn('towerSeg', S.towerMode); segOn('ltSeg', S.lowerThirdMode);
   const replay = !!L.isReplay;
 
@@ -1134,12 +1173,13 @@ function render() {
   if (gSel._k !== gKey) { gSel._k = gKey; gSel.innerHTML = groups.map(g => `<option value="${g.num}">${esc(g.name)}</option>`).join(''); }
   if (document.activeElement !== gSel && L.camGroup != null) gSel.value = L.camGroup;
   const lc = L.cars || [];
+  const BLACK_FLAG_SVG = '<svg class="bflag" viewBox="0 0 46 30" aria-label="Black flag"><title>Black flag</title><rect x="1" y="0" width="3" height="30" rx="1" fill="#d9d9d9"/><path d="M4 1 H44 Q42 13 44 25 H4 Z" fill="#000" stroke="#fff" stroke-width="3" stroke-linejoin="round"/></svg>';
   const fastest = Math.min(...lc.map(c => c.best > 0 ? c.best : 1e9));
   const tcls = (t, c) => !(t > 0) ? '' : (Math.abs(t - fastest) < 0.0005 ? 'ob' : (Math.abs(t - c.best) < 0.0005 ? 'pb' : ''));
   const gainCell = c => c.gained == null ? '<span class="gn">–</span>' : c.gained > 0 ? `<span class="gn up">▲${c.gained}</span>` : c.gained < 0 ? `<span class="gn dn">▼${-c.gained}</span>` : '<span class="gn">–</span>';
   const head = '<div class="carh"><span>Pos</span><span>#</span><span>Driver</span><span title="Positions gained or lost since the start">+/-</span><span>Gap</span><span title="Current speed">MPH</span><span class="x">Last</span><span class="x">Best</span><span class="x" title="Last pit stop time">Pit</span><span></span></div>';
   const html = lc.map(c => `<div class="car ${c.idx === L.camCarIdx ? 'cam' : ''}" data-idx="${c.idx}">
-      <span class="p">${c.pos}</span><span class="n">#${esc(c.num)}</span><span>${esc(c.name)}</span>${gainCell(c)}
+      <span class="p">${c.pos}</span><span class="n">#${esc(c.num)}</span><span>${esc(c.name)}${c.blackFlag ? BLACK_FLAG_SVG : ''}</span>${gainCell(c)}
       <span class="g ${c.lapsDown ? 'ld' : ''}">${esc(c.gap === 'LEADER' ? 'LEADER' : (c.gap || ''))}</span>
       <span class="sp">${c.mph != null ? c.mph : ''}</span>
       <span class="t x ${tcls(c.last, c)}">${esc(c.lastStr || '')}</span><span class="t x ${tcls(c.best, c) === 'ob' ? 'ob' : ''}">${esc(c.bestStr || '')}</span>
@@ -1179,7 +1219,7 @@ function render() {
 
 function connect() {
   const es = new EventSource('/events');
-  es.onmessage = e => { const d = JSON.parse(e.data); S = d.settings; L = d.live; SD = d.standings; APP = d.app || APP; render(); };
+  es.onmessage = e => { const d = JSON.parse(e.data); S = d.settings; L = d.live; SD = d.standings; APP = d.app || APP; PEN = d.penalties || PEN; render(); };
   es.onerror = () => { es.close(); $('conn').textContent = 'Server offline'; $('dot').className = 'dot'; setTimeout(connect, 2000); };
 }
 connect();
