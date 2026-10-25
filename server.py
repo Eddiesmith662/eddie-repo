@@ -241,6 +241,34 @@ def race_flags(store, is_race, state, bits, leader_prog, total):
     return out
 
 
+def tow_fix(store, idx, progress, surf, num=None, log=True):
+    """A towed car is put straight into its pit stall, which can be most of a lap further round than where it
+    stopped (real Talladega race, Oct 25: #3 crashed at 23.53 laps and reappeared in his stall at 23.95, ahead of the
+    leader, so the ticker showed him P1 until the field drove past the pits). While a towed car sits in its stall
+    it keeps the distance it had actually driven; once it drives off it uses its real position again."""
+    ts = store.get(idx)
+    if progress is None:                 # out of the world (being towed, or in the garage)
+        if ts:
+            ts["gone"] = True
+        return None
+    if ts is None:
+        ts = store[idx] = {"lastP": None, "frozen": None, "gone": False}
+    in_stall = surf == 1
+    if in_stall and ts["frozen"] is None and ts["lastP"] is not None and progress > ts["lastP"] + 0.02 \
+            and (ts["gone"] or progress - ts["lastP"] > 0.05):   # appeared in the stall without driving there
+        ts["frozen"] = ts["lastP"]
+        if log:
+            print("Towed to the pits: #%s (held at %.2f laps instead of %.2f while in the stall)" % (num or "?", ts["lastP"], progress))
+    ts["gone"] = False
+    if ts["frozen"] is not None:
+        if in_stall:
+            return min(progress, ts["frozen"])
+        ts["frozen"] = None
+    if not in_stall:
+        ts["lastP"] = progress
+    return progress
+
+
 PIT_SHOW_AFTER = 8.0   # seconds the final stop time stays up after the car leaves pit road
 PIT_HIDE_AT = 50.0     # a stop this long means the car is just parked: drop the tag until the next visit
 PIT_MIN_STOP = 2.0     # shorter than this isn't a real stop (rolling over the box): not counted, no stop time
@@ -478,6 +506,7 @@ class IRacingSource:
             if self.__dict__.get("pit_sess") != sess_num:   # new session: stop counts and pit times start over
                 self.pit_sess = sess_num
                 self.pit_store.clear()
+                self.__dict__.setdefault("tow_store", {}).clear()
             sessions = self.info.get("sessions", [])
             sess = sessions[sess_num] if 0 <= sess_num < len(sessions) else {}
             # iRacing's own results for this session. Its live lap times (CarIdxBestLapTime etc.) go to -1 for a car
@@ -541,6 +570,8 @@ class IRacingSource:
                 p = pct[idx] if idx < len(pct) else -1
                 in_world = p is not None and p >= 0
                 progress = (lap[idx] + p) if in_world and lap[idx] is not None and lap[idx] >= 0 else None
+                progress = tow_fix(self.__dict__.setdefault("tow_store", {}), idx, progress,
+                                   surf[idx] if idx < len(surf) else None, d.get("num"), not replaying)
                 c = dict(d)
                 c.update({
                     "officialPos": pos[idx] or (results.get(idx) or {}).get("Position") or 0,
