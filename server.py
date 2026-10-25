@@ -183,6 +183,7 @@ def flag_from_bits(bits):
 
 PIT_SHOW_AFTER = 8.0   # seconds the final stop time stays up after the car leaves pit road
 PIT_HIDE_AT = 50.0     # a stop this long means the car is just parked: drop the tag until the next visit
+PIT_MIN_STOP = 2.0     # shorter than this isn't a real stop (rolling over the box): not counted, no stop time
 
 
 def pit_timer(store, idx, now, on_pit_road, in_stall, count=True):
@@ -200,23 +201,30 @@ def pit_timer(store, idx, now, on_pit_road, in_stall, count=True):
             else:
                 return None, None
         else:
-            if st["start"] is not None:
+            if st["start"] is not None and now - st["start"] >= PIT_MIN_STOP:
                 st["lastStop"] = now - st["start"]
             st.update(start=None, last=None, endAt=None, parked=False)
             return None, None
     if in_stall:
-        if st["start"] is None and count and now - st.get("countAt", -1e9) > 20:   # a new stop (ignores a brief flicker)
-            st["stops"] = st.get("stops", 0) + 1
-            st["countAt"] = now
         if st["start"] is None or now < st["start"]:
             st["start"] = now
+            st["counted"] = False
         t = max(0.0, now - st["start"])
+        # count the stop once the car has really stopped in its box for a moment (ignores rolling over it, and flickers)
+        if t >= PIT_MIN_STOP and not st.get("counted") and count and now - st.get("countAt", -1e9) > 20:
+            st["stops"] = st.get("stops", 0) + 1
+            st["countAt"] = now
+            st["counted"] = True
         if t >= PIT_HIDE_AT:
             st["parked"] = True
             return None, None
         return "stall", t
     if st["start"] is not None:                             # just left the box
-        st.update(last=now - st["start"], endAt=now, start=None, lastStop=now - st["start"])
+        dur = now - st["start"]
+        if dur >= PIT_MIN_STOP:
+            st.update(last=dur, endAt=now, start=None, lastStop=dur)
+        else:                                               # rolled over the box: not a stop
+            st.update(start=None)
     if st["last"] is not None and (on_pit_road or now - st["endAt"] < PIT_SHOW_AFTER):
         return "done", st["last"]
     if not on_pit_road and st["endAt"] is not None and now - st["endAt"] >= PIT_SHOW_AFTER:
@@ -242,7 +250,10 @@ def compute_gaps(cars, is_race, racing):
         return
     leader = cars[0]
     if is_race:
-        ref = leader.get("last") or leader.get("est") or 60.0
+        # seconds per lap used to turn "fraction of a lap behind" into seconds: the leader's BEST lap, so slow
+        # caution and pit laps don't inflate every gap (real Talladega data: last-lap scaling read 2-2.5x too big
+        # through a caution and for the whole first lap after the restart)
+        ref = leader.get("best") or leader.get("last") or leader.get("est") or 60.0
         if ref <= 0:
             ref = leader.get("est") or 60.0
         prev = None
