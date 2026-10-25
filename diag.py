@@ -239,6 +239,7 @@ def session_settings(weekend, session_info):
 
 def flush_blackbox():
     _flush_results()
+    flush_usage()
     try:
         data = list(_bb)
         if not data:
@@ -335,8 +336,136 @@ def watch(live):
             log("Qualifying lap: %s %.3f -> P%s%s" % (who, qd.get("time") or 0, c.get("pos"), " (personal best)" if qd.get("improved") else ""))
 
 
-def action(path, data):
+# ---------------------------------------------------------------- usage: which buttons and graphics get used
+USAGE_FILE = os.path.join(LOG_DIR, "usage.json")
+_use_lock = threading.Lock()
+_use = {"since": None, "presses": {}, "pages": {}, "onAir": {}, "shows": {}}   # this run
+_use_total = None                                                             # every run, loaded from usage.json
+_air_prev = set()
+_use_dirty = False
+
+_SHOW_NAMES = {"logo": "VSPEED logo", "league": "League logo", "tower": "Ticker", "lowerthird": "Driver info", "flags": "Flag banners",
+               "board": "Results board", "movers": "Biggest movers", "pitrace": "Race off pit road"}
+
+
+def _labels(path, data):
+    """Plain names for a control panel command, e.g. 'Grid: show', 'Camera: pick a driver'."""
+    d = data if isinstance(data, dict) else {}
+    out = []
+    if path == "/api/settings":
+        for k, v in (d.get("show") or {}).items():
+            out.append("%s: %s" % (_SHOW_NAMES.get(k, k), "show" if v else "hide"))
+        gw = d.get("gridw") or {}
+        if "visible" in gw:
+            out.append("Grid: " + ("show" if gw["visible"] else "hide"))
+        if "step" in gw:
+            out.append("Grid: " + ("next row" if (gw["step"] or {}).get("dir", 1) > 0 else "previous row"))
+        if "on" in (gw.get("pole") or {}) and "visible" not in gw and "step" not in gw:
+            out.append("Pole Award: " + ("show" if gw["pole"]["on"] else "hide"))
+        if "visible" in (d.get("gfx") or {}):
+            out.append("Track graphic: " + ("show" if d["gfx"]["visible"] else "hide"))
+        if "active" in (d.get("sponsor") or {}):
+            a = d["sponsor"]["active"]
+            out.append("Sponsor %s: show" % a if a else "Sponsor: hide")
+        if "flagTrigger" in d:
+            out.append("Flag banner: %s" % (d["flagTrigger"] or {}).get("flag", ""))
+        if "layout" in d:
+            out.append("Layout: move / resize")
+        rest = [k for k in d if k not in ("show", "gridw", "gfx", "sponsor", "flagTrigger", "layout")]
+        if rest and not out:
+            out.append("Setting: " + ", ".join(sorted(rest))[:60])
+    elif path == "/api/camera":
+        out.append("Camera: pick a driver" if "carIdx" in d else "Camera: change camera")
+    elif path == "/api/replay":
+        out.append("Replay: %s" % d.get("cmd", "?"))
+    elif path == "/api/standings":
+        out.append("Standings: %s" % d.get("cmd", "?"))
+    elif path == "/api/penalty":
+        out.append("Penalty: %s" % d.get("cmd", "?"))
+    elif path == "/api/incident":
+        out.append("Incident log: %s" % d.get("cmd", "?"))
+    elif path == "/api/pitrace":
+        out.append("Race off pit road: %s" % d.get("cmd", "?"))
+    else:
+        out.append(path.replace("/api/", ""))
+    return out
+
+
+def _bump(dct, key, n=1):
+    dct[key] = round(dct.get(key, 0) + n, 1)
+
+
+def usage_press(path, data, page=""):
+    """Count a button press (cheap: a few dictionary updates)."""
+    global _use_dirty
+    with _use_lock:
+        _use["since"] = _use["since"] or datetime.datetime.now().isoformat(timespec="seconds")
+        for lbl in _labels(path, data):
+            _bump(_use["presses"], lbl)
+        if page:
+            _bump(_use["pages"], page)
+        _use_dirty = True
+
+
+def usage_on_air(names):
+    """Called about once a second with the graphics on screen: adds up seconds on air and counts each time one goes up."""
+    global _air_prev, _use_dirty
+    names = set(names)
+    with _use_lock:
+        for n in names:
+            _bump(_use["onAir"], n)
+        for n in names - _air_prev:
+            _bump(_use["shows"], n)
+        if names or _air_prev:
+            _use_dirty = True
+        _air_prev = names
+
+
+def _merge(total, run):
+    for k in ("presses", "pages", "onAir", "shows"):
+        for a, b in run.get(k, {}).items():
+            _bump(total.setdefault(k, {}), a, b)
+
+
+def flush_usage():
+    """Write usage.json: this run plus the running total of all earlier runs (kept across restarts)."""
+    global _use_total, _use_dirty
+    with _use_lock:
+        if not _use_dirty:
+            return
+        _use_dirty = False
+        run = json.loads(json.dumps(_use))
+    try:
+        if _use_total is None:
+            try:
+                with open(USAGE_FILE, encoding="utf-8") as f:
+                    old = json.load(f)
+                _use_total = old.get("earlierRuns") or {}
+                _merge(_use_total, old.get("thisRun") or {})      # the run before this one
+            except (OSError, ValueError):
+                _use_total = {}
+        allt = json.loads(json.dumps(_use_total))
+        _merge(allt, run)
+        top = lambda d: dict(sorted(d.items(), key=lambda kv: -kv[1]))
+        out = {"note": "Button presses and seconds on air, most used first. thisRun = since the overlay started; allTime includes earlier runs.",
+               "thisRun": {k: (top(v) if isinstance(v, dict) else v) for k, v in run.items()},
+               "allTime": {k: top(v) for k, v in allt.items()},
+               "earlierRuns": _use_total}
+        os.makedirs(LOG_DIR, exist_ok=True)
+        tmp = USAGE_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            json.dump(out, f, indent=1)
+        os.replace(tmp, USAGE_FILE)
+    except Exception:
+        pass
+
+
+def action(path, data, page=""):
     """A command from the control panel or live timing."""
+    try:
+        usage_press(path, data, page)
+    except Exception:
+        pass
     try:
         txt = json.dumps(data, separators=(",", ":"))
     except Exception:
@@ -380,7 +509,7 @@ def save_zip(settings):
         z.writestr("settings.json", json.dumps(settings, indent=2, default=str))
         try:
             for f in sorted(os.listdir(LOG_DIR)):
-                if f.endswith(".log") or f in ("blackbox.jsonl", "results.jsonl", "session.json"):
+                if f.endswith(".log") or f in ("blackbox.jsonl", "results.jsonl", "session.json", "usage.json"):
                     z.write(os.path.join(LOG_DIR, f), "logs/" + f)
         except OSError:
             pass

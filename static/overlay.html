@@ -573,6 +573,15 @@ function filteredCars() {
 }
 
 /* ---------- tower ---------- */
+// OVERTIME · ATTEMPT 1 OF 1: the attempt running (green) or coming up (caution), and iRacing's limit for the race.
+// Plain OVERTIME when the attempts are used up or unknown (the overlay started mid-overtime).
+function overtimeLabel(yellow) {
+  const done = L.otAttempts, lim = L.otLimit;
+  if (done == null) return 'OVERTIME';
+  const n = yellow ? done + 1 : Math.max(1, done);
+  if (lim > 0 && n > lim) return 'OVERTIME';
+  return 'OVERTIME · ATTEMPT ' + n + (lim > 0 ? ' OF ' + lim : '');
+}
 function renderTower() {
   const on = S.show.tower && L.connected && L.cars.length;
   show('tower', on);
@@ -586,7 +595,7 @@ function renderTower() {
     const fl = L.finalLap ?? L.totalLaps, finalLap = fl > 0 && lap >= fl && !yellow;   // the white flag lap (a caution there isn't one)
     sub = L.sessionState < 4 ? 'START · ' + L.totalLaps + ' LAPS'
         : (L.sessionState === 4 && finalLap) ? 'FINAL LAP'
-        : (L.sessionState === 4 && L.overtime) ? 'OVERTIME'   // green-white-checkered past the scheduled distance
+        : (L.sessionState === 4 && L.overtime) ? overtimeLabel(yellow)   // green-white-checkered past the scheduled distance
         : (L.sessionState === 4 && togo >= 2 && togo <= 10) ? `${togo} TO GO`
         : `LAP ${lap} / ${L.totalLaps}`;
   }

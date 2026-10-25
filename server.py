@@ -206,7 +206,7 @@ def _try(ir, key):
         return None
 
 
-def race_flags(store, is_race, state, bits, leader_prog, total):
+def race_flags(store, is_race, state, bits, leader_prog, total, gwc_limit=None):
     """The track flag, plus the white flag, checkered flag and overtime worked out ourselves.
 
     While spectating, iRacing's SessionFlags never carried the white or checkered bits (real Talladega race,
@@ -227,15 +227,22 @@ def race_flags(store, is_race, state, bits, leader_prog, total):
         frac = leader_prog % 1
         # the lap the field runs under green after the restart (a green just before the line starts the next lap)
         store["greenLap"] = int(leader_prog) + 1 if frac >= 0.15 else int(leader_prog)
+        if store["greenLap"] + 1 > total:          # a restart in overtime = one green-white-checkered attempt
+            store["otAttempts"] = store.get("otAttempts", 0) + 1
     store["prev"] = flag
     final = total
     lap = int(leader_prog) if leader_prog is not None else 0
+    if state == 4 and leader_prog is not None:
+        store.setdefault("firstLap", lap)          # watched from before the scheduled finish = the attempt count is known
     if store.get("greenLap") and store["greenLap"] + 1 > total:
         final = store["greenLap"] + 1
     elif lap > total:
         final = 0      # in overtime without having seen its restart (overlay started mid-race): final lap unknown, no white flag
     out["finalLap"] = final
     out["overtime"] = state <= 5 and (final > total or (state == 4 and lap > total))
+    # overtime attempts so far (None if the overlay started mid-overtime) and iRacing's limit (WeekendOptions)
+    out["otAttempts"] = store.get("otAttempts", 0) if store.get("firstLap", 10 ** 6) <= total else None
+    out["otLimit"] = gwc_limit
     if state >= 5:
         out["flag"] = "checkered"
     elif state == 4 and flag == "green" and final and lap >= final:
@@ -495,6 +502,8 @@ class IRacingSource:
         grid_order = [(r["CarIdx"], float(r.get("FastestTime") or 0)) for r in qres]
         self.info = {
             "trackM": track_meters(wi.get("TrackLength")),
+            # overtime: how many green-white-checkered attempts the race allows (iRacing's race settings)
+            "gwcLimit": (lambda v: int(v) if str(v).isdigit() else None)((wi.get("WeekendOptions") or {}).get("GreenWhiteCheckeredLimit")),
             "gridOrder": grid_order,
             "track": wi.get("TrackDisplayName", ""),
             "sessions": sessions,
@@ -635,7 +644,7 @@ class IRacingSource:
             if fstore.get("sess") != sess_num:
                 fstore.clear()
                 fstore["sess"] = sess_num
-            rf = race_flags(fstore, is_race, state, ir["SessionFlags"] or 0, leader_lap or None, total_laps)
+            rf = race_flags(fstore, is_race, state, ir["SessionFlags"] or 0, leader_lap or None, total_laps, self.info.get("gwcLimit"))
             if total_laps and (state >= 5 or not rf["overtime"]):   # after the finish the leader's lap counter keeps going
                 cur_lap = min(cur_lap, rf["finalLap"]) if rf["finalLap"] else max(total_laps, cur_lap - 1)
 
@@ -652,6 +661,7 @@ class IRacingSource:
                 "totalLaps": total_laps,
                 "finalLap": rf["finalLap"],       # the lap the white flag comes out (later than totalLaps in overtime)
                 "overtime": rf["overtime"],
+                "otAttempts": rf["otAttempts"], "otLimit": rf["otLimit"],
                 "timeRemain": fmt_clock(ir["SessionTimeRemain"]),
                 "sessTime": round(now_s, 2), "sessNum": sess_num, "trackM": self.info.get("trackM", 0),
                 # iRacing only sets the green bit around the start; while racing with no other flag it's green.
@@ -1399,6 +1409,39 @@ def penalty_command(data):
     return {"ok": True}
 
 
+def on_air_now():
+    """Names of the graphics on screen right now, for the usage stats in the diagnostics."""
+    st = STATE.settings
+    names = [diag._SHOW_NAMES.get(k, k) for k, v in (st.get("show") or {}).items() if v and k != "flags"]
+    gw = st.get("gridw") or {}
+    if gw.get("visible"):
+        names.append("Grid")
+        if (gw.get("pole") or {}).get("on"):
+            names.append("Pole Award")
+    if (st.get("gfx") or {}).get("visible"):
+        names.append("Track graphic")
+    sp = st.get("sponsor") or {}
+    if sp.get("active") and (sp.get("files") or {}).get(sp["active"]) and not (sp.get("hold", 0) > 0 and time.time() * 1000 - (sp.get("t") or 0) > sp["hold"] * 1000):
+        names.append("Sponsor " + sp["active"])
+    try:
+        ss = json.loads(standings.state_json())
+        if ss.get("visible"):
+            names.append("Standings")
+        if (ss.get("analysis") or {}).get("visible"):
+            names.append("Race info")
+        if (ss.get("team") or {}).get("visible"):
+            names.append("Broadcast team")
+    except Exception:
+        pass
+    now = time.time()
+    if any(e.get("show") and e["show"] > (PEN.get("hide") or 0) and now - e["show"] < 8 for e in PEN.get("list", [])):
+        names.append("Penalty box")
+    return names
+
+
+usage_t = [0.0]
+
+
 def telemetry_loop(demo, multiclass=False, qual=False):
     global SOURCE
     if demo:
@@ -1435,6 +1478,12 @@ def telemetry_loop(demo, multiclass=False, qual=False):
             except Exception as e:
                 diag.error("Race off pit road error: %r" % (e,), e)
             STATE.set_live(live)
+            if time.time() - usage_t[0] >= 1.0:      # once a second: which graphics are on air (usage stats)
+                usage_t[0] = time.time()
+                try:
+                    diag.usage_on_air(on_air_now())
+                except Exception:
+                    pass
             diag.STATS["blackbox"] = (STATE.settings.get("diag") or {}).get("blackbox", True)
             diag.watch(live)
         except Exception as e:  # keep the broadcast alive no matter what
@@ -1648,7 +1697,8 @@ class Handler(BaseHTTPRequestHandler):
                 diag.error("Could not save diagnostics: %r" % (e,), e)
                 return self.send_json({"ok": False, "error": str(e)})
         if path.startswith("/api/"):
-            diag.action(path, data)
+            ref = urlparse(self.headers.get("Referer") or "").path
+            diag.action(path, data, "live timing" if ref.startswith("/timing") else "control panel" if ref.startswith("/control") or ref == "/" else ref or "")
         if path == "/api/settings":
             STATE.update_settings(data)
             return self.send_json({"ok": True})
