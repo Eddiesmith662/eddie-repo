@@ -13,6 +13,11 @@ sys.path.insert(0, ROOT)
 
 def main():
     args = sys.argv[1:]
+    try:   # updates and startup problems go into the log file too
+        import diag, update as _u
+        diag.setup(_u.local_version(), "launcher")
+    except Exception:
+        pass
     if "--no-update" in args:
         args.remove("--no-update")
     else:

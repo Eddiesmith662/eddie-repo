@@ -76,6 +76,15 @@ The overlay uses **Bahnschrift** (SemiBold for headers, Light for sub-text; the 
 - **Multi-class:** with two or more classes the ticker groups by class, IMSA style: a header bar in each class color, fastest class first, class positions and gaps within the class. Set the rows for the two classes on the Race tab: the two boxes are labeled with the classes in the current session (fastest first, default 5 and 15); extra cars page through at the bottom of their group. Switch to *One combined list* if you prefer, or pick a single class to show only that class. To try it without iRacing: `python server.py --demo --multiclass`.
 - Settings and text are saved to `data\settings.json`, so they survive restarts and updates.
 
+## Diagnostics
+
+The overlay keeps a log so problems can be tracked down afterwards. Everything stays on this PC:
+
+- **Log file** (`data\logs\vspeed-<date>.log`, last 7 days): startup, iRacing connecting and disconnecting, session changes, flags, pit stops, black flags and meatballs, qualifying laps, what was pressed in the control panel, errors (including errors in the overlay page inside your broadcasting software), and updates.
+- **Black box** (`data\logs\blackbox.jsonl`): the last 30 minutes of the raw values read from iRacing, one snapshot a second. It can be switched off on the Setup tab.
+- **Setup tab → Diagnostics** shows the connection, update rate, whether iRacing is sending per-car flags (needed for the penalty list and meatball tags), and the last error.
+- **Save diagnostics** bundles the logs, the black box and your settings into one zip (it downloads and is also kept in `data\diagnostics`). Send that zip to Claude when something looks wrong.
+
 ## Updates
 
 The overlay updates itself from GitHub. Each time you start it, it checks for a newer version (a second or two; if there's no internet it just starts):
@@ -108,11 +117,14 @@ data/                YOUR files, never touched by updates (created on first run)
   sponsors/            sponsor images loaded from the Race tab
   logos/               league logos for the top right
   backup/              the last few versions, for restore-previous.bat
+  logs/                log files and the black box (Diagnostics)
+  diagnostics/         saved diagnostics zips
 server.py            bridge: reads iRacing, serves the pages (port 8765, change with --port)
 standings.py         standings, bracket, race info and team (ported from Standings Control)
 run.py               starts everything: update check, then the server
 update.py            the updater
 datafiles.py         where the data folder lives (moves an older install's files into it)
+diag.py              logging, black box and diagnostics
 VERSION              the version number
 static/overlay.html  the broadcast overlay
 static/control.html  the control panel

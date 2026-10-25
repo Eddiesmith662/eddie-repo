@@ -4,6 +4,12 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>VSPEED Control</title>
+<script>/* report this page's errors to the overlay's log file (data/logs) */
+(function () { let n = 0; const page = (location.pathname.includes('timing') || location.search.includes('solo')) ? 'live timing' : 'control panel';
+  function rep(msg, src, line) { if (++n > 20) return; try { fetch('/api/clientlog', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ page, msg: String(msg), src: src || '', line: line || '' }) }).catch(() => {}); } catch (e) {} }
+  window.addEventListener('error', e => rep(e.message, e.filename, e.lineno));
+  window.addEventListener('unhandledrejection', e => rep('Unhandled: ' + ((e.reason && e.reason.message) || e.reason)));
+})();</script>
 <style>
   :root { --red:#FF0D40; --grey:#383839; --panel:#242425; --bg:#161617; --line:#3a3a3b; --text:#f2f2f2; --dim:#939598; --blue:#33A1FF; --yellow:#FFE81F; --green:#22C55E; --bad:#ff6b6b; }
   * { box-sizing: border-box; }
@@ -17,6 +23,10 @@
   .pill { background: rgba(0,0,0,.35); padding: 4px 10px; border-radius: 4px; white-space: nowrap; }
   .pill.air { background: var(--red); }
   .pill.ver { color: var(--dim); }
+  .dg { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; font-size: 14px; }
+  .dg dt { color: var(--dim); text-transform: uppercase; font-size: 12px; letter-spacing: 1px; padding-top: 2px; }
+  .dg dd { margin: 0; overflow-wrap: anywhere; }
+  .dg .ok { color: var(--green); } .dg .warn { color: #ffb347; } .dg .bad { color: #ff5a6e; } .dg .dim { color: var(--dim); }
   .pill.ver.upd { background: var(--blue); color: #fff; }
   nav { display: flex; gap: 2px; padding: 0 12px; overflow-x: auto; }
   nav button { background: transparent; border: 0; border-bottom: 3px solid transparent; border-radius: 0; padding: 10px 14px; margin-bottom: -3px; text-transform: uppercase; letter-spacing: 1px; font-size: 13px; color: #ccc; white-space: nowrap; }
@@ -522,6 +532,16 @@
     <button id="resetBtn" style="width:100%">Reset live race settings to default</button>
     <p class="hint">Doesn't touch standings, bracket, race info or team (those are saved in the standings folder).</p>
   </section>
+
+  <section class="wide">
+    <h2><span class="t">Diagnostics</span><span class="pill" id="dgPill">—</span></h2>
+    <div class="dg" id="dgStatus"></div>
+    <div class="grid2" style="margin-top:12px">
+      <div><label>&nbsp;</label><button class="go" id="dgSave" style="width:100%">Save diagnostics</button></div>
+      <div><label>Black box (last 30 minutes of raw iRacing data)</label><div class="seg" id="dgBB"><button data-v="on">On</button><button data-v="off">Off</button></div></div>
+    </div>
+    <p class="hint">If something looks wrong during a broadcast, press <b>Save diagnostics</b> afterwards and send the zip to Claude. It holds the last 7 days of logs, the black box and your settings. Everything stays on this PC (in the data\logs and data\diagnostics folders) unless you share it.</p>
+  </section>
 </main>
 <div class="modal" id="fb" hidden>
   <div class="mbox">
@@ -961,6 +981,42 @@ $('pens').onclick = e => {
     const ev = (PEN.list || []).find(x => x.id === id);
     post('/api/penalty', { cmd: 'reason', id, reason: ev && ev.reason === b.dataset.reason ? '' : b.dataset.reason });   // click again to clear
   }
+};
+/* ---------- diagnostics (Setup tab) ---------- */
+const ago = t => { const s = Math.max(0, Math.round(Date.now() / 1000 - t)); return s < 60 ? s + 's ago' : s < 3600 ? Math.round(s / 60) + ' min ago' : Math.round(s / 3600) + ' h ago'; };
+const dur = s => s < 3600 ? Math.round(s / 60) + ' min' : Math.floor(s / 3600) + ' h ' + Math.round((s % 3600) / 60) + ' min';
+async function diagRefresh() {
+  if (document.querySelector('main[data-tab="setup"]').offsetParent === null) return;   // only while the Setup tab is open
+  let d; try { d = await (await fetch('/api/diag')).json(); } catch (e) { return; }
+  const cf = d.carFlags || {};
+  const flags = d.source === 'demo' ? '<span class="dim">demo (not real iRacing data)</span>'
+    : cf.seen ? `<span class="ok">receiving</span> · black flags seen in ${cf.black} readings, meatballs in ${cf.meatball}`
+    : `<span class="warn">not seen yet</span> · needed for the penalty list and meatball tags; if this stays "not seen" after a driver gets a flag, iRacing isn't sending them`;
+  const rows = [
+    ['Connection', d.connected ? `<span class="ok">connected</span> to ${esc(d.source)} · ${esc(d.session || '')}${d.track ? ' at ' + esc(d.track) : ''}` : '<span class="warn">waiting for iRacing</span>'],
+    ['Updates', `${d.rate || 0} per second · ${d.cars || 0} cars`],
+    ['Per-car flags', flags],
+    ['Last error', d.lastError ? `<span class="bad">${esc(d.lastError.msg)}</span> · ${ago(d.lastError.t)}` : '<span class="ok">none</span>'],
+    ['Black box', d.blackbox ? `on · ${Math.round((d.blackboxSeconds || 0) / 60)} of 30 minutes recorded` : 'off'],
+    ['Running', `${dur(d.uptime || 0)} · v${esc(d.version || '')} · ${esc(d.mode || '')} mode`],
+    ['Log folder', esc(d.logDir || '')],
+  ];
+  const html = rows.map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('');
+  if ($('dgStatus')._h !== html) { $('dgStatus')._h = html; $('dgStatus').innerHTML = html; }
+  const ne = (d.errors || 0) + (d.clientErrors || 0);
+  $('dgPill').textContent = ne ? ne + ' error' + (ne === 1 ? '' : 's') : 'OK';
+  $('dgPill').classList.toggle('air', !!ne);
+  segOn('dgBB', d.blackbox ? 'on' : 'off');
+}
+setInterval(diagRefresh, 2000);
+document.querySelector('nav').addEventListener('click', () => setTimeout(diagRefresh, 50));
+$('dgBB').onclick = e => { const b = e.target.closest('button'); if (b) set({ diag: { blackbox: b.dataset.v === 'on' } }).then(() => setTimeout(diagRefresh, 300)); };
+$('dgSave').onclick = async () => {
+  toast('Saving diagnostics…');
+  const r = await post('/api/diagnostics', {});
+  if (!r.ok) return toast(r.error || 'Could not save diagnostics');
+  const a = document.createElement('a'); a.href = '/diagnostics/' + encodeURIComponent(r.name); a.download = r.name; document.body.appendChild(a); a.click(); a.remove();
+  toast('Saved ' + r.name + ' (also in data\\diagnostics)');
 };
 function gridRender() {
   const g = gw();

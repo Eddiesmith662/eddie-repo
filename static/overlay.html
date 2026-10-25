@@ -3,6 +3,12 @@
 <head>
 <meta charset="utf-8">
 <title>VSPEED Overlay</title>
+<script>/* report this page's errors to the overlay's log file (data/logs) */
+(function () { let n = 0; const page = 'overlay';
+  function rep(msg, src, line) { if (++n > 20) return; try { fetch('/api/clientlog', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ page, msg: String(msg), src: src || '', line: line || '' }) }).catch(() => {}); } catch (e) {} }
+  window.addEventListener('error', e => rep(e.message, e.filename, e.lineno));
+  window.addEventListener('unhandledrejection', e => rep('Unhandled: ' + ((e.reason && e.reason.message) || e.reason)));
+})();</script>
 <style>
   :root {
     --red: #FF0D40;

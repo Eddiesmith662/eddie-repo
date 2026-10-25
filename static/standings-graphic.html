@@ -3,6 +3,12 @@
 <head>
 <meta charset="utf-8">
 <title>Top 20 Standings</title>
+<script>/* report this page's errors to the overlay's log file (data/logs) */
+(function () { let n = 0; const page = 'standings graphic';
+  function rep(msg, src, line) { if (++n > 20) return; try { fetch('/api/clientlog', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ page, msg: String(msg), src: src || '', line: line || '' }) }).catch(() => {}); } catch (e) {} }
+  window.addEventListener('error', e => rep(e.message, e.filename, e.lineno));
+  window.addEventListener('unhandledrejection', e => rep('Unhandled: ' + ((e.reason && e.reason.message) || e.reason)));
+})();</script>
 <style>
   /* Font for the title (both views). The font must be installed on the broadcasting computer. */
   /* VSPEED Brand Style Guide V1: red #FF0D40, dark grey #383839 (92% grey), 50% grey #939598, light blue #33A1FF, white.

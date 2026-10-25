@@ -32,6 +32,7 @@ import urllib.error
 import datafiles   # first: moves an older install's files into the data folder
 import standings
 import update
+import diag
 
 ROOT = datafiles.ROOT
 STATIC = os.path.join(ROOT, "static")
@@ -78,6 +79,7 @@ DEFAULT_SETTINGS = {
     "graphicsDir": "",         # Drive for desktop folder with ready-made graphics, e.g. G:\\My Drive\\VSPEED\\Graphics
     "gfx": {"file": "", "visible": False, "anim": "wipe", "hold": 0, "t": 0},
     "flagTrigger": {"flag": "", "t": 0},  # manual flag banner from the panel
+    "diag": {"blackbox": True},           # keep the last 30 minutes of raw iRacing data in data/logs (Setup tab)
     # sponsor graphics (Race tab): one image per slot, one on air at a time; hold = seconds before it hides itself (0 = stays)
     "sponsor": {"active": "", "t": 0, "hold": 0, "files": {k: "" for k in SPONSOR_SLOTS}},
 }
@@ -432,6 +434,17 @@ class IRacingSource:
                 cflags = ir["CarIdxSessionFlags"] or []   # per-car flags (meatball = repair)
             except Exception:
                 cflags = []
+            # black box: the raw values behind everything below, for diagnosing problems later
+            ids = sorted(i for i in self.drivers if i < len(pos))
+            g = lambda arr, i, d=None: arr[i] if i < len(arr) else d
+            diag.blackbox({
+                "sessTime": round(now_s, 2), "sess": sess_num, "state": state, "flags": ir["SessionFlags"] or 0,
+                "replay": replaying, "cam": ir["CamCarIdx"],
+                # [idx, car number, lap, lap %, on pit road, track surface, position, per-car flags]
+                "cars": [[i, self.drivers[i].get("num"), g(lap, i), round(g(pct, i, -1) or 0, 4), int(bool(g(pit, i))),
+                          g(surf, i), g(pos, i), g(cflags, i, 0)] for i in ids],
+                "carFlags": [g(cflags, i, 0) for i in ids],
+            })
 
             cars = []
             for idx, d in self.drivers.items():
@@ -1080,13 +1093,17 @@ def telemetry_loop(demo, multiclass=False, qual=False):
                     print("Waiting for iRacing...")
                     waiting_printed = True
                 STATE.set_live({"connected": False, "source": "iracing", "cars": []})
+                diag.watch({"connected": False})
                 time.sleep(1.0)
                 continue
             waiting_printed = False
             track_penalties(live)
             STATE.set_live(live)
+            diag.STATS["blackbox"] = (STATE.settings.get("diag") or {}).get("blackbox", True)
+            diag.watch(live)
         except Exception as e:  # keep the broadcast alive no matter what
-            print("Telemetry error:", repr(e))
+            sys.__stdout__ and sys.__stdout__.write("Telemetry error: %r\n" % (e,))
+            diag.error("Telemetry error: %r" % (e,), e)
             time.sleep(0.5)
         time.sleep(0.2)  # 5 updates per second
 
@@ -1252,6 +1269,15 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/paintcheck":
             drivers = getattr(SOURCE, "drivers", {}) if SOURCE else {}
             return self.send_json({"paintDir": paint_dir(), "drivers": paint_check(drivers)})
+        if path == "/api/diag":
+            return self.send_json(diag.status())
+        if path.startswith("/diagnostics/"):
+            name = os.path.basename(unquote(path[len("/diagnostics/"):]))
+            fp = os.path.join(diag.DIAG_DIR, name)
+            if not name.endswith(".zip") or not os.path.isfile(fp):
+                return self.send_error(404)
+            with open(fp, "rb") as f:
+                return self.send_bytes(f.read(), "application/zip", headers={"Content-Disposition": 'attachment; filename="%s"' % name})
         if path.startswith("/logos/"):
             return self.send_graphic(unquote(path[len("/logos/"):]), base=LOGO_DIR)
         if path.startswith("/sponsor/"):
@@ -1271,6 +1297,18 @@ class Handler(BaseHTTPRequestHandler):
             data = json.loads(self.rfile.read(length) or b"{}")
         except Exception:
             return self.send_json({"ok": False, "error": "bad json"}, 400)
+        if path == "/api/clientlog":
+            diag.client_error(data)
+            return self.send_json({"ok": True})
+        if path == "/api/diagnostics":
+            try:
+                zp = diag.save_zip(STATE.settings)
+                return self.send_json({"ok": True, "name": os.path.basename(zp), "folder": diag.DIAG_DIR})
+            except Exception as e:
+                diag.error("Could not save diagnostics: %r" % (e,), e)
+                return self.send_json({"ok": False, "error": str(e)})
+        if path.startswith("/api/"):
+            diag.action(path, data)
         if path == "/api/settings":
             STATE.update_settings(data)
             return self.send_json({"ok": True})
@@ -2022,6 +2060,7 @@ def main():
     ap.add_argument("--qual", action="store_true", help="demo qualifying session instead of a race")
     ap.add_argument("--port", type=int, default=8765)
     args = ap.parse_args()
+    diag.setup(APP["version"], ("DEMO QUALIFYING" if args.qual else "DEMO") if args.demo else "iRacing")
 
     standings.init()
     standings.autopull(on_done=STATE.notify)
