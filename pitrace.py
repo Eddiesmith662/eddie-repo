@@ -25,6 +25,7 @@ _cap = None            # the cycle being captured
 _prev_pit = {}
 _sess = None
 _manual = False
+_prev_flag = None
 
 
 def capture_now():
@@ -56,7 +57,7 @@ def _start(live, t, manual):
 
 def update(live, log=None):
     """Feed every reading of the race (after pit state and stop times are filled in)."""
-    global _cap, _prev_pit, _sess, _manual
+    global _cap, _prev_pit, _sess, _manual, _prev_flag
     if not live or not live.get("connected") or live.get("isReplay"):
         return
     sess = (live.get("sessNum"), live.get("sessionName"))
@@ -67,6 +68,15 @@ def update(live, log=None):
         _manual = False
         return
     t = live.get("sessTime") or time.time()
+    flag = live.get("flag")
+    if flag == "caution" and _prev_flag not in (None, "caution") and STATE.get("status") != "capturing":
+        # a new caution: clear the last pit cycle so the graphic starts clean as cars come off pit road this time
+        # (if it's left on air it disappears now and comes back with the first car out)
+        _cap = None
+        _publish(status="idle", list=[], live=[], stayed=[], count=0, listLap=None, liveLap=None, lastOut=None)
+        if log:
+            log("Race off pit road: cleared for the new caution (lap %s)" % live.get("lap"))
+    _prev_flag = flag
     cars = live.get("cars") or []
     pos = {c["idx"]: i for i, c in enumerate(cars)}
     entering = [c for c in cars if c.get("pit") and not _prev_pit.get(c["idx"], True)]
