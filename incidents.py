@@ -230,7 +230,8 @@ def update(live, track_m=0.0, log=None):
 
         # speed-based guesses (racing, on track, not on pit road)
         mph = c.get("mph")
-        active = racing and on_track and not c.get("pit") and mph is not None and surf not in (1, 2)   # 1 pit stall, 2 pit entry lane
+        # only in races: in practice and qualifying cars slow down and stop after their runs, which isn't an incident
+        active = is_race and racing and on_track and not c.get("pit") and mph is not None and surf not in (1, 2)   # 1 pit stall, 2 pit entry lane
         settled = st["greenAt"] is not None and t - st["greenAt"] > 20
         if not active:
             cs["hist"].clear()

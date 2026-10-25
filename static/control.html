@@ -1379,12 +1379,14 @@ function render() {
   if (document.activeElement !== gSel && L.camGroup != null) gSel.value = L.camGroup;
   const lc = L.cars || [];
   const BLACK_FLAG_SVG = '<svg class="bflag" viewBox="0 0 46 30" aria-label="Black flag"><title>Black flag</title><rect x="1" y="0" width="3" height="30" rx="1" fill="#d9d9d9"/><path d="M4 1 H44 Q42 13 44 25 H4 Z" fill="#000" stroke="#fff" stroke-width="3" stroke-linejoin="round"/></svg>';
+  // meatball (repairs needed): same flag as the overlay's ticker tag, black flag with an orange disc
+  const MEATBALL_SVG = '<svg class="bflag" viewBox="0 0 46 30" aria-label="Meatball flag"><title>Meatball flag (repairs needed)</title><rect x="1" y="0" width="3" height="30" rx="1" fill="#d9d9d9"/><path d="M4 1 H44 Q42 13 44 25 H4 Z" fill="#000" stroke="#fff" stroke-width="3" stroke-linejoin="round"/><circle cx="24" cy="13" r="7.5" fill="#FF7A00"/></svg>';
   const fastest = Math.min(...lc.map(c => c.best > 0 ? c.best : 1e9));
   const tcls = (t, c) => !(t > 0) ? '' : (Math.abs(t - fastest) < 0.0005 ? 'ob' : (Math.abs(t - c.best) < 0.0005 ? 'pb' : ''));
   const gainCell = c => c.gained == null ? '<span class="gn">–</span>' : c.gained > 0 ? `<span class="gn up">▲${c.gained}</span>` : c.gained < 0 ? `<span class="gn dn">▼${-c.gained}</span>` : '<span class="gn">–</span>';
   const head = '<div class="carh"><span>Pos</span><span>#</span><span>Driver</span><span title="Positions gained or lost since the start">+/-</span><span>Gap</span><span title="Current speed">MPH</span><span class="x">Last</span><span class="x">Best</span><span class="x" title="Pit stops this race">Stops</span><span class="x" title="Last pit stop time">Pit</span><span></span></div>';
   const html = lc.map(c => `<div class="car ${c.idx === L.camCarIdx ? 'cam' : ''}" data-idx="${c.idx}">
-      <span class="p">${c.pos}</span><span class="n">#${esc(c.num)}</span><span>${esc(c.name)}${c.blackFlag ? BLACK_FLAG_SVG : ''}</span>${gainCell(c)}
+      <span class="p">${c.pos}</span><span class="n">#${esc(c.num)}</span><span>${esc(c.name)}${c.blackFlag ? BLACK_FLAG_SVG : ''}${c.meatball ? MEATBALL_SVG : ''}</span>${gainCell(c)}
       <span class="g ${c.lapsDown ? 'ld' : ''}">${esc(c.gap === 'LEADER' ? 'LEADER' : (c.gap || ''))}</span>
       <span class="sp">${c.mph != null ? c.mph : ''}</span>
       <span class="t x ${tcls(c.last, c)}">${esc(c.lastStr || '')}</span><span class="t x ${tcls(c.best, c) === 'ob' ? 'ob' : ''}">${esc(c.bestStr || '')}</span>
