@@ -21,6 +21,7 @@ import datafiles
 LOG_DIR = os.path.join(datafiles.DATA, "logs")
 DIAG_DIR = os.path.join(datafiles.DATA, "diagnostics")
 BLACKBOX_FILE = os.path.join(LOG_DIR, "blackbox.jsonl")
+RESULTS_FILE = os.path.join(LOG_DIR, "results.jsonl")   # iRacing's own results list, each time it changes
 KEEP_LOG_DAYS = 7
 BLACKBOX_SECONDS = 30 * 60          # keep the last 30 minutes, one snapshot a second
 KEEP_DIAG_ZIPS = 10
@@ -36,6 +37,8 @@ STATS = {
 }
 _bb = collections.deque(maxlen=BLACKBOX_SECONDS)
 _bb_last = 0.0
+_res = collections.deque(maxlen=300)     # the last 300 versions of iRacing's results list
+_res_key = None
 _rate = collections.deque(maxlen=50)
 
 
@@ -183,7 +186,27 @@ def blackbox(snap):
     _bb.append(snap)
 
 
+def results(sess_num, session, wall=None):
+    """iRacing's results for the session (positions, laps, times, incidents, reason out, ...), saved whenever
+    iRacing changes them, so we can compare them with the overlay's own finish gaps."""
+    global _res_key
+    if not STATS["blackbox"]:
+        return
+    rows = session.get("ResultsPositions") or []
+    extra = {k: v for k, v in session.items() if k.startswith("Results") and k != "ResultsPositions"}
+    try:
+        key = json.dumps([sess_num, rows, extra], sort_keys=True, default=str)
+    except Exception:
+        return
+    if key == _res_key:
+        return
+    _res_key = key
+    _res.append({"wall": round(wall or time.time(), 2), "sess": sess_num, "type": session.get("SessionType"),
+                 "info": extra, "results": rows})
+
+
 def flush_blackbox():
+    _flush_results()
     try:
         data = list(_bb)
         if not data:
@@ -194,6 +217,21 @@ def flush_blackbox():
             for s in data:
                 f.write(json.dumps(s, separators=(",", ":")) + "\n")
         os.replace(tmp, BLACKBOX_FILE)
+    except Exception:
+        pass
+
+
+def _flush_results():
+    try:
+        data = list(_res)
+        if not data:
+            return
+        os.makedirs(LOG_DIR, exist_ok=True)
+        tmp = RESULTS_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            for s in data:
+                f.write(json.dumps(s, separators=(",", ":"), default=str) + "\n")
+        os.replace(tmp, RESULTS_FILE)
     except Exception:
         pass
 
@@ -310,7 +348,7 @@ def save_zip(settings):
         z.writestr("settings.json", json.dumps(settings, indent=2, default=str))
         try:
             for f in sorted(os.listdir(LOG_DIR)):
-                if f.endswith(".log") or f == "blackbox.jsonl":
+                if f.endswith(".log") or f in ("blackbox.jsonl", "results.jsonl"):
                     z.write(os.path.join(LOG_DIR, f), "logs/" + f)
         except OSError:
             pass

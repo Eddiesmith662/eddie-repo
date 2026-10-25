@@ -255,7 +255,7 @@ def tow_fix(store, idx, progress, surf, num=None, log=True):
         ts = store[idx] = {"lastP": None, "frozen": None, "gone": False}
     in_stall = surf == 1
     if in_stall and ts["frozen"] is None and ts["lastP"] is not None and progress > ts["lastP"] + 0.02 \
-            and (ts["gone"] or progress - ts["lastP"] > 0.05):   # appeared in the stall without driving there
+            and (ts["gone"] or progress - ts["lastP"] > 0.25):   # appeared in the stall without driving there
         ts["frozen"] = ts["lastP"]
         if log:
             print("Towed to the pits: #%s (held at %.2f laps instead of %.2f while in the stall)" % (num or "?", ts["lastP"], progress))
@@ -512,6 +512,7 @@ class IRacingSource:
             # iRacing's own results for this session. Its live lap times (CarIdxBestLapTime etc.) go to -1 for a car
             # that isn't on track (e.g. back in the garage after setting a lap), so fall back to these.
             results = {r["CarIdx"]: r for r in (sess.get("ResultsPositions") or []) if r.get("CarIdx") is not None}
+            diag.results(sess_num, sess)   # black box: iRacing's full results list whenever it changes
             stype = (sess.get("SessionType") or "").lower()
             is_race = "race" in stype
             state = ir["SessionState"] or 0  # 4 = racing, 5 = checkered

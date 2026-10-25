@@ -84,6 +84,7 @@ The overlay keeps a log so problems can be tracked down afterwards. Everything s
 
 - **Log file** (`data\logs\vspeed-<date>.log`, last 7 days): startup, iRacing connecting and disconnecting, session changes, flags, pit stops, black flags and meatballs, qualifying laps, what was pressed in the control panel, errors (including errors in the overlay page inside your broadcasting software), and updates.
 - **Black box** (`data\logs\blackbox.jsonl`): the last 30 minutes of the raw values read from iRacing, one snapshot a second. It can be switched off on the Setup tab.
+- **iRacing's results** (`data\logs\results.jsonl`): iRacing's own results list (positions, laps, times, incidents, reason out) each time iRacing changes it, the last 300 versions. Switched on and off with the black box.
 - **Setup tab → Diagnostics** shows the connection, update rate, whether iRacing is sending per-car flags (needed for the penalty list and meatball tags), and the last error.
 - **Save diagnostics** bundles the logs, the black box and your settings into one zip (it downloads and is also kept in `data\diagnostics`). Send that zip to Claude when something looks wrong.
 
