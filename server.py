@@ -616,6 +616,8 @@ class IRacingSource:
                 finish_gaps(fs, cars, is_race, state, now_s)
             elif fs.get("fin"):                 # replays: keep showing the locked finish gaps
                 finish_gaps({"base": fs.get("base", {}), "fin": fs["fin"], "prev": {}}, cars, is_race, max(state, 5), now_s)
+            if is_race and state >= 5:          # iRacing's official results, as they come in
+                results_gaps(cars, results, bool(sess.get("ResultsOfficial")))
             finalize_positions(cars)
             # the overlay's own gap to the leader (seconds) next to iRacing's numbers in the same black box snapshot
             bb["ourGap"] = {str(c["idx"]): round(c["gapS"], 3) for c in cars if c.get("gapS") is not None}
@@ -958,6 +960,51 @@ def finish_gaps(store, cars, is_race, state, now_s):
                         c["gap"] = c["classGap"] = ("+%d LAP%s" % (down, "" if down == 1 else "S")) if down > 0 else (c.get("gap") or "")
     for c in cars:
         prev[c["idx"]] = (c.get("progress"), now_s)
+
+
+def results_gaps(cars, results, official):
+    """After the checkered, iRacing's own results give the official gap to the winner ("Time"), laps behind ("Lap")
+    and why a driver is out ("ReasonOutStr"). Real race (Oct 25): they matched the overlay's locked finish gaps to
+    within about 5 thousandths. They're used for each car that has finished (or left, or once the results are official);
+    until iRacing has them, the overlay's own locked gaps stand. Drivers who dropped out show DNF."""
+    if not results:
+        return
+    rows = {c["idx"]: results.get(c["idx"]) for c in cars}
+    win = {}
+    for c in cars:
+        r = rows.get(c["idx"])
+        if not r or r.get("Position", 0) <= 0:
+            continue
+        w = win.get(c.get("cls"))
+        if w is None or r["Position"] < w["Position"]:
+            win[c.get("cls")] = r
+    overall = min((r for r in rows.values() if r and r.get("Position", 0) > 0), key=lambda r: r["Position"], default=None)
+    if not overall:
+        return
+
+    def gap(r, w):
+        if r is w:
+            return "LEADER"
+        down = (r.get("Lap") or 0) - (w.get("Lap") or 0)
+        if down > 0:
+            return "+%d LAP%s" % (down, "" if down == 1 else "S")
+        t, wt = r.get("Time"), w.get("Time") or 0.0
+        return "+%.3f" % (t - wt) if isinstance(t, (int, float)) and t >= 0 else None
+
+    for c in cars:
+        r = rows.get(c["idx"])
+        if not r or r.get("Position", 0) <= 0:
+            continue
+        if not (official or c.get("finished") or c.get("progress") is None):
+            continue                      # still on its way to the line: keep the live gap
+        if c.get("progress") is not None and not official and (r.get("LapsComplete") or 0) < (c.get("lapsCompleted") or 0):
+            continue                      # iRacing hasn't added this car's finish yet: keep the overlay's locked gap
+        out = (r.get("ReasonOutStr") or "Running").lower() != "running"
+        g = "DNF" if out else gap(r, overall)
+        if g:
+            c["gap"] = g
+            c["classGap"] = "DNF" if out else (gap(r, win.get(c.get("cls"), overall)) or c.get("classGap"))
+            c["officialResult"] = True
 
 
 def finalize_positions(cars):
@@ -1466,7 +1513,9 @@ class Handler(BaseHTTPRequestHandler):
         if path in ("/standings", "/graphic", "/analysis", "/team", "/standings-graphic.html"):
             return self.send_file(os.path.join(STATIC, "standings-graphic.html"))
         if path == "/state":
-            return self.send_bytes(standings.state_json().encode(), "application/json")
+            d = json.loads(standings.state_json())
+            d["appVersion"] = APP["version"]          # the page reloads itself when the program was updated
+            return self.send_bytes(json.dumps(d).encode(), "application/json")
         if path in ("/standings.csv", "/standings-example.csv"):
             if path == "/standings.csv":
                 snap = standings.data_snapshot()

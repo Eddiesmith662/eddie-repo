@@ -1294,6 +1294,15 @@ function onScreen() {
   if (GR.on) duck.grid = now + 1100;
   return Object.keys(duck).filter(k => duck[k] > now);
 }
+// after the program is updated (it restarts with a new version) the page reloads itself, so the browser input in
+// the broadcasting software runs the new version without being refreshed by hand
+let pageVer = null;
+function newVersion(d) {
+  const v = d && d.app && d.app.version; if (!v) return false;
+  if (pageVer === null) pageVer = v;
+  if (v === pageVer) return false;
+  location.reload(); return true;
+}
 const SHOW_KEY = { logo: 'logo', league: 'league', tower: 'tower', lower: 'lowerthird', flag: 'flags', board: 'board', movers: 'movers' };
 
 /* ---------- layout mode (/overlay?layout=1): everything on screen with sample data, for positioning ---------- */
@@ -1339,7 +1348,7 @@ setInterval(render, 1000); // keeps time-based things (on-cut lower third, ducki
 
 function connect() {
   const es = new EventSource('/events');
-  es.onmessage = e => { const d = JSON.parse(e.data); RAW = d.settings; L = d.live; SD = d.standings; PEN = d.penalties; render(); };
+  es.onmessage = e => { const d = JSON.parse(e.data); if (newVersion(d)) return; RAW = d.settings; L = d.live; SD = d.standings; PEN = d.penalties; render(); };
   es.onerror = () => { es.close(); setTimeout(connect, 2000); };
 }
 connect();

@@ -1435,7 +1435,10 @@ function render() {
 
 function connect() {
   const es = new EventSource('/events');
-  es.onmessage = e => { const d = JSON.parse(e.data); S = d.settings; L = d.live; SD = d.standings; APP = d.app || APP; PEN = d.penalties || PEN; render(); if (SOLO && d.incidentsVer !== INC.ver) incFetch(); };
+  es.onmessage = e => { const d = JSON.parse(e.data);
+    const v = d.app && d.app.version;          // the program was updated: load the new page
+    if (v) { if (window.__pageVer == null) window.__pageVer = v; else if (v !== window.__pageVer) return location.reload(); }
+    S = d.settings; L = d.live; SD = d.standings; APP = d.app || APP; PEN = d.penalties || PEN; render(); if (SOLO && d.incidentsVer !== INC.ver) incFetch(); };
   es.onerror = () => { es.close(); $('conn').textContent = 'Server offline'; $('dot').className = 'dot'; setTimeout(connect, 2000); };
 }
 connect();

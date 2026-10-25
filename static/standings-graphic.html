@@ -512,6 +512,9 @@ const ctlParam = new URLSearchParams(location.search).get('control');
 // Served by the Standings Control app (http://127.0.0.1:PORT/)? Then control is on automatically.
 const servedByApp = location.protocol === 'http:' && /^(127\.0\.0\.1|localhost)$/.test(location.hostname);
 const CONTROL_URL = ctlParam ? (ctlParam === '1' ? CONFIG.controlUrl : ctlParam) : (servedByApp ? location.origin : '');
+// after the program is updated the page reloads itself, so the broadcasting software runs the new version
+let appVer = null;
+function checkVersion(v) { if (!v) return; if (appVer === null) appVer = v; else if (v !== appVer) location.reload(); }
 let lastCtl = null;
 let appWasDown = true;
 async function pollControl() {
@@ -520,6 +523,7 @@ async function pollControl() {
     const r = await fetch(CONTROL_URL + '/state', { cache: 'no-store' });
     s = await r.json();
   } catch (e) { appWasDown = true; setTimeout(pollControl, 300); return; }   // app not running yet; keep trying
+  checkVersion(s.appVersion);
   try {
     if (lastCtl === null) lastCtl = { visible: false, replay: s.replay, reload: s.reload, title: null, bracket: null, playoff: false, cutoff: s.cutoff, logo: null, view: 'standings', logoSize: null, dataVer: s.dataVer };
     // New data in the app (pull, CSV, hand edit), or the app just came online: load the standings again.
@@ -624,6 +628,7 @@ async function pollAnalysis() {
     const r = await fetch(CONTROL_URL + '/state?src=analysis', { cache: 'no-store' });
     s = await r.json();
   } catch (e) { setTimeout(pollAnalysis, 300); return; }     // app not running yet; keep trying
+  checkVersion(s.appVersion);
   try {
     const a = s.analysis || {};
     if (lastA === null) lastA = { visible: false, replay: a.replay, title: null, lines: null };
@@ -713,6 +718,7 @@ async function pollTeam() {
     const r = await fetch(CONTROL_URL + '/state?src=team', { cache: 'no-store' });
     s = await r.json();
   } catch (e) { setTimeout(pollTeam, 300); return; }
+  checkVersion(s.appVersion);
   try {
     const a = s.team || {};
     if (lastT === null) lastT = { visible: false, replay: a.replay, title: null, people: null };
