@@ -22,6 +22,7 @@ import urllib.request
 import zipfile
 
 import datafiles
+import net
 
 REPO = "Eddiesmith662/eddie-repo"
 API_LATEST = os.environ.get("VSPEED_UPDATE_API") or "https://api.github.com/repos/%s/releases/latest" % REPO
@@ -54,7 +55,7 @@ def vtuple(v):
 def _get(url, timeout):
     req = urllib.request.Request(url, headers={"User-Agent": "VSPEED-Overlay-Updater",
                                                "Accept": "application/vnd.github+json"})
-    return urllib.request.urlopen(req, timeout=timeout)
+    return net.urlopen(req, timeout)
 
 
 def check_latest(timeout=5):

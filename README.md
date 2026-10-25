@@ -95,6 +95,8 @@ The overlay updates itself from GitHub. Each time you start it, it checks for a 
 - Your own files are never touched by an update: everything in the `data` folder (settings, layout, standings, sponsors, logos) stays as it is.
 - The version you're on is shown at the top of the control panel and in the console window.
 
+**"CERTIFICATE_VERIFY_FAILED" when checking for updates?** Python couldn't verify GitHub's certificate on that PC (Windows hadn't downloaded the root certificate yet). From v1.5.7 the overlay fixes this itself: it retries using Windows' own certificate check, installing the small `truststore` package the first time. On an older version, update that PC once by hand (download the latest release's zip and copy its files over the folder; your `data` folder isn't in the zip).
+
 **Something wrong after an update?** Double-click **`restore-previous.bat`** to go back to the version you had before. The last few versions are kept in `data\backup`. It will offer the newer version again next start; press N to stay on the older one.
 
 **Moving to a new PC:** copy the whole folder, or install fresh and copy just the `data` folder over.
@@ -124,6 +126,7 @@ server.py            bridge: reads iRacing, serves the pages (port 8765, change 
 standings.py         standings, bracket, race info and team (ported from Standings Control)
 run.py               starts everything: update check, then the server
 update.py            the updater
+net.py               secure connections to GitHub and Xtreme Scoring (falls back to Windows' own certificate check)
 datafiles.py         where the data folder lives (moves an older install's files into it)
 diag.py              logging, black box and diagnostics
 VERSION              the version number

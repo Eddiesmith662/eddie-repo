@@ -18,6 +18,7 @@ import urllib.request
 from datetime import datetime
 
 import datafiles
+import net
 CONFIG_DIR = datafiles.STANDINGS_DIR
 CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 DATA_PATH = os.path.join(CONFIG_DIR, "standings.json")
@@ -389,7 +390,7 @@ def load_data():
 def fetch_text(url, timeout=30):
     req = urllib.request.Request(url, headers={
         "User-Agent": "Mozilla/5.0 (compatible; StandingsControl/2.0)", "Accept": "text/html,*/*"})
-    with urllib.request.urlopen(req, timeout=timeout) as resp:
+    with net.urlopen(req, timeout) as resp:
         raw = resp.read()
         charset = resp.headers.get_content_charset() or "utf-8"
     return raw.decode(charset, errors="replace")
