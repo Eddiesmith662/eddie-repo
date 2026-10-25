@@ -219,7 +219,9 @@ def race_flags(store, is_race, state, bits, leader_prog, total, gwc_limit=None):
         # parade / pace laps before the start (SessionState 3). iRacing sets the one-to-green and green-held bits here,
         # never caution, so it read as green; the ticker shows a yellow PACE LAP instead (real Talladega data, Oct 25)
         flag = "pace"
-    out = {"flag": flag, "overtime": False, "finalLap": total}
+    # every key the caller reads is set here, so non-race sessions and timed races get them too
+    # (v1.5.12-1.5.13: practice/qualifying failed every reading with KeyError('otAttempts'))
+    out = {"flag": flag, "overtime": False, "finalLap": total, "otAttempts": None, "otLimit": gwc_limit}
     if not is_race or not total:
         return out
     yellow = flag in ("caution", "red")
