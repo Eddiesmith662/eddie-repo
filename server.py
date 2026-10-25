@@ -409,6 +409,9 @@ class IRacingSource:
                 self.pit_store.clear()
             sessions = self.info.get("sessions", [])
             sess = sessions[sess_num] if 0 <= sess_num < len(sessions) else {}
+            # iRacing's own results for this session. Its live lap times (CarIdxBestLapTime etc.) go to -1 for a car
+            # that isn't on track (e.g. back in the garage after setting a lap), so fall back to these.
+            results = {r["CarIdx"]: r for r in (sess.get("ResultsPositions") or []) if r.get("CarIdx") is not None}
             stype = (sess.get("SessionType") or "").lower()
             is_race = "race" in stype
             state = ir["SessionState"] or 0  # 4 = racing, 5 = checkered
@@ -455,7 +458,7 @@ class IRacingSource:
                 progress = (lap[idx] + p) if in_world and lap[idx] is not None and lap[idx] >= 0 else None
                 c = dict(d)
                 c.update({
-                    "officialPos": pos[idx] or 0,
+                    "officialPos": pos[idx] or (results.get(idx) or {}).get("Position") or 0,
                     "classPosOfficial": cpos[idx] or 0,
                     "lapsCompleted": max(0, lapc[idx] or 0),
                     "progress": progress,
@@ -465,8 +468,8 @@ class IRacingSource:
                 c["pitState"], c["pitTime"] = pit_timer(self.pit_store, idx, now_s, c["pit"], count=not replaying, in_stall=
                                                         idx < len(surf) and surf[idx] == 1)
                 c.update({
-                    "last": last[idx] if last[idx] and last[idx] > 0 else 0,
-                    "best": best[idx] if best[idx] and best[idx] > 0 else 0,
+                    "last": last[idx] if last[idx] and last[idx] > 0 else max(0.0, float((results.get(idx) or {}).get("LastTime") or 0)),
+                    "best": best[idx] if best[idx] and best[idx] > 0 else max(0.0, float((results.get(idx) or {}).get("FastestTime") or 0)),
                     "meatball": bool(idx < len(cflags) and (cflags[idx] or 0) & REPAIR_FLAG),
                     "blackFlag": bool(idx < len(cflags) and (cflags[idx] or 0) & BLACK_FLAG),
                 })
