@@ -103,6 +103,10 @@
   .row .num { width: 46px; text-align: center; color: var(--midgrey); font-size: 17px; }
   .row .name { flex: 1; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: .3px; }
   .row .gap { width: 92px; text-align: right; padding-right: 12px; font-family: var(--light); font-weight: 300; font-size: 17px; font-variant-numeric: tabular-nums; }
+  /* pit road: the gap cell becomes a blue pit tag (box timer, then the stop time) */
+  .row .gap.pitc { align-self: stretch; display: flex; align-items: center; justify-content: flex-end; background: var(--blue); color: #fff;
+                   font-family: var(--semi); font-weight: 600; font-size: 16px; letter-spacing: .5px; }
+  .row .gap.pitc.pitdone { background: #111; box-shadow: inset 4px 0 0 var(--blue); }
   .row .pit { font-size: 12px; background: var(--blue); color: #fff; padding: 1px 6px; margin-right: 6px; letter-spacing: 1px; display: none; }
   .row .pit { display: none !important; }
   /* pit tags sit outside the ticker, to the right of the driver's row */
@@ -637,7 +641,13 @@ function renderTower() {
     el.children[4].textContent = tickerName(c.name);
     const inClass = !!S.classFilter || split;
     const g = S.towerMode === 'leader' ? (inClass ? c.classGap : c.gap) : (inClass ? c.classInterval : c.interval);
-    el.children[6].textContent = (g === 'LEADER' ? (L.isRace ? 'LEADER' : '') : (g === 'NO TIME' && isQual() ? '—' : g)) || '';
+    // pit road: the gap cell turns blue and shows PIT, the running box time, then the final stop time
+    const pitTxt = c.pitState === 'stall' ? 'PIT ' + (c.pitTime != null ? c.pitTime.toFixed(1) : '')
+                 : c.pitState === 'done' ? (c.pitTime != null ? c.pitTime.toFixed(1) + 's' : 'PIT')
+                 : c.pitState === 'road' ? 'PIT' : '';
+    el.children[6].classList.toggle('pitc', !!pitTxt);
+    el.children[6].classList.toggle('pitdone', c.pitState === 'done');
+    el.children[6].textContent = pitTxt || (g === 'LEADER' ? (L.isRace ? 'LEADER' : '') : (g === 'NO TIME' && isQual() ? '—' : g)) || '';
     el.classList.toggle('hot', !!(c.qual && c.qual.hot));
   });
   for (const [key, el] of rowEls) if (!seen.has(key)) { el.remove(); rowEls.delete(key); }
@@ -673,7 +683,7 @@ function renderPits(rows) {
   const seen = new Set();
   rows.forEach(({ c, y }) => {
     const mb = meatOn(c);
-    if (!c.pitState && !mb) return;
+    if (!mb) return;   // only the meatball pops out to the right now; pit info lives in the gap cell
     seen.add(c.idx);
     let el = pitEls.get(c.idx);
     if (!el) {
