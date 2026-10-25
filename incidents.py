@@ -11,8 +11,8 @@ gets). Two kinds of source:
                happened: spin / crash, car contact, wall contact, multi-car, stopped, slow,
                mechanical. These are best guesses.
 
-Incident points for other drivers depend on the session: in some sessions iRacing doesn't share
-them while spectating. The black box records them so we can check.
+Incident points for other drivers: iRacing shares them when you spectate a league session you're an
+admin of; otherwise they stay at 0 during races (Talladega, Oct 2026). The black box records them.
 """
 import collections
 import threading
