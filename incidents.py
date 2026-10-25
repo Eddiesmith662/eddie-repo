@@ -89,16 +89,18 @@ def update(live, track_m=0.0, log=None):
     if not live or not live.get("connected"):
         return
     st = _store
+    if live.get("isReplay"):          # the data is the replay, not the race: pause, and start fresh afterwards
+        st["replay"] = True           # (checked first: a replay of an earlier session isn't a session change)
+        return
     sess = (live.get("sessNum", 0), live.get("sessionName", ""))
     if st["sess"] != sess:
+        if st["sess"] is not None:    # a new session (e.g. qualifying -> race): start the log over
+            clear()
         _store = st = _new_store()
         st["sess"] = sess
     t = live.get("sessTime")
     if t is None:
         t = time.time()
-    if live.get("isReplay"):          # the data is the replay, not the race: pause, and start fresh afterwards
-        st["replay"] = True
-        return
     if st["replay"]:
         st["replay"] = False
         for cs in st["cars"].values():

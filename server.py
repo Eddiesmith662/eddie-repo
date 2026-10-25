@@ -653,10 +653,16 @@ class IRacingSource:
         if not self.connected:
             return False
         ir = self.ir
+        now_sess, now_t = ir["SessionNum"], ir["SessionTime"]
+        if now_sess == sess_num and now_t:
+            # same session: move the play head back from where it is now (live or replay), the same way the
+            # REPLAY button does; the replay runs at 60 frames a second. (Searching by session time didn't move it.)
+            ir.replay_set_play_position(self.irsdk.RpyPosMode.current, -int(max(0.0, now_t - sess_time) * 60))
+        else:
+            ir.replay_search_session_time(int(sess_num), int(sess_time * 1000))
+        ir.replay_set_play_speed(1, False)
         if num:
             ir.cam_switch_num(num, int(ir["CamGroupNumber"] or 1), 0)
-        ir.replay_search_session_time(int(sess_num), int(sess_time * 1000))
-        ir.replay_set_play_speed(1, False)
         return True
 
     # ---- replay controls (live timing window) ----

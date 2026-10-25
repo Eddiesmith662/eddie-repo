@@ -408,7 +408,7 @@
           <div class="itypes" id="incTypes" hidden></div>
         </div>
         <div class="ilist" id="incList"></div>
-        <p class="hint">Click an incident to replay it from a few seconds before, with the camera on that car. <b>iRacing</b> = reported by iRacing; <b>predicted</b> = worked out from speeds and positions (best guess).</p>
+        <p class="hint">Double-click an incident to replay it from the rewind seconds before it happened, with the camera on that car. <b>iRacing</b> = reported by iRacing; <b>predicted</b> = worked out from speeds and positions (best guess).</p>
       </div>
     </div>
   </section>
@@ -1051,7 +1051,11 @@ $('incTypes').onchange = e => { const k = e.target.dataset.k; if (!k) return; e.
 $('incTypes').onclick = e => { const b = e.target.closest('[data-ia]'); if (!b) return;
   incOff = b.dataset.ia === 'all' ? new Set() : new Set(INC.types.map(([k]) => k)); incSave(); $('incTypes')._h = ''; incRender(); };
 $('incClear').onclick = async () => { await post('/api/incident', { cmd: 'clear' }); incFetch(); };
-$('incList').onclick = async e => {
+$('incList').onclick = e => {      // one click just marks the incident
+  const row = e.target.closest('[data-iid]'); if (!row) return;
+  INC.cur = +row.dataset.iid; incRender();
+};
+$('incList').ondblclick = async e => {   // double click: replay from the incident minus the rewind seconds
   const row = e.target.closest('[data-iid]'); if (!row) return;
   INC.cur = +row.dataset.iid; incRender();
   const r = await post('/api/incident', { cmd: 'jump', id: INC.cur, rewind: Math.max(0, +$('incRewind').value || 0) });
