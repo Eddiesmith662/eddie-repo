@@ -440,14 +440,25 @@ class IRacingSource:
             # black box: the raw values behind everything below, for diagnosing problems later
             ids = sorted(i for i in self.drivers if i < len(pos))
             g = lambda arr, i, d=None: arr[i] if i < len(arr) else d
-            diag.blackbox({
+            try:   # iRacing's own timing, recorded so we can compare it with the overlay's gap estimate
+                f2 = ir["CarIdxF2Time"] or []
+            except Exception:
+                f2 = []
+            try:
+                est_t = ir["CarIdxEstTime"] or []
+            except Exception:
+                est_t = []
+            r3 = lambda v: round(v, 3) if isinstance(v, (int, float)) else v
+            bb = {
                 "sessTime": round(now_s, 2), "sess": sess_num, "state": state, "flags": ir["SessionFlags"] or 0,
                 "replay": replaying, "cam": ir["CamCarIdx"],
-                # [idx, car number, lap, lap %, on pit road, track surface, position, per-car flags]
+                # [idx, car number, lap, lap %, on pit road, track surface, position, per-car flags,
+                #  F2Time (time behind leader), EstTime (reference time to this spot), last lap, best lap]
                 "cars": [[i, self.drivers[i].get("num"), g(lap, i), round(g(pct, i, -1) or 0, 4), int(bool(g(pit, i))),
-                          g(surf, i), g(pos, i), g(cflags, i, 0)] for i in ids],
+                          g(surf, i), g(pos, i), g(cflags, i, 0), r3(g(f2, i)), r3(g(est_t, i)), r3(g(last, i)), r3(g(best, i))] for i in ids],
                 "carFlags": [g(cflags, i, 0) for i in ids],
-            })
+            }
+            diag.blackbox(bb)
 
             cars = []
             for idx, d in self.drivers.items():
@@ -486,6 +497,8 @@ class IRacingSource:
             compute_gaps(cars, is_race, racing)
             compute_class_gaps(cars, is_race, racing)
             finalize_positions(cars)
+            # the overlay's own gap to the leader (seconds) next to iRacing's numbers in the same black box snapshot
+            bb["ourGap"] = {str(c["idx"]): round(c["gapS"], 3) for c in cars if c.get("gapS") is not None}
             add_extras(cars, is_race, [i for i, _ in (self.info.get("gridOrder") or [])] or self.info.get("qualOrder", []),
                        self.pit_store, self.__dict__.setdefault("speed_store", {}), now_s, self.info.get("trackM", 0))
 
