@@ -207,6 +207,7 @@ def results(sess_num, session, wall=None):
 
 SESSION_FILE = os.path.join(LOG_DIR, "session.json")
 _sess_key = None
+_sess_line = None
 
 
 def session_settings(weekend, session_info):
@@ -219,12 +220,14 @@ def session_settings(weekend, session_info):
         key = json.dumps(data, sort_keys=True, default=str)
         if key == _sess_key:
             return
-        first = _sess_key is None
         _sess_key = key
         opts = (weekend or {}).get("WeekendOptions") or {}
-        if first or opts:
-            log("Race settings: " + ", ".join("%s=%s" % (k, opts[k]) for k in sorted(opts)
-                                               if any(w in k for w in ("GreenWhite", "Incident", "FastRepair", "Caution", "Restart", "StandingStart"))))
+        line = ", ".join("%s=%s" % (k, opts[k]) for k in sorted(opts)
+                         if any(w in k for w in ("GreenWhite", "Incident", "FastRepair", "Caution", "Restart", "StandingStart")))
+        global _sess_line
+        if line and line != _sess_line:           # only when the settings themselves change, not every session update
+            _sess_line = line
+            log("Race settings: " + line)
         os.makedirs(LOG_DIR, exist_ok=True)
         tmp = SESSION_FILE + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:

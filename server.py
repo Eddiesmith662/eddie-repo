@@ -368,7 +368,9 @@ def compute_gaps(cars, is_race, racing):
             if laps_down:
                 c["gap"] = "+%d LAP%s" % (laps_down, "" if laps_down == 1 else "S")
             else:
-                c["gap"] = "+%.1f" % c["gapS"]
+                # never negative: after the checkered the order is iRacing's, and a car can be a few metres ahead of
+                # the one listed above it on the run to the line (real race, Oct 25: "+-0.1" at the finish)
+                c["gap"] = "+%.1f" % max(0.0, c["gapS"])
             pdiff = (prev["progress"] - c["progress"]) if prev["progress"] is not None else 0
             if laps_down:                      # a lapped car always shows how many laps down it is
                 c["interval"] = c["gap"]
