@@ -450,6 +450,7 @@ class IRacingSource:
         si = ir["SessionInfo"] or {}
         ci = ir["CameraInfo"] or {}
         qi = ir["QualifyResultsInfo"] or {}
+        diag.session_settings(wi, si)   # diagnostics: the race's settings (e.g. green-white-checkered limit)
         drivers = {}
         for d in di.get("Drivers", []) or []:
             idx = d.get("CarIdx")

@@ -205,6 +205,35 @@ def results(sess_num, session, wall=None):
                  "info": extra, "results": rows})
 
 
+SESSION_FILE = os.path.join(LOG_DIR, "session.json")
+_sess_key = None
+
+
+def session_settings(weekend, session_info):
+    """iRacing's weekend and session settings (track, options such as the green-white-checkered limit, incident
+    limit, fast repairs, and each session's laps/time), saved whenever they change. Results are left out (results.jsonl has them)."""
+    global _sess_key
+    try:
+        sessions = [{k: v for k, v in (s or {}).items() if not k.startswith("Results")} for s in (session_info or {}).get("Sessions", [])]
+        data = {"WeekendInfo": weekend or {}, "Sessions": sessions}
+        key = json.dumps(data, sort_keys=True, default=str)
+        if key == _sess_key:
+            return
+        first = _sess_key is None
+        _sess_key = key
+        opts = (weekend or {}).get("WeekendOptions") or {}
+        if first or opts:
+            log("Race settings: " + ", ".join("%s=%s" % (k, opts[k]) for k in sorted(opts)
+                                               if any(w in k for w in ("GreenWhite", "Incident", "FastRepair", "Caution", "Restart", "StandingStart"))))
+        os.makedirs(LOG_DIR, exist_ok=True)
+        tmp = SESSION_FILE + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            f.write(json.dumps(dict(data, saved=datetime.datetime.now().isoformat(timespec="seconds")), indent=1, default=str))
+        os.replace(tmp, SESSION_FILE)
+    except Exception:
+        pass
+
+
 def flush_blackbox():
     _flush_results()
     try:
@@ -348,7 +377,7 @@ def save_zip(settings):
         z.writestr("settings.json", json.dumps(settings, indent=2, default=str))
         try:
             for f in sorted(os.listdir(LOG_DIR)):
-                if f.endswith(".log") or f in ("blackbox.jsonl", "results.jsonl"):
+                if f.endswith(".log") or f in ("blackbox.jsonl", "results.jsonl", "session.json"):
                     z.write(os.path.join(LOG_DIR, f), "logs/" + f)
         except OSError:
             pass
