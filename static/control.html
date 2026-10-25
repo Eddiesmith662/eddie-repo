@@ -353,9 +353,9 @@
 
   <section>
     <h2><span class="t">Race off pit road</span><span class="pill" id="prState">WAITING</span></h2>
-    <p class="hint" id="prInfo" style="margin:0 0 10px">Fills in by itself when the top 10 pit under caution.</p>
+    <p class="hint" id="prInfo" style="margin:0 0 10px">Fills in by itself when cars pit under caution.</p>
     <div class="row"><button class="vis" data-vis="prAir" data-vrole="show" id="prShow">Show</button><button class="vis" data-vis="prAir" data-vrole="hide" id="prHide">Hide</button><button id="prCapture">Capture now</button></div>
-    <p class="hint">Order the cars came off pit road, spots gained or lost among the cars that pitted, and their stop times; cars that stayed out are listed underneath. Stays up until you press Hide. "Capture now" starts one by hand, e.g. for green-flag stops.</p>
+    <p class="hint">Live: cars appear as they reach the pit lane exit, with spots gained or lost against the order they came in and their stop times; cars that stayed out are added once the cycle is over (READY). Show it any time from the first car out; it stays up until you press Hide. "Capture now" starts one by hand, e.g. for green-flag stops.</p>
   </section>
 
   <section>
@@ -1020,7 +1020,7 @@ function sponsorRender() {
 setInterval(() => { if (S) sponsorRender(); }, 1000);
 /* ---------- race off pit road (Race tab) ---------- */
 let PR = {};
-$('prShow').onclick = () => { if (!(PR.list || []).length) return toast('Nothing captured yet: it fills in when the top 10 pit under caution'); set({ show: { pitrace: true } }); };
+$('prShow').onclick = () => { if (!(PR.list || []).length && !(PR.live || []).length) return toast('Nothing yet: cars appear as they come off pit road under caution'); set({ show: { pitrace: true } }); };
 $('prHide').onclick = () => set({ show: { pitrace: false } });
 $('prCapture').onclick = async () => { await post('/api/pitrace', { cmd: 'capture' }); toast('Capturing: the next cars down pit road count'); };
 function pitraceRender() {
@@ -1030,10 +1030,10 @@ function pitraceRender() {
   pill.style.background = st === 'ready' ? 'var(--green)' : st === 'capturing' ? 'var(--yellow)' : '';
   pill.style.color = st === 'capturing' ? '#111' : '';
   const ago = PR.lastOut != null && L && L.sessTime ? Math.max(0, Math.round(L.sessTime - PR.lastOut)) : null;
-  $('prInfo').textContent = st === 'capturing' ? `Lap ${PR.lap ?? '–'}${PR.caution ? ' caution' : ''} · ${PR.count || 0} cars in so far${ago != null ? ' · last car out ' + ago + 's ago' : ''}`
+  $('prInfo').textContent = st === 'capturing' ? `Lap ${PR.lap ?? '–'}${PR.caution ? ' caution' : ''} · LIVE: ${(PR.live || []).length} of ${PR.count || 0} cars out${ago != null ? ' · last car out ' + ago + 's ago' : ''}`
     : n ? `Lap ${PR.listLap ?? '–'}${PR.listCaution ? ' caution' : ''} · ${PR.count || n} cars pitted, top ${Math.min(10, n)} shown${(PR.stayed || []).length ? ' · ' + PR.stayed.length + ' stayed out' : ''}`
-    : 'Fills in by itself when the top 10 pit under caution.';
-  vis('prAir', !!(S && S.show && S.show.pitrace) && n > 0);
+    : 'Fills in by itself when cars pit under caution.';
+  vis('prAir', !!(S && S.show && S.show.pitrace) && (n > 0 || (PR.live || []).length > 0));
 }
 /* ---------- incident log (live timing window) ---------- */
 const INC_COLORS = { offtrack: ['#8b8f96'], spin: ['#ff8a3d'], contact: ['#ff4d6d'], wall: ['#e11d48'], multi: ['#FF0D40'], stopped: ['#ffb020', '#111'],

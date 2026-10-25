@@ -101,10 +101,26 @@ def update(live, log=None):
                 e["stop"] = round(c["pitTime"], 1)       # the box time (final once the car has left)
         open_ = t - _cap["lastEntry"] <= ENTRY_GAP
         waiting = [e for e in _cap["cars"].values() if e["out"] is None and t - e["in"] < STUCK]
-        _publish(count=len(_cap["cars"]), lastOut=max((e["out"] for e in _cap["cars"].values() if e["out"]), default=None))
+        live = _rows(_cap)                 # the live look: cars appear as they reach the pit lane exit
+        upd = {"count": len(_cap["cars"]), "lastOut": max((e["out"] for e in _cap["cars"].values() if e["out"]), default=None)}
+        if live != STATE.get("live"):
+            upd.update(live=live, liveLap=_cap["lap"], liveCaution=_cap["caution"])
+        if any(STATE.get(k) != v for k, v in upd.items()):
+            _publish(**upd)
         if not open_ and not waiting and _cap["cars"]:
             _finish(cars, t, log)
     _prev_pit = {c["idx"]: bool(c.get("pit")) for c in cars}
+
+
+def _rows(cap):
+    """Cars that have left pit road, in the order they left, with spots gained or lost: where each came in among the
+    cars that came down pit road (running order when the cycle began) against where it came out. A car that comes in
+    later is behind the earlier ones in the running order, so rows already shown keep their arrows."""
+    entered = cap["cars"]
+    in_rank = {i: r for r, i in enumerate(sorted(entered, key=lambda i: cap["inPos"].get(i, 999)))}
+    out = sorted((i for i, e in entered.items() if e["out"] is not None), key=lambda i: entered[i]["out"])
+    return [{"num": entered[i]["num"], "name": entered[i]["name"], "cls": entered[i]["cls"], "gained": in_rank[i] - r,
+             "stop": entered[i]["stop"], "penalty": entered[i]["pen"]} for r, i in enumerate(out)]
 
 
 def _finish(cars, t, log):
@@ -112,22 +128,17 @@ def _finish(cars, t, log):
     pitted = {i: e for i, e in cap["cars"].items() if e["out"] is not None}
     if len(pitted) < MIN_CARS and not cap["manual"]:
         # one or two cars in (repairs, a penalty): not a pit cycle; keep whatever was there before
-        _publish(status=cap["before"] if cap["before"] != "capturing" else "idle")
+        _publish(status=cap["before"] if cap["before"] != "capturing" else "idle", live=[])
         return
-    in_rank = {i: r for r, i in enumerate(sorted(pitted, key=lambda i: cap["inPos"].get(i, 999)))}
+    rows = _rows(cap)
     out = sorted(pitted, key=lambda i: pitted[i]["out"])
-    rows = []
-    for r, i in enumerate(out):
-        e = pitted[i]
-        rows.append({"num": e["num"], "name": e["name"], "cls": e["cls"], "gained": in_rank[i] - r,
-                     "stop": e["stop"], "penalty": e["pen"]})
     # stayed out: cars that were running ahead of the last car shown on the graphic and didn't pit
     shown = out[:TOP]
     deepest = max((cap["inPos"].get(i, 0) for i in shown), default=-1)
     names = {c["idx"]: c for c in cars}
     stayed = [names[i] for i, p in sorted(cap["inPos"].items(), key=lambda kv: kv[1])
               if p <= deepest and i not in cap["cars"] and i in names]
-    _publish(status="ready", list=rows, listLap=cap["lap"], listCaution=cap["caution"], stayed=[{"num": c.get("num"), "name": c.get("name")} for c in stayed],
+    _publish(status="ready", list=rows, live=[], listLap=cap["lap"], listCaution=cap["caution"], stayed=[{"num": c.get("num"), "name": c.get("name")} for c in stayed],
              count=len(pitted), readyAt=time.time())
     if log:
         log("Race off pit road ready: %d cars pitted, first out #%s" % (len(rows), rows[0]["num"] if rows else "?"))

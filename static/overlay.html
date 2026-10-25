@@ -877,23 +877,32 @@ setInterval(() => { if (S && L) renderPenalty(); }, 250);
 
 /* ---------- race off pit road: order off pit road among the cars that pitted, spots gained/lost, stop time ---------- */
 function renderPitrace() {
-  const P = PR || {}, list = (P.list || []).slice(0, 10);
+  // live look while a cycle is being captured (cars appear as they reach the pit lane exit), otherwise the last finished one
+  const P = PR || {}, isLive = P.status === 'capturing' && (P.live || []).length > 0;
+  const list = (isLive ? P.live : (P.list || [])).slice(0, 10);
   const sample = LAYOUT_MODE && !list.length;
   const rows = sample ? [{ num: '9', name: 'T. Carter', gained: 2, stop: 12.4 }, { num: '2', name: 'E. George', gained: -1, stop: 13.1 }, { num: '22', name: 'P. Brading', gained: 3, stop: 11.8 }, { num: '3', name: 'K. Uhle', gained: 0, stop: 12.9 }] : list;
   const on = (S.show.pitrace || LAYOUT_MODE) && L.connected && rows.length > 0;
   show('pitrace', on);
   if (!on) return;
-  $('prSub').textContent = sample ? 'LAP 47' : (P.listLap != null ? 'LAP ' + P.listLap : '');
+  $('prSub').textContent = sample ? 'LAP 47' : isLive ? `LAP ${P.liveLap ?? ''} · LIVE` : (P.listLap != null ? 'LAP ' + P.listLap : '');
   const stops = rows.map(r => r.stop).filter(x => x != null), best = stops.length ? Math.min(...stops) : null;
   const multi = (L.classes || []).length > 1;
   const clsColor = Object.fromEntries((L.cars || []).map(c => [c.num, c.clsColor]));
-  const stayed = sample ? [{ num: '11', name: 'C. Abbiate' }] : (P.stayed || []);
+  const stayed = sample ? [{ num: '11', name: 'C. Abbiate' }] : isLive ? [] : (P.stayed || []);   // known once the cycle is over
   const html = `<div class="sh"><span class="c1"></span>${multi ? '<span class="cc"></span>' : ''}<span class="c2">#</span><span class="c3">DRIVER</span><span class="c5">+/-</span><span class="c6">STOP</span></div>` +
     rows.map((r, i) => `<div class="r"><span class="c1">${i + 1}</span>${multi ? `<span class="cc" style="background:${clsColor[r.num] || 'transparent'}"></span>` : ''}<span class="c2">${esc(r.num)}</span><span class="c3">${esc(tickerName(r.name))}</span>` +
       (r.penalty ? '<span class="c5 pen">PENALTY</span>' : `<span class="c5 ${r.gained > 0 ? 'up' : r.gained < 0 ? 'dn' : ''}">${r.gained > 0 ? '▲ ' + r.gained : r.gained < 0 ? '▼ ' + -r.gained : '–'}</span>`) +
       `<span class="c6 ${r.stop != null && r.stop === best ? 'best' : ''}">${r.stop != null ? r.stop.toFixed(1) + 's' : ''}</span></div>`).join('') +
     (stayed.length ? `<div class="ft"><b>STAYED OUT</b>${stayed.slice(0, 6).map(c => '#' + esc(c.num)).join('  ')}${stayed.length > 6 ? '  +' + (stayed.length - 6) + ' more' : ''}</div>` : '');
-  if ($('prBody').innerHTML !== html) $('prBody').innerHTML = html;
+  if ($('prBody').innerHTML !== html) {
+    const had = $('prBody').querySelectorAll('.r').length, sameCycle = renderPitrace.key === (isLive ? 'L' : 'F') + P.liveLap + P.listLap;
+    $('prBody').innerHTML = html;
+    if (sameCycle && VIS.pitrace && VIS.pitrace.on)    // a car just came off pit road: its row slides in
+      // (the row itself stays solid so the ticker underneath never shows through; its contents slide in)
+      [...$('prBody').querySelectorAll('.r')].slice(had).forEach((r, i) => [...r.children].forEach(x => anim(x, [{ opacity: 0, transform: 'translateX(-24px)' }, { opacity: 1, transform: 'none' }], { duration: 420, delay: i * 80 })));
+  }
+  renderPitrace.key = (isLive ? 'L' : 'F') + P.liveLap + P.listLap;
 }
 
 /* ---------- biggest movers: top 5 positions gained since the start ---------- */
