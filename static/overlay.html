@@ -104,7 +104,9 @@
   .row .name { flex: 1; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: .3px; }
   .row .gap { width: 92px; text-align: right; padding-right: 12px; font-family: var(--light); font-weight: 300; font-size: 17px; font-variant-numeric: tabular-nums; }
   /* pit road: the gap cell becomes a blue pit tag (box timer, then the stop time) */
-  .row .gap.pitc { align-self: stretch; display: flex; align-items: center; justify-content: flex-end; background: var(--blue); color: #fff;
+  /* a tighter box than the gap column (78px + 14px gap = the same 92px), text centred */
+  .row .gap.pitc { align-self: stretch; display: flex; align-items: center; justify-content: center; background: var(--blue); color: #fff;
+                   width: 78px; margin-left: 14px; padding: 0 6px; white-space: nowrap;
                    font-family: var(--semi); font-weight: 600; font-size: 16px; letter-spacing: .5px; }
   .row .gap.pitc.pitdone { background: #111; box-shadow: inset 4px 0 0 var(--blue); }
   .row .pit { font-size: 12px; background: var(--blue); color: #fff; padding: 1px 6px; margin-right: 6px; letter-spacing: 1px; display: none; }
