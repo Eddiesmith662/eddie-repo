@@ -531,10 +531,10 @@ function renderTower() {
   let sub;
   if (L.isRace && L.sessionState >= 5) sub = 'FINISHED';   // checkered flag is out (and cool-down after it)
   else if (L.isRace && L.totalLaps) {
-    const lap = Math.max(1, L.lap), togo = L.totalLaps - lap;   // e.g. lap 50 of 60 -> 10 TO GO
+    const lap = Math.max(1, L.lap), togo = L.totalLaps - lap + 1;   // TV style, counts the lap in progress: lap 51 of 60 -> 10 TO GO
     sub = L.sessionState < 4 ? 'START · ' + L.totalLaps + ' LAPS'
-        : (L.sessionState === 4 && togo >= 1 && togo <= 10) ? `${togo} TO GO`
-        : (L.sessionState === 4 && togo === 0) ? 'FINAL LAP'
+        : (L.sessionState === 4 && togo >= 2 && togo <= 10) ? `${togo} TO GO`
+        : (L.sessionState === 4 && togo === 1) ? 'FINAL LAP'
         : `LAP ${lap} / ${L.totalLaps}`;
   }
   else if (L.isRace) sub = `LAP ${Math.max(1, L.lap)}` + (L.timeRemain ? ' · ' + L.timeRemain : '');
