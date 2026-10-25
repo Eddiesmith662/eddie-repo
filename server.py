@@ -92,7 +92,7 @@ DEFAULT_SETTINGS = {
     "graphicsDir": "",         # Drive for desktop folder with ready-made graphics, e.g. G:\\My Drive\\VSPEED\\Graphics
     "gfx": {"file": "", "visible": False, "anim": "slide", "hold": 0, "t": 0},
     "flagTrigger": {"flag": "", "t": 0},  # manual flag banner from the panel
-    "diag": {"blackbox": True},           # keep the last 30 minutes of raw iRacing data in data/logs (Setup tab)
+    "diag": {"blackbox": True},           # keep the last 3 hours of raw iRacing data in data/logs (Setup tab)
     # sponsor graphics (Race tab): one image per slot, one on air at a time; hold = seconds before it hides itself (0 = stays)
     "sponsor": {"active": "", "t": 0, "hold": 0, "files": {k: "" for k in SPONSOR_SLOTS}},
 }

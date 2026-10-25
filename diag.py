@@ -21,9 +21,11 @@ import datafiles
 LOG_DIR = os.path.join(datafiles.DATA, "logs")
 DIAG_DIR = os.path.join(datafiles.DATA, "diagnostics")
 BLACKBOX_FILE = os.path.join(LOG_DIR, "blackbox.jsonl")
+BLACKBOX_PREV = os.path.join(LOG_DIR, "blackbox-previous.jsonl")   # the run before this one
 RESULTS_FILE = os.path.join(LOG_DIR, "results.jsonl")   # iRacing's own results list, each time it changes
 KEEP_LOG_DAYS = 7
-BLACKBOX_SECONDS = 30 * 60          # keep the last 30 minutes, one snapshot a second
+BLACKBOX_SECONDS = 3 * 3600         # keep the last 3 hours, one snapshot a second (a full race plus practice and qualifying)
+BLACKBOX_REWRITE = 30 * 60          # the file is appended to every minute and rewritten (trimmed to 3 hours) every 30 minutes
 KEEP_DIAG_ZIPS = 10
 
 _q = queue.Queue()
@@ -35,7 +37,10 @@ STATS = {
     "carFlags": {"seen": False, "black": 0, "meatball": 0, "any": 0},   # per-car flags iRacing has sent
     "lastError": None, "errors": 0, "clientErrors": 0, "blackbox": True,
 }
-_bb = collections.deque(maxlen=BLACKBOX_SECONDS)
+_bb = collections.deque(maxlen=BLACKBOX_SECONDS)   # compact JSON lines (strings use far less memory than dicts)
+_bb_pending = []                                     # this minute's readings, turned into lines at the next flush
+_bb_lock = threading.Lock()
+_bb_rewritten = 0.0
 _bb_last = 0.0
 _res = collections.deque(maxlen=300)     # the last 300 versions of iRacing's results list
 _res_key = None
@@ -166,7 +171,7 @@ def setup(version, mode):
 
 # ---------------------------------------------------------------- black box (raw iRacing data)
 def blackbox(snap):
-    """Called with each raw iRacing reading; keeps one a second for the last 30 minutes."""
+    """Called with each raw iRacing reading; keeps one a second for the last 3 hours."""
     global _bb_last
     flags = snap.get("carFlags") or []
     nz = [f for f in flags if f]
@@ -183,7 +188,8 @@ def blackbox(snap):
         return
     _bb_last = now
     snap["wall"] = round(now, 2)
-    _bb.append(snap)
+    with _bb_lock:
+        _bb_pending.append(snap)      # kept as is for now: the caller adds the overlay's own gaps to it afterwards
 
 
 def results(sess_num, session, wall=None):
@@ -238,18 +244,36 @@ def session_settings(weekend, session_info):
 
 
 def flush_blackbox():
+    """Add the last minute's readings to the black box file; every 30 minutes rewrite it to trim it to 3 hours."""
+    global _bb_rewritten
     _flush_results()
     flush_usage()
     try:
-        data = list(_bb)
-        if not data:
+        with _bb_lock:
+            pending = _bb_pending[:]
+            del _bb_pending[:]
+        lines = []
+        for snap in pending:
+            try:
+                lines.append(json.dumps(snap, separators=(",", ":"), default=str))
+            except Exception:
+                pass
+        _bb.extend(lines)
+        if not _bb:
             return
         os.makedirs(LOG_DIR, exist_ok=True)
-        tmp = BLACKBOX_FILE + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            for s in data:
-                f.write(json.dumps(s, separators=(",", ":")) + "\n")
-        os.replace(tmp, BLACKBOX_FILE)
+        if not _bb_rewritten and os.path.exists(BLACKBOX_FILE):
+            # first write of this run: keep the previous run's black box (e.g. the overlay restarted for an update mid-race)
+            os.replace(BLACKBOX_FILE, BLACKBOX_PREV)
+        if time.time() - _bb_rewritten >= BLACKBOX_REWRITE or not os.path.exists(BLACKBOX_FILE):
+            _bb_rewritten = time.time()
+            tmp = BLACKBOX_FILE + ".tmp"
+            with open(tmp, "w", encoding="utf-8") as f:
+                f.write("\n".join(_bb) + "\n")
+            os.replace(tmp, BLACKBOX_FILE)
+        elif lines:
+            with open(BLACKBOX_FILE, "a", encoding="utf-8") as f:
+                f.write("\n".join(lines) + "\n")
     except Exception:
         pass
 
@@ -489,7 +513,7 @@ def status():
     s = dict(STATS)
     s["uptime"] = round(time.time() - STATS["startedAt"])
     s["logDir"] = LOG_DIR
-    s["blackboxSeconds"] = len(_bb)
+    s["blackboxSeconds"] = len(_bb) + len(_bb_pending)
     return s
 
 
@@ -509,7 +533,7 @@ def save_zip(settings):
         z.writestr("settings.json", json.dumps(settings, indent=2, default=str))
         try:
             for f in sorted(os.listdir(LOG_DIR)):
-                if f.endswith(".log") or f in ("blackbox.jsonl", "results.jsonl", "session.json", "usage.json"):
+                if f.endswith(".log") or f in ("blackbox.jsonl", "blackbox-previous.jsonl", "results.jsonl", "session.json", "usage.json"):
                     z.write(os.path.join(LOG_DIR, f), "logs/" + f)
         except OSError:
             pass

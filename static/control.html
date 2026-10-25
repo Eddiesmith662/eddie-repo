@@ -597,7 +597,7 @@
     <div class="dg" id="dgStatus"></div>
     <div class="grid2" style="margin-top:12px">
       <div><label>&nbsp;</label><button class="go" id="dgSave" style="width:100%">Save diagnostics</button></div>
-      <div><label>Black box (last 30 minutes of raw iRacing data)</label><div class="seg" id="dgBB"><button data-v="on">On</button><button data-v="off">Off</button></div></div>
+      <div><label>Black box (last 3 hours of raw iRacing data)</label><div class="seg" id="dgBB"><button data-v="on">On</button><button data-v="off">Off</button></div></div>
     </div>
     <p class="hint">If something looks wrong during a broadcast, press <b>Save diagnostics</b> afterwards and send the zip to Claude. It holds the last 7 days of logs, the black box and your settings. Everything stays on this PC (in the data\logs and data\diagnostics folders) unless you share it.</p>
   </section>
@@ -1147,7 +1147,7 @@ async function diagRefresh() {
     ['Updates', `${d.rate || 0} per second · ${d.cars || 0} cars`],
     ['Per-car flags', flags],
     ['Last error', d.lastError ? `<span class="bad">${esc(d.lastError.msg)}</span> · ${ago(d.lastError.t)}` : '<span class="ok">none</span>'],
-    ['Black box', d.blackbox ? `on · ${Math.round((d.blackboxSeconds || 0) / 60)} of 30 minutes recorded` : 'off'],
+    ['Black box', d.blackbox ? `on · ${Math.round((d.blackboxSeconds || 0) / 60)} of 180 minutes recorded` : 'off'],
     ['Running', `${dur(d.uptime || 0)} · v${esc(d.version || '')} · ${esc(d.mode || '')} mode`],
     ['Log folder', esc(d.logDir || '')],
   ];
