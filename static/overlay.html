@@ -74,7 +74,7 @@
   }
   #tower .sub .flag { width: 18px; height: 18px; border-radius: 3px; background: transparent; transition: background .3s; }
   /* the red accent under the ticker header follows the track state (caution, white, checkered, red flag) */
-  #tower.f-caution .head::after { background: var(--yellow); }
+  #tower.f-caution .head::after, #tower.f-pace .head::after { background: var(--yellow); }
   #tower.f-white .head::after { background: #fff; }
   #tower.f-red .head::after { background: #E11; }
   #tower.f-checkered .head::after { background: repeating-conic-gradient(#111 0 25%, #fff 0 50%) 0 0/8px 8px; }
@@ -83,7 +83,7 @@
   #tower .cbar { height: 0; overflow: hidden; background: var(--yellow); color: #111; text-align: center; font-size: 16px; letter-spacing: 3px;
                  line-height: 26px; text-transform: uppercase; transition: height .35s cubic-bezier(.3,.8,.3,1); }
   #tower .cbar span { padding: 0 12px; }
-  #tower.f-caution .cbar, #tower.f-white .cbar, #tower.f-checkered .cbar { height: 26px; }
+  #tower.f-caution .cbar, #tower.f-pace .cbar, #tower.f-white .cbar, #tower.f-checkered .cbar { height: 26px; }
   #tower.f-white .cbar { background: #fff; }
   #tower.f-checkered .cbar { background: repeating-conic-gradient(#111 0 25%, #fff 0 50%) 0 0/13px 13px; }
   #tower.f-checkered .cbar span { background: #111; color: #fff; display: inline-block; line-height: 26px; }
@@ -549,10 +549,11 @@ function renderTower() {
   else if (L.isRace) sub = `LAP ${Math.max(1, L.lap)}` + (L.timeRemain ? ' · ' + L.timeRemain : '');
   else sub = (L.sessionName || '') + (L.timeRemain ? ' · ' + L.timeRemain : '');
   $('tSub').textContent = sub;
-  const flagColors = { green: 'var(--green)', caution: 'var(--yellow)', white: '#fff', red: '#E11', checkered: 'repeating-conic-gradient(#111 0 25%, #fff 0 50%) 0 0/7px 7px' };
+  const flagColors = { green: 'var(--green)', caution: 'var(--yellow)', pace: 'var(--yellow)', white: '#fff', red: '#E11', checkered: 'repeating-conic-gradient(#111 0 25%, #fff 0 50%) 0 0/7px 7px' };
   $('tFlag').style.background = flagColors[L.flag] || 'transparent';
-  ['caution', 'white', 'red', 'checkered'].forEach(f => $('tower').classList.toggle('f-' + f, L.flag === f));
-  const band = L.flag === 'caution' && L.oneToGreen ? 'One to green' : FLAG_BAND[L.flag];   // iRacing's one-lap-to-green signal
+  ['caution', 'pace', 'white', 'red', 'checkered'].forEach(f => $('tower').classList.toggle('f-' + f, L.flag === f));
+  // pace laps before the start get a yellow PACE LAP band (no flag wipe); iRacing's one-lap-to-green signal changes CAUTION to ONE TO GREEN
+  const band = L.flag === 'pace' ? 'Pace lap' : L.flag === 'caution' && L.oneToGreen ? 'One to green' : FLAG_BAND[L.flag];
   if (band && $('tCbar').firstChild.textContent !== band) {
     const swap = !!$('tCbar').firstChild.textContent && $('tower').classList.contains('f-caution');
     $('tCbar').firstChild.textContent = band;

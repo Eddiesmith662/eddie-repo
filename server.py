@@ -213,6 +213,10 @@ def race_flags(store, is_race, state, bits, leader_prog, total):
     than two laps of the scheduled distance, the leader runs one green lap and the next lap is the final lap
     (that race: scheduled 50, green near the line on lap 52, white on lap 54, checkered at 54 laps)."""
     flag = flag_from_bits(bits) or ("green" if state == 4 else "")
+    if is_race and state == 3:
+        # parade / pace laps before the start (SessionState 3). iRacing sets the one-to-green and green-held bits here,
+        # never caution, so it read as green; the ticker shows a yellow PACE LAP instead (real Talladega data, Oct 25)
+        flag = "pace"
     out = {"flag": flag, "overtime": False, "finalLap": total}
     if not is_race or not total:
         return out
@@ -1004,7 +1008,7 @@ class DemoSource:
 
         flag = ""
         if self.state == 3:
-            flag = "caution"  # pace laps
+            flag = "pace"  # pace laps
         elif self.state >= 5:
             flag = "checkered"
         elif caution:
