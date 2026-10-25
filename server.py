@@ -167,6 +167,9 @@ FLAG_CAUTION_WAVING = 0x8000
 FLAG_ONE_LAP_TO_GREEN = 0x0200
 
 
+FLAG_ONE_TO_GREEN = 0x0200   # irsdk_oneLapToGreen: seen in real data ~2 min after the caution, until the green
+
+
 def flag_from_bits(bits):
     if bits & FLAG_CHECKERED:
         return "checkered"
@@ -532,6 +535,7 @@ class IRacingSource:
                 "timeRemain": fmt_clock(ir["SessionTimeRemain"]),
                 # iRacing only sets the green bit around the start; while racing with no other flag it's green
                 "flag": flag_from_bits(ir["SessionFlags"] or 0) or ("green" if state == 4 else ""),
+                "oneToGreen": bool((ir["SessionFlags"] or 0) & FLAG_ONE_TO_GREEN),
                 "isReplay": bool(ir["IsReplayPlaying"]) and replay_end > 30,
                 "replaySpeed": ir["ReplayPlaySpeed"] or 0,
                 "replaySlow": bool(ir["ReplayPlaySlowMotion"]),
@@ -920,6 +924,7 @@ class DemoSource:
             "sessionName": "RACE", "sessionType": "race", "isRace": True,
             "sessionState": self.state, "lap": min(lap_now, self.total), "totalLaps": self.total,
             "timeRemain": "", "flag": flag, "isReplay": self.__dict__.get("rp", {}).get("replay", False),
+            "oneToGreen": caution and self.caution_until - now < 12,   # demo: last 12 seconds of each caution
             "replaySpeed": self.__dict__.get("rp", {}).get("speed", 1), "replaySlow": self.__dict__.get("rp", {}).get("slow", False),
             "uiHidden": self.__dict__.get("rp", {}).get("ui", False),
             "camLap": max(1, int(next((c["progress"] for c in cars if c["idx"] == self.cam), 1)) + self.__dict__.get("rp", {}).get("lapOffset", 0)),

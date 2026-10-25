@@ -543,8 +543,12 @@ function renderTower() {
   const flagColors = { green: 'var(--green)', caution: 'var(--yellow)', white: '#fff', red: '#E11', checkered: 'repeating-conic-gradient(#111 0 25%, #fff 0 50%) 0 0/7px 7px' };
   $('tFlag').style.background = flagColors[L.flag] || 'transparent';
   ['caution', 'white', 'red', 'checkered'].forEach(f => $('tower').classList.toggle('f-' + f, L.flag === f));
-  const band = FLAG_BAND[L.flag];
-  if (band && $('tCbar').firstChild.textContent !== band) $('tCbar').firstChild.textContent = band;
+  const band = L.flag === 'caution' && L.oneToGreen ? 'One to green' : FLAG_BAND[L.flag];   // iRacing's one-lap-to-green signal
+  if (band && $('tCbar').firstChild.textContent !== band) {
+    const swap = !!$('tCbar').firstChild.textContent && $('tower').classList.contains('f-caution');
+    $('tCbar').firstChild.textContent = band;
+    if (swap) { anim($('tCbar').firstChild, wipeIn, { duration: 450 }); shineOn($('tCbar'), 150); }
+  }
 
   const multi = (L.classes || []).length > 1 && !S.classFilter;
   const split = multi && S.classSplit !== false;

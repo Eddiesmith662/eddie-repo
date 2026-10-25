@@ -229,6 +229,11 @@ def watch(live):
         _prev["session"] = sess
         _prev["cars"] = {}
         log("Session: %s at %s, %d cars, %s laps" % (sess, live.get("track", "?"), len(cars), live.get("totalLaps") or "timed"))
+    otg = bool(live.get("oneToGreen"))
+    if otg != _prev.get("otg", False):
+        _prev["otg"] = otg
+        if otg:
+            log("One to green (lap %s)" % live.get("lap"))
     flag = live.get("flag") or ""
     if flag != _prev["flag"]:
         if _prev["flag"] is not None:
