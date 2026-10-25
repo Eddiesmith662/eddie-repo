@@ -184,6 +184,47 @@ def flag_from_bits(bits):
     return ""
 
 
+def _try(ir, key):
+    """An iRacing value that may not exist in every SDK version (None if it doesn't)."""
+    try:
+        return ir[key]
+    except Exception:
+        return None
+
+
+def race_flags(store, is_race, state, bits, leader_prog, total):
+    """The track flag, plus the white flag, checkered flag and overtime worked out ourselves.
+
+    While spectating, iRacing's SessionFlags never carried the white or checkered bits (real Talladega race,
+    Oct 24 2026: SessionFlags stayed 0x10000000 through the last lap and the finish), so in a race they come from
+    the leader's lap and the session state. Overtime (green-white-checkered): after a restart that leaves less
+    than two laps of the scheduled distance, the leader runs one green lap and the next lap is the final lap
+    (that race: scheduled 50, green near the line on lap 52, white on lap 54, checkered at 54 laps)."""
+    flag = flag_from_bits(bits) or ("green" if state == 4 else "")
+    out = {"flag": flag, "overtime": False, "finalLap": total}
+    if not is_race or not total:
+        return out
+    yellow = flag in ("caution", "red")
+    if store.get("prev") in ("caution", "red") and not yellow and state == 4 and leader_prog is not None:
+        frac = leader_prog % 1
+        # the lap the field runs under green after the restart (a green just before the line starts the next lap)
+        store["greenLap"] = int(leader_prog) + 1 if frac >= 0.15 else int(leader_prog)
+    store["prev"] = flag
+    final = total
+    lap = int(leader_prog) if leader_prog is not None else 0
+    if store.get("greenLap") and store["greenLap"] + 1 > total:
+        final = store["greenLap"] + 1
+    elif lap > total:
+        final = 0      # in overtime without having seen its restart (overlay started mid-race): final lap unknown, no white flag
+    out["finalLap"] = final
+    out["overtime"] = state <= 5 and (final > total or (state == 4 and lap > total))
+    if state >= 5:
+        out["flag"] = "checkered"
+    elif state == 4 and flag == "green" and final and lap >= final:
+        out["flag"] = "white"
+    return out
+
+
 PIT_SHOW_AFTER = 8.0   # seconds the final stop time stays up after the car leaves pit road
 PIT_HIDE_AT = 50.0     # a stop this long means the car is just parked: drop the tag until the next visit
 PIT_MIN_STOP = 2.0     # shorter than this isn't a real stop (rolling over the box): not counted, no stop time
@@ -465,6 +506,7 @@ class IRacingSource:
             r3 = lambda v: round(v, 3) if isinstance(v, (int, float)) else v
             bb = {
                 "sessTime": round(now_s, 2), "sess": sess_num, "state": state, "flags": ir["SessionFlags"] or 0,
+                "lapsRemain": _try(ir, "SessionLapsRemainEx"), "lapsTotal": _try(ir, "SessionLapsTotal"),
                 "replay": replaying, "cam": ir["CamCarIdx"],
                 # [idx, car number, lap, lap %, on pit road, track surface, position, per-car flags,
                 #  F2Time (time behind leader), EstTime (reference time to this spot), last lap, best lap]
@@ -518,8 +560,13 @@ class IRacingSource:
 
             leader_lap = cars[0]["progress"] if cars and cars[0]["progress"] is not None else 0
             cur_lap = int(leader_lap) if leader_lap else 0
-            if total_laps:
-                cur_lap = min(cur_lap, total_laps)
+            fstore = self.__dict__.setdefault("flag_store", {})
+            if fstore.get("sess") != sess_num:
+                fstore.clear()
+                fstore["sess"] = sess_num
+            rf = race_flags(fstore, is_race, state, ir["SessionFlags"] or 0, leader_lap or None, total_laps)
+            if total_laps and (state >= 5 or not rf["overtime"]):   # after the finish the leader's lap counter keeps going
+                cur_lap = min(cur_lap, rf["finalLap"]) if rf["finalLap"] else max(total_laps, cur_lap - 1)
 
             replay_end = ir["ReplayFrameNumEnd"] or 0
             live = {
@@ -532,9 +579,12 @@ class IRacingSource:
                 "sessionState": state,
                 "lap": cur_lap,
                 "totalLaps": total_laps,
+                "finalLap": rf["finalLap"],       # the lap the white flag comes out (later than totalLaps in overtime)
+                "overtime": rf["overtime"],
                 "timeRemain": fmt_clock(ir["SessionTimeRemain"]),
-                # iRacing only sets the green bit around the start; while racing with no other flag it's green
-                "flag": flag_from_bits(ir["SessionFlags"] or 0) or ("green" if state == 4 else ""),
+                # iRacing only sets the green bit around the start; while racing with no other flag it's green.
+                # White and checkered are worked out from the leader's lap (see race_flags)
+                "flag": rf["flag"],
                 "oneToGreen": bool((ir["SessionFlags"] or 0) & FLAG_ONE_TO_GREEN),
                 "isReplay": bool(ir["IsReplayPlaying"]) and replay_end > 30,
                 "replaySpeed": ir["ReplayPlaySpeed"] or 0,

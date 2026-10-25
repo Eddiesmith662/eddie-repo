@@ -1242,7 +1242,7 @@ function render() {
   $('dot').className = 'dot ' + (L.connected ? (L.source === 'demo' ? 'demo' : 'on') : '');
   $('conn').textContent = L.connected ? (L.source === 'demo' ? 'Demo mode' : 'iRacing connected') : 'Waiting for iRacing';
   $('sess').textContent = L.connected ? `${L.sessionName || ''} · ${L.track || ''}` : '—';
-  $('lapPill').textContent = L.connected ? (L.totalLaps ? `Lap ${Math.max(1, L.lap)} / ${L.totalLaps}` : (L.timeRemain || `Lap ${L.lap || 0}`)) + (replay ? ' · REPLAY' : ' · LIVE') : '—';
+  $('lapPill').textContent = L.connected ? (L.totalLaps ? `Lap ${Math.max(1, L.lap)} / ${L.totalLaps}` + (L.overtime ? ' · OVERTIME' : '') : (L.timeRemain || `Lap ${L.lap || 0}`)) + (replay ? ' · REPLAY' : ' · LIVE') : '—';
   $('flagPill').textContent = 'Flag: ' + (L.flag || 'none');
   const up = APP.update, vt = up ? `Update v${up.version} ready · restart the overlay to install` : (APP.version ? 'v' + APP.version : '');
   if ($('verPill').textContent !== vt) { $('verPill').textContent = vt; $('verPill').classList.toggle('upd', !!up); }
