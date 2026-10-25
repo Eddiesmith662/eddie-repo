@@ -264,6 +264,7 @@
   #grid .gside.r .gnum { margin: 0 20px 0 14px; }
   #grid .gside.empty .gin { visibility: hidden; }
   #grid .gline { height: 7px; background: var(--red); }
+  #grid.hit, #grid.hit * { pointer-events: auto !important; }   /* only during the grid self-check */
   /* Pole Award on Row 1: POLE tab, red wash + white frame on the pole sitter's side, the badge in the car spot */
   #grid .gtop { position: relative; }
   #grid .gpole { position: absolute; top: 0; height: 100%; width: 160px; background: var(--red); display: none; align-items: center; justify-content: center; font-size: 30px; letter-spacing: .5px; }
@@ -1099,6 +1100,28 @@ OUT.grid = () => {
   anim(q('grid', '.gbar'), [{ clipPath: 'inset(0 0 0 0)' }, { clipPath: 'inset(0 50% 0 50%)' }], { duration: 500, delay: 250, easing: EASE_IN, fill: 'forwards' });
   return 800;
 };
+/* Grid self-check: on the broadcast PC the pole sitter's car render once stayed invisible except while it was
+   animating (Oct 25; fine in a normal browser here). A couple of seconds after the Grid or the Pole Award changes,
+   check that both car renders are really on screen, and if one isn't, write what was covering or hiding it to the log. */
+function gridCheck(why) {
+  setTimeout(() => {
+    if (!(VIS.grid && VIS.grid.on) || AW.on) return;
+    const info = side => {
+      const s = q('grid', '.gside.' + side), car = s.querySelector('.gcar'), img = car.querySelector('img'), gin = s.querySelector('.gin');
+      if (s.classList.contains('empty') || !img.getAttribute('src') || img.classList.contains('none')) return null;
+      const r = car.getBoundingClientRect(), top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      const cs = getComputedStyle(car), gs = getComputedStyle(gin);
+      return { ok: !!top && car.contains(top), top: top ? (top.tagName + '.' + top.className) : 'none', op: cs.opacity, vis: cs.visibility,
+               ginClip: gs.clipPath, ginOp: gs.opacity, ginTf: gs.transform, anims: s.getAnimations({ subtree: true }).length,
+               img: img.complete + '/' + img.naturalWidth, rect: [r.x, r.y, r.width, r.height].map(Math.round).join(',') };
+    };
+    const g = $('grid'); g.classList.add('hit');      // the overlay ignores the mouse; let the check "see" the grid
+    const l = info('l'), r = info('r');
+    g.classList.remove('hit');
+    if ((l && !l.ok) || (r && !r.ok))
+      try { navigator.sendBeacon('/api/clientlog', JSON.stringify({ page: 'overlay', msg: 'Grid car render not visible after ' + why + ': ' + JSON.stringify({ left: l, right: r }) + ' ua ' + navigator.userAgent })); } catch (e) {}
+  }, 2600);
+}
 /* Pole Award: shown on Row 1 when Show Pole Award is pressed; Next row (or anything that leaves Row 1) takes it away */
 const AW = { on: false };
 function gridAward() {
@@ -1106,7 +1129,10 @@ function gridAward() {
   if (file && $('gawImg').dataset.f !== file) { $('gawImg').dataset.f = file; $('gawImg').src = '/sponsor/' + file; }
   const want = !LAYOUT_MODE && !!pa.on && !!file && GR.on && GR.row === 0 && GR.shownRow === 0 && !!(VIS.grid && VIS.grid.on);
   if (want) GR.at = Date.now();            // automatic mode waits on Row 1 while the award is up
-  if (want && !AW.on) awardIn(); else if (!want && AW.on) awardOut();
+  if (want && !AW.on) awardIn(); else if (!want && AW.on) { awardOut(); gridCheck('Pole Award off'); }
+  const up = !!(VIS.grid && VIS.grid.on);
+  if (up && !AW.wasUp) gridCheck('Grid shown');
+  AW.wasUp = up;
 }
 function awardIn() {
   AW.on = true;
