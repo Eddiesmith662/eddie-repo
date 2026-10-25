@@ -34,6 +34,7 @@ import standings
 import update
 import diag
 import incidents
+import pitrace
 
 ROOT = datafiles.ROOT
 STATIC = os.path.join(ROOT, "static")
@@ -55,6 +56,7 @@ DEFAULT_SETTINGS = {
         "flags": True,         # automatic flag banners
         "board": False,        # starting grid / results board
         "movers": False,       # biggest movers: top 5 positions gained since the start
+        "pitrace": False,      # race off pit road (shown from its section on the Race tab)
     },
     "raceName": "VSPEED RACING LEAGUE",
     "leagueLogo": "league_logo.png",
@@ -157,7 +159,7 @@ class State:
     def snapshot(self):
         return json.dumps({"settings": self.settings, "live": self.live, "standings": standings.summary(), "app": APP,
                            "penalties": {"list": PEN["list"], "hide": PEN["hide"], "reasons": PEN_REASONS, "now": time.time()},
-                           "incidentsVer": incidents.STATE["ver"]})
+                           "incidentsVer": incidents.STATE["ver"], "pitrace": pitrace.snapshot()})
 
     def notify(self):
         with self.lock:
@@ -1108,6 +1110,10 @@ class DemoSource:
                 if random.random() < 0.05 and not caution:
                     c["pitUntil"] = now + 11
                     c["stallFrom"], c["stallTo"] = now + 2, now + 2 + random.uniform(5, 7.5)
+                elif caution and self.state == 4 and c.get("pitCaution") != self.caution_until and random.random() < 0.8:
+                    c["pitCaution"] = self.caution_until      # demo: the field pits under caution (race off pit road)
+                    c["pitUntil"] = now + random.uniform(16, 22)
+                    c["stallFrom"], c["stallTo"] = now + 3, now + 3 + random.uniform(9, 14)
                 if self.state >= 4 and math.floor(c["progress"]) >= self.total:
                     self.finished.add(c["idx"])
             elif before < 0 <= c["progress"]:
@@ -1422,6 +1428,10 @@ def telemetry_loop(demo, multiclass=False, qual=False):
                 incidents.update(live, log=diag.log)
             except Exception as e:      # the incident log must never stop the overlay
                 diag.error("Incident log error: %r" % (e,), e)
+            try:
+                pitrace.update(live, log=diag.log)
+            except Exception as e:
+                diag.error("Race off pit road error: %r" % (e,), e)
             STATE.set_live(live)
             diag.STATS["blackbox"] = (STATE.settings.get("diag") or {}).get("blackbox", True)
             diag.watch(live)
@@ -1655,6 +1665,11 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"ok": True})
         if path == "/api/penalty":
             return self.send_json(penalty_command(data))
+        if path == "/api/pitrace":
+            if str(data.get("cmd") or "") == "capture":
+                pitrace.capture_now()
+                return self.send_json({"ok": True})
+            return self.send_json({"ok": False, "error": "unknown command"})
         if path == "/api/incident":
             cmd = str(data.get("cmd") or "")
             if cmd == "clear":

@@ -14,6 +14,7 @@ A custom iRacing overlay for broadcasting software, built to the VSPEED Brand St
 | Results board | Center | Live running order with gaps, from iRacing |
 | **Penalty box** | Top center | When a driver gets a black flag they appear in the live timing window's Penalties list; press **Show** there to put the box up for 8 seconds: car number, driver, position, and the reason if you pick one (Speeding / Passing under yellow) |
 | **Biggest movers** | Bottom right | Top 5 drivers by positions gained since the start (start, now, gained); within each class in multi-class races. Turn it on with the Biggest movers tile; it steps aside while race info is up |
+| **Race off pit road** | Bottom right | After a pit cycle under caution: the top 10 in the order they came off pit road, spots gained or lost among the cars that pitted, and each stop's box time (fastest in purple, PENALTY if they got a black flag), with the cars that stayed out underneath. It captures itself when cars pit under caution (at least 3); the Race tab shows CAPTURING, then READY, and you press **Show** (it stays up until **Hide**). **Capture now** starts one by hand, e.g. for green-flag stops |
 | **Grid** | Bottom | Starting grid from qualifying, one row (two cars) at a time: position tabs, ROW n, car render, car name, driver, qualifying time and number |
 | **Standings** | Center | Championship points from Xtreme Scoring (top 20, two columns), playoff cutoff line, playoff bracket |
 | **Race info** | Bottom right | The race analysis box (title + 5 lines) |
@@ -131,6 +132,7 @@ standings.py         standings, bracket, race info and team (ported from Standin
 run.py               starts everything: update check, then the server
 update.py            the updater
 incidents.py         the incident log in live timing
+pitrace.py           race off pit road
 net.py               secure connections to GitHub and Xtreme Scoring (falls back to Windows' own certificate check)
 datafiles.py         where the data folder lives (moves an older install's files into it)
 diag.py              logging, black box and diagnostics
