@@ -832,8 +832,8 @@ class DemoSource:
             self.state = 4
         caution = now < self.caution_until
         if self.state == 4 and now > self.next_caution and not caution:
-            self.caution_until = now + 35
-            self.next_caution = now + 150
+            self.caution_until = now + 120   # about 2.5 caution laps
+            self.next_caution = now + 260
             caution = True
         leader_prog = max(c["progress"] for c in self.cars)
 
@@ -924,7 +924,7 @@ class DemoSource:
             "sessionName": "RACE", "sessionType": "race", "isRace": True,
             "sessionState": self.state, "lap": min(lap_now, self.total), "totalLaps": self.total,
             "timeRemain": "", "flag": flag, "isReplay": self.__dict__.get("rp", {}).get("replay", False),
-            "oneToGreen": caution and self.caution_until - now < 12,   # demo: last 12 seconds of each caution
+            "oneToGreen": caution and self.caution_until - now < self.base * 1.6,   # demo: the last caution lap, like iRacing
             "replaySpeed": self.__dict__.get("rp", {}).get("speed", 1), "replaySlow": self.__dict__.get("rp", {}).get("slow", False),
             "uiHidden": self.__dict__.get("rp", {}).get("ui", False),
             "camLap": max(1, int(next((c["progress"] for c in cars if c["idx"] == self.cam), 1)) + self.__dict__.get("rp", {}).get("lapOffset", 0)),
