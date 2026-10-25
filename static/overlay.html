@@ -205,30 +205,31 @@
 
   /* ---------- Biggest movers (bottom right, about the size of the race info box) ---------- */
   #movers { right: 40px; bottom: 40px; width: 520px; box-shadow: 0 10px 40px rgba(0,0,0,.5); }
-  /* ---------- Race off pit road (bottom right, same family as Biggest movers) ---------- */
-  #pitrace { right: 40px; bottom: 40px; width: 520px; box-shadow: 0 10px 40px rgba(0,0,0,.5); }
-  #pitrace .h { background: var(--grey); font-size: 24px; padding: 10px 18px 12px; position: relative; overflow: hidden; text-transform: uppercase; letter-spacing: .5px; }
-  #pitrace .h::after { content: ""; position: absolute; left: 0; bottom: 0; height: 4px; width: 45%; background: var(--red); transform-origin: left; }
-  #pitrace .h small { float: right; font-family: var(--light); font-weight: 300; font-size: 15px; margin-top: 7px; letter-spacing: 1px; }
-  #pitrace .sh { display: flex; background: var(--black); font-family: var(--light); font-weight: 300; font-size: 12px; padding: 5px 0; letter-spacing: 1px; }
-  #pitrace .r { display: flex; align-items: center; height: 38px; font-size: 19px; background: var(--grey80); }
-  #pitrace .r:nth-child(odd) { background: var(--grey80b); }
-  #pitrace .c1 { width: 46px; text-align: center; }
-  #pitrace .r .c1 { background: var(--poscol); height: 100%; display: flex; align-items: center; justify-content: center; }
+  /* ---------- Race off pit road: sits on the ticker, same width, anchored to its bottom and rising up over the lower rows ---------- */
+  #tower #pitrace { position: absolute; left: 0; right: 0; bottom: 0; z-index: 6; box-shadow: 0 -8px 24px rgba(0,0,0,.45); }
+  #tower #pitrace:not(.off) { visibility: visible; }   /* shows even when the ticker itself is switched off */
+  #pitrace .h { background: var(--grey); font-size: 19px; padding: 8px 14px 9px; position: relative; overflow: hidden; text-transform: uppercase; letter-spacing: .5px; white-space: nowrap; }
+  #pitrace .h::after { content: ""; position: absolute; left: 0; bottom: 0; height: 4px; width: 55%; background: var(--red); transform-origin: left; }
+  #pitrace .h small { float: right; font-family: var(--light); font-weight: 300; font-size: 14px; margin-top: 4px; letter-spacing: 1px; }
+  #pitrace .sh { display: flex; background: var(--black); font-family: var(--light); font-weight: 300; font-size: 11px; padding: 4px 0; letter-spacing: 1px; }
+  #pitrace .r { display: flex; align-items: center; height: var(--row); font-size: 17px; background: #1e1e1f; }   /* solid: the ticker rows are underneath */
+  #pitrace .r:nth-child(odd) { background: #151515; }
+  #pitrace .c1 { width: 38px; text-align: center; }
+  #pitrace .r .c1 { background: #080808; height: 100%; display: flex; align-items: center; justify-content: center; }
   #pitrace .cc { width: 4px; align-self: stretch; }
-  #pitrace .c2 { width: 48px; text-align: center; color: var(--midgrey); }
+  #pitrace .c2 { width: 40px; text-align: center; color: var(--midgrey); }
   #pitrace .sh .c2 { color: #fff; }
-  #pitrace .c3 { flex: 1; padding-left: 4px; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #pitrace .c5 { width: 76px; text-align: center; }
-  #pitrace .r .c5 { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 18px; color: #888; }
-  #pitrace .r .c5.up { background: rgba(34,197,94,.18); color: var(--green); }
-  #pitrace .r .c5.dn { background: rgba(255,13,64,.16); color: #ff5a6e; }
-  #pitrace .r .c5.pen { background: #fff; color: #111; font-size: 12px; letter-spacing: 1px; }
-  #pitrace .c6 { width: 90px; text-align: right; padding-right: 16px; font-variant-numeric: tabular-nums; }
-  #pitrace .r .c6 { font-family: var(--light); font-weight: 300; }
+  #pitrace .c3 { flex: 1; min-width: 0; padding-left: 2px; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #pitrace .c5 { width: 52px; text-align: center; }
+  #pitrace .r .c5 { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 15px; color: #888; }
+  #pitrace .r .c5.up { background: #1b3a26; color: var(--green); }
+  #pitrace .r .c5.dn { background: #3d1820; color: #ff5a6e; }
+  #pitrace .r .c5.pen { background: #fff; color: #111; font-size: 9px; letter-spacing: .5px; }
+  #pitrace .c6 { width: 62px; text-align: right; padding-right: 10px; font-variant-numeric: tabular-nums; }
+  #pitrace .r .c6 { font-family: var(--light); font-weight: 300; font-size: 16px; }
   #pitrace .r .c6.best { color: #c86bff; font-family: var(--semi); font-weight: 600; }   /* fastest stop, like a fastest lap */
-  #pitrace .ft { background: var(--black); font-family: var(--light); font-weight: 300; font-size: 15px; padding: 7px 18px; letter-spacing: .5px; color: #ddd; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #pitrace .ft b { font-family: var(--semi); font-weight: 600; color: #fff; letter-spacing: 1px; margin-right: 8px; }
+  #pitrace .ft { background: var(--black); font-family: var(--light); font-weight: 300; font-size: 13px; padding: 6px 12px; letter-spacing: .3px; color: #ddd; line-height: 1.35; }
+  #pitrace .ft b { display: block; font-family: var(--semi); font-weight: 600; color: #fff; letter-spacing: 1px; font-size: 12px; }
   #movers .h { background: var(--grey); font-size: 24px; padding: 10px 18px 12px; position: relative; overflow: hidden; text-transform: uppercase; letter-spacing: .5px; }
   #movers .h::after { content: ""; position: absolute; left: 0; bottom: 0; height: 4px; width: 45%; background: var(--red); transform-origin: left; }
   #movers .h small { float: right; font-family: var(--light); font-weight: 300; font-size: 15px; margin-top: 7px; letter-spacing: 1px; }
@@ -333,6 +334,7 @@
   <div class="cbar" id="tCbar"><span>Caution</span></div>
   <div class="rows" id="tRows"><div class="cwipe" id="tCwipe"></div></div>
   <div class="pits" id="tPits"></div>
+  <div id="pitrace" class="widget off"><div class="h"><span>Race off pit road</span><small id="prSub"></small></div><div id="prBody"></div></div>
 </div>
 
 <div id="lower" class="widget off">
@@ -341,7 +343,6 @@
 </div>
 
 <div id="penalty" class="widget off"><div class="ic"><span id="pnNum"></span></div><div class="tx"><div class="t1">PENALTY</div><div class="t2"><span id="pnName"></span><span class="lt" id="pnPos"></span></div></div><div class="rs"><span class="why" id="pnWhy"></span><span class="st">BLACK FLAG</span></div></div>
-<div id="pitrace" class="widget off"><div class="h"><span>Race off pit road</span><small id="prSub"></small></div><div id="prBody"></div></div>
 <div id="movers" class="widget off"><div class="h"><span>Biggest movers</span><small id="mvSub">SINCE THE START</small></div><div id="mvBody"></div></div>
 <div id="board" class="widget off">
   <div class="h"><span id="bTitle"></span><small id="bSub"></small></div>
@@ -454,13 +455,11 @@ const IN = {
     shineOn(q('penalty', '.tx'), 600);
     return 1000;
   },
-  pitrace(el) {
-    const h = q('pitrace', '.h');
-    anim(h, wipeIn, { duration: 600 });
-    anim(h, lineIn, { duration: 750, delay: 400, pseudoElement: '::after' });
-    anim($('prBody'), dropIn, { duration: 650, delay: 400, easing: 'cubic-bezier(.3,.6,.3,1)' });
-    shineOn(h, 700);
-    return 1300;
+  pitrace(el) {   // rises up from the bottom of the ticker
+    anim(el, [{ clipPath: 'inset(100% 0 0 0)', transform: 'translateY(40px)' }, { clipPath: 'inset(0 0 0 0)', transform: 'none' }], { duration: 650, easing: 'cubic-bezier(.2,.8,.3,1)' });
+    anim(q('pitrace', '.h'), lineIn, { duration: 700, delay: 450, pseudoElement: '::after' });
+    shineOn(q('pitrace', '.h'), 600);
+    return 1100;
   },
   movers(el) {
     const h = q('movers', '.h');
@@ -531,11 +530,9 @@ const OUT = {
     anim(q('lower', '.p'), [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.6)' }], { duration: 300, delay: 550, easing: 'ease-in', fill: 'forwards' });
     return 850;
   },
-  pitrace() {
-    anim($('prBody'), foldUp, { duration: 500, easing: 'cubic-bezier(.5,0,.7,.4)', fill: 'forwards' });
-    anim(q('pitrace', '.h'), lineOut, { duration: 300, delay: 400, easing: 'ease-in', fill: 'forwards', pseudoElement: '::after' });
-    anim(q('pitrace', '.h'), wipeOut, { duration: 450, delay: 500, easing: EASE_IN, fill: 'forwards' });
-    return 950;
+  pitrace(el) {    // drops back down into the bottom of the ticker
+    anim(el, [{ clipPath: 'inset(0 0 0 0)', transform: 'none' }, { clipPath: 'inset(100% 0 0 0)', transform: 'translateY(40px)' }], { duration: 500, easing: EASE_IN, fill: 'forwards' });
+    return 520;
   },
   board() {
     anim($('bCols'), foldUp, { duration: 550, easing: 'cubic-bezier(.5,0,.7,.4)', fill: 'forwards' });
@@ -877,7 +874,7 @@ function renderPitrace() {
   const on = (S.show.pitrace || LAYOUT_MODE) && L.connected && rows.length > 0;
   show('pitrace', on);
   if (!on) return;
-  $('prSub').textContent = sample ? 'LAP 47 · CAUTION' : `LAP ${P.listLap ?? ''}${P.listCaution ? ' · CAUTION' : ''}`;
+  $('prSub').textContent = sample ? 'LAP 47' : (P.listLap != null ? 'LAP ' + P.listLap : '');
   const stops = rows.map(r => r.stop).filter(x => x != null), best = stops.length ? Math.min(...stops) : null;
   const multi = (L.classes || []).length > 1;
   const clsColor = Object.fromEntries((L.cars || []).map(c => [c.num, c.clsColor]));
@@ -886,7 +883,7 @@ function renderPitrace() {
     rows.map((r, i) => `<div class="r"><span class="c1">${i + 1}</span>${multi ? `<span class="cc" style="background:${clsColor[r.num] || 'transparent'}"></span>` : ''}<span class="c2">${esc(r.num)}</span><span class="c3">${esc(tickerName(r.name))}</span>` +
       (r.penalty ? '<span class="c5 pen">PENALTY</span>' : `<span class="c5 ${r.gained > 0 ? 'up' : r.gained < 0 ? 'dn' : ''}">${r.gained > 0 ? '▲ ' + r.gained : r.gained < 0 ? '▼ ' + -r.gained : '–'}</span>`) +
       `<span class="c6 ${r.stop != null && r.stop === best ? 'best' : ''}">${r.stop != null ? r.stop.toFixed(1) + 's' : ''}</span></div>`).join('') +
-    (stayed.length ? `<div class="ft"><b>STAYED OUT</b>${stayed.slice(0, 6).map(c => '#' + esc(c.num) + ' ' + esc(tickerName(c.name))).join(' · ')}${stayed.length > 6 ? ' · +' + (stayed.length - 6) : ''}</div>` : '');
+    (stayed.length ? `<div class="ft"><b>STAYED OUT</b>${stayed.slice(0, 6).map(c => '#' + esc(c.num)).join('  ')}${stayed.length > 6 ? '  +' + (stayed.length - 6) + ' more' : ''}</div>` : '');
   if ($('prBody').innerHTML !== html) $('prBody').innerHTML = html;
 }
 
@@ -1273,7 +1270,6 @@ const WIDGETS = {
   lower:     { name: 'Driver info',    el: 'lower',      from: [420, 1040] },
   board:     { name: 'Results',        el: 'board',      from: [960, 120] },
   movers:    { name: 'Biggest movers', el: 'movers',     from: [1880, 1040] },
-  pitrace:   { name: 'Race off pit road', el: 'pitrace', from: [1880, 1040] },
   penalty:   { name: 'Penalty box',    el: 'penalty',    from: [960, 34] },
   grid:      { name: 'Grid',           el: 'grid',       from: [960, 1010] },
   standings: { name: 'Standings',      el: 'fStandings', from: [80, 100],   to: [410, 170],   s: 0.82, frame: true },
@@ -1364,7 +1360,7 @@ function newVersion(d) {
   if (v === pageVer) return false;
   location.reload(); return true;
 }
-const SHOW_KEY = { logo: 'logo', league: 'league', tower: 'tower', lower: 'lowerthird', flag: 'flags', board: 'board', movers: 'movers', pitrace: 'pitrace' };
+const SHOW_KEY = { logo: 'logo', league: 'league', tower: 'tower', lower: 'lowerthird', flag: 'flags', board: 'board', movers: 'movers' };
 
 /* ---------- layout mode (/overlay?layout=1): everything on screen with sample data, for positioning ---------- */
 function sampleLive() {
