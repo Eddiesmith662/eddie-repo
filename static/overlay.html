@@ -438,6 +438,13 @@ const IN = {
   },
   board(el) {
     const h = q('board', '.h');
+    // the results board once came up with only its title bar (Oct 25, couldn't reproduce): if that happens again,
+    // say so in the log (Save diagnostics) with what it had to show
+    setTimeout(() => {
+      const rows = document.querySelectorAll('#bCols .r').length, cs = getComputedStyle($('bCols'));
+      if (VIS.board && VIS.board.on && (!rows || cs.visibility === 'hidden' || +cs.opacity < 0.1))
+        try { navigator.sendBeacon('/api/clientlog', JSON.stringify({ page: 'overlay', msg: `Results board up with ${rows} rows (cars ${L && L.cars ? L.cars.length : '?'}, opacity ${cs.opacity}, clip ${cs.clipPath}, anims ${$('bCols').getAnimations().length})` })); } catch (e) {}
+    }, 2500);
     anim(h, wipeIn, { duration: 600 });
     anim(h, lineIn, { duration: 750, delay: 400, pseudoElement: '::after' });
     anim($('bCols'), dropIn, { duration: 750, delay: 450, easing: 'cubic-bezier(.3,.6,.3,1)' });

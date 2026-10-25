@@ -593,6 +593,7 @@ class IRacingSource:
                     "surf": surf[idx] if idx < len(surf) else None,   # -1 not in world, 0 off track, 1 pit stall, 2 pit lane, 3 on track
                     "inc": (results.get(idx) or {}).get("Incidents"),  # incident points from iRacing's results (may be hidden)
                     "outReason": (results.get(idx) or {}).get("ReasonOutStr") or "",
+                    "resultLaps": (results.get(idx) or {}).get("LapsComplete"),
                 })
                 cars.append(c)
 
@@ -606,6 +607,14 @@ class IRacingSource:
                        "qual" in stype and not replaying)
             compute_gaps(cars, is_race, racing)
             compute_class_gaps(cars, is_race, racing)
+            fs = self.__dict__.setdefault("finish_store", {})
+            if fs.get("sess") != sess_num:
+                fs.clear()
+                fs["sess"] = sess_num
+            if not replaying:
+                finish_gaps(fs, cars, is_race, state, now_s)
+            elif fs.get("fin"):                 # replays: keep showing the locked finish gaps
+                finish_gaps({"base": fs.get("base", {}), "fin": fs["fin"], "prev": {}}, cars, is_race, max(state, 5), now_s)
             finalize_positions(cars)
             # the overlay's own gap to the leader (seconds) next to iRacing's numbers in the same black box snapshot
             bb["ourGap"] = {str(c["idx"]): round(c["gapS"], 3) for c in cars if c.get("gapS") is not None}
@@ -891,6 +900,65 @@ def add_extras(cars, is_race, start_order, pit_store, speed_store, now_s, track_
         c["stops"] = st.get("stops", 0)
 
 
+def finish_gaps(store, cars, is_race, state, now_s):
+    """Lock each car's gap to the winner as it takes the checkered flag, the way TV does, so the results keep
+    their gaps after drivers park and leave (real Talladega race, Oct 25: once everyone had left their cars the
+    results board had no gaps). Finish times are worked out between readings to the moment each car crossed the line."""
+    prev = store.setdefault("prev", {})
+    if not is_race or state < 4:
+        store.clear()
+        return
+    known = store.setdefault("lc", {})     # laps completed, remembered (iRacing reports nothing once a car leaves the world)
+    for c in cars:
+        if c.get("progress") is not None:
+            known[c["idx"]] = max(known.get(c["idx"], 0), c.get("lapsCompleted") or 0)
+    if state == 4:                      # racing: remember laps completed, so a lap completed after the checkered is the finish
+        store["base"] = {c["idx"]: c.get("lapsCompleted") or 0 for c in cars}
+        store.pop("fin", None)
+    else:
+        base = store.setdefault("base", {c["idx"]: c.get("lapsCompleted") or 0 for c in cars})
+        fin = store.setdefault("fin", {})
+        for c in cars:
+            idx, lc = c["idx"], c.get("lapsCompleted") or 0
+            if idx in fin or lc <= base.get(idx, lc):
+                continue
+            t = now_s
+            p1, pv = c.get("progress"), prev.get(idx)
+            if p1 is not None and pv and pv[0] is not None and pv[0] < math.floor(p1) <= p1 and p1 > pv[0]:
+                line = math.floor(p1)
+                t = pv[1] + (line - pv[0]) / (p1 - pv[0]) * (now_s - pv[1])
+            fin[idx] = {"t": t, "laps": lc, "cls": c.get("cls")}
+        if fin:
+            winner = min(fin.values(), key=lambda f: (-f["laps"], f["t"]))
+            cls_win = {}
+            for f in fin.values():
+                w = cls_win.get(f["cls"])
+                if w is None or (-f["laps"], f["t"]) < (-w["laps"], w["t"]):
+                    cls_win[f["cls"]] = f
+
+            def gap_to(f, w):
+                if f is w:
+                    return "LEADER", 0.0
+                down = w["laps"] - f["laps"]
+                if down > 0:
+                    return "+%d LAP%s" % (down, "" if down == 1 else "S"), None
+                return "+%.3f" % (f["t"] - w["t"]), f["t"] - w["t"]
+
+            for c in cars:
+                f = fin.get(c["idx"])
+                if f:
+                    c["gap"], c["gapS"] = gap_to(f, winner)
+                    c["classGap"] = gap_to(f, cls_win[f["cls"]])[0]
+                    c["finished"] = True
+                elif c.get("progress") is None:     # parked or gone without taking the checkered
+                    laps = known.get(c["idx"]) or c.get("resultLaps")     # else iRacing's results
+                    if laps:
+                        down = winner["laps"] - laps
+                        c["gap"] = c["classGap"] = ("+%d LAP%s" % (down, "" if down == 1 else "S")) if down > 0 else (c.get("gap") or "")
+    for c in cars:
+        prev[c["idx"]] = (c.get("progress"), now_s)
+
+
 def finalize_positions(cars):
     per_class = {}
     for i, c in enumerate(cars):
@@ -1075,6 +1143,7 @@ class DemoSource:
         cars.sort(key=lambda c: -c["progress"])
         compute_gaps(cars, True, self.state >= 4)
         compute_class_gaps(cars, True, self.state >= 4)
+        finish_gaps(self.__dict__.setdefault("finish_store", {}), cars, True, self.state, now)
         finalize_positions(cars)
         add_extras(cars, True, [c["idx"] for c in self.cars], store,
                    self.__dict__.setdefault("speed_store", {}), now, 2414.0)   # demo track: 1.5 mile oval

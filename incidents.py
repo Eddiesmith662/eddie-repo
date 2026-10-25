@@ -147,6 +147,9 @@ def update(live, track_m=0.0, log=None):
         return [o for d, o in sorted(out, key=lambda x: (not slow(x[1]), x[0]))]
 
     by_idx = {c["idx"]: c for c in cars}
+    rising = sum(1 for c in cars if c.get("inc") is not None and (st["cars"].get(c["idx"]) or {}).get("inc") is not None
+                 and c["inc"] > st["cars"][c["idx"]]["inc"])
+    reveal = rising >= 4
     for c in cars:
         idx = c["idx"]
         cs = st["cars"].get(idx)
@@ -206,8 +209,12 @@ def update(live, track_m=0.0, log=None):
             cs["offT"] = t
         cs["surf"] = surf
 
-        # incident points from iRacing's results (+1x off-track, +2x loss of control, +4x heavy contact)
+        # incident points from iRacing's results (+1x off-track, +2x loss of control, +4x heavy contact).
+        # After the checkered, or when lots of cars change at once, iRacing is publishing the final counts
+        # (real race, Oct 25: 17 drivers "gained" points in the same second after the finish): just take them in.
         inc = c.get("inc")
+        if inc is not None and cs["inc"] is not None and inc > cs["inc"] and (state >= 5 or reveal):
+            cs["inc"] = inc
         if inc is not None and cs["inc"] is not None and inc > cs["inc"]:
             pts = inc - cs["inc"]
             recent = next((e for e in reversed(STATE["list"]) if e.get("idx") == idx and e["sess"] == car["sess"]
