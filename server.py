@@ -49,19 +49,19 @@ DEFAULT_SETTINGS = {
     "show": {
         "logo": True,          # VSPEED logo, top left
         "league": True,        # league logo + LIVE/REPLAY tag, top right
-        "tower": True,         # vertical ticker / timing tower
-        "lowerthird": True,    # focused driver info
+        "tower": False,        # vertical ticker / timing tower (starts off; turned on from the panel)
+        "lowerthird": False,   # focused driver info (starts off)
         "flags": True,         # automatic flag banners
         "board": False,        # starting grid / results board
         "movers": False,       # biggest movers: top 5 positions gained since the start
     },
-    "raceName": "VSPEED SIM RACING",
+    "raceName": "VSPEED RACING LEAGUE",
     "leagueLogo": "league_logo.png",
     "logoStyle": "slant",      # VSPEED logo box: slant | straight (right-click the logo tile)
     "liveMode": "auto",        # auto | live | replay
-    "towerMode": "interval",   # interval | leader
+    "towerMode": "leader",     # interval | leader
     "towerRows": 20,           # rows on the ticker
-    "towerFixed": 14,          # top N always shown; the rows below them page through the rest of the field
+    "towerFixed": 15,          # top N always shown; the rows below them page through the rest of the field
     "towerPageSec": 8,         # seconds per page
     "classSplit": True,        # with more than one class, group the ticker by class (IMSA style)
     "classRowSlots": [5, 15],  # ticker rows for the fastest class and the next class when grouped
@@ -74,10 +74,20 @@ DEFAULT_SETTINGS = {
     # address of iRacing's car render. {placeholders} are filled from the session's driver info
     "renderCustNum": "",       # extra render setting for custom-number paints (found by the Test button)
     "renderUrl": "http://127.0.0.1:32034/pk_car.png?size=2&view=1&licCol={licCol}&club={club}&sponsors={sponsors}&numPat={numPat}&numCol={numCol}&numSlnt={numSlnt}&carPath={carPath}&carPat={carPat}&carCol={carCol}&carRimType=2&carRimCol={rimCol}&carCustPaint={carCustPaint}&carSpecPaint={carSpecPaint}&numCustPaint={numCustPaint}",
-    "layout": {},              # widget positions/sizes from the Layout tab: { id: {x, y, s} }
+    # widget positions/sizes from the Layout tab: { id: {x, y, s} } (VSPEED's own layout as the starting point)
+    "layout": {
+        "team": {"x": 933, "y": 965, "s": 0.81},
+        "lower": {"x": 639, "y": 972},
+        "flag": {"x": 1000, "y": 45, "s": 0.84},
+        "league": {"x": 1835, "y": 223},
+        "standings": {"x": 396, "y": 232, "s": 0.83},
+        "board": {"x": 1002, "y": 232, "s": 1.11},
+        "info": {"x": 1891, "y": 978},
+        "sponsor": {"x": 960, "y": 34, "s": 1.15},
+    },
     "trackGraphic": "",        # Drive graphic used by the Track graphic button on the Race tab
     "graphicsDir": "",         # Drive for desktop folder with ready-made graphics, e.g. G:\\My Drive\\VSPEED\\Graphics
-    "gfx": {"file": "", "visible": False, "anim": "wipe", "hold": 0, "t": 0},
+    "gfx": {"file": "", "visible": False, "anim": "slide", "hold": 0, "t": 0},
     "flagTrigger": {"flag": "", "t": 0},  # manual flag banner from the panel
     "diag": {"blackbox": True},           # keep the last 30 minutes of raw iRacing data in data/logs (Setup tab)
     # sponsor graphics (Race tab): one image per slot, one on air at a time; hold = seconds before it hides itself (0 = stays)

@@ -562,7 +562,7 @@ function renderTower() {
   const multi = (L.classes || []).length > 1 && !S.classFilter;
   const split = multi && S.classSplit !== false;
   const max = Math.max(5, Math.min(40, +S.towerRows || 20));
-  const fixedAll = Math.max(0, Math.min(max - 1, +(S.towerFixed ?? 14)));
+  const fixedAll = Math.max(0, Math.min(max - 1, +(S.towerFixed ?? 15)));
   const now = Date.now(), every = Math.max(3, +S.towerPageSec || 8) * 1000;
   // Show `rows` of a list; if it's longer, keep the top `fixed` and page the remaining slots through the rest.
   const pageList = (list, rows, fixed) => {

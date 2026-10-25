@@ -1211,7 +1211,7 @@ function fillInputs() {
   if (!filled) {
     filled = true;
     for (const k of ['raceName', 'boardTitle']) $(k).value = S[k] || '';
-    $('towerRows').value = S.towerRows; $('towerFixed').value = S.towerFixed ?? 14; $('towerPageSec').value = S.towerPageSec ?? 8;
+    $('towerRows').value = S.towerRows; $('towerFixed').value = S.towerFixed ?? 15; $('towerPageSec').value = S.towerPageSec ?? 8;
     loadLogos();
   }
   if (!sFilled && SD) {
