@@ -55,6 +55,8 @@
   .row > * { flex: 1; }
   .big { padding: 18px 12px; font-size: 18px; letter-spacing: 1px; text-transform: uppercase; }
   .go { background: var(--red); border-color: var(--red); }
+  /* Show / Hide pairs: Show is red while the graphic is on screen, Hide is red while it's hidden (see vis()) */
+  .vis.on { background: var(--red); border-color: var(--red); }
   .seg { display: inline-flex; border: 1px solid #4a4a4b; border-radius: 5px; overflow: hidden; flex: 0 0 auto; }
   .seg button { border: 0; border-radius: 0; background: #2c2c2d; padding: 9px 14px; }
   .seg button.on { background: var(--red); }
@@ -256,7 +258,7 @@
 <main data-tab="prerace">
   <section>
     <h2><span class="t">Race info</span><span class="pill" id="aAir">HIDDEN</span></h2>
-    <div class="row"><button class="go" data-a="analysisShow">Show</button><button data-a="analysisHide">Hide</button><button data-a="analysisReplay">Replay</button></div>
+    <div class="row"><button class="vis" data-vis="aAir" data-vrole="show" data-a="analysisShow">Show</button><button class="vis" data-vis="aAir" data-vrole="hide" data-a="analysisHide">Hide</button><button data-a="analysisReplay">Replay</button></div>
     <label>Title</label><input id="aTitle">
     <div id="aLines"></div>
     <div class="row" style="margin-top:12px"><button class="go" data-a="analysisText">Apply text</button><button id="aReset">Example text</button></div>
@@ -265,7 +267,7 @@
 
   <section>
     <h2><span class="t">Broadcast team</span><span class="pill" id="tAir">HIDDEN</span></h2>
-    <div class="row"><button class="go" data-t="teamShow">Show</button><button data-t="teamHide">Hide</button><button data-t="teamReplay">Replay</button></div>
+    <div class="row"><button class="vis" data-vis="tAir" data-vrole="show" data-t="teamShow">Show</button><button class="vis" data-vis="tAir" data-vrole="hide" data-t="teamHide">Hide</button><button data-t="teamReplay">Replay</button></div>
     <label>Title</label><input id="tTitle">
     <div id="tPeople"></div>
     <div class="row" style="margin-top:12px"><button class="go" data-t="teamText">Apply text</button><button id="tReset">Example text</button></div>
@@ -283,7 +285,7 @@
     <h2><span class="t">Track graphic</span><span class="pill" id="trAir">HIDDEN</span></h2>
     <label>Tonight's track</label>
     <select id="trackSel"></select>
-    <div class="row" style="margin-top:10px"><button class="go" id="trShow">Show track</button><button id="trHide">Hide</button></div>
+    <div class="row" style="margin-top:10px"><button class="vis" data-vis="trAir" data-vrole="show" id="trShow">Show track</button><button class="vis" data-vis="trAir" data-vrole="hide" id="trHide">Hide</button></div>
     <label>Graphics folder on this PC (any folder, including Google Drive)</label>
     <div class="row" style="margin:0"><input id="gDir" placeholder="C:\VSPEED\Track Graphics"><button class="go" id="gBrowse" style="flex:0 0 auto">Browse…</button><button id="gDirSave" style="flex:0 0 auto">Save</button></div>
     <div class="note" id="gStatus"></div>
@@ -372,7 +374,7 @@
 
   <section>
     <h2><span class="t">Grid</span><span class="pill" id="grAir">HIDDEN</span></h2>
-    <div class="row"><button class="go" id="grShow">Show from row 1</button><button id="grHide">Hide</button></div>
+    <div class="row"><button class="vis" data-vis="grAir" data-vrole="show" id="grShow">Show from row 1</button><button class="vis" data-vis="grAir" data-vrole="hide" id="grHide">Hide</button></div>
     <div class="row"><button id="grPrev">◀ Previous row</button><button id="grNext">Next row ▶</button></div>
     <label>Next row</label>
     <div class="seg" id="grMode"><button data-v="auto">Automatic</button><button data-v="manual">Manual (I press Next row)</button></div>
@@ -384,7 +386,7 @@
     <label>Pole Award</label>
     <div class="sprow" style="margin-top:2px"><div class="thumb" id="paThumb">no badge</div>
       <div><div class="nm">Pole Award badge</div><div class="fn" id="paInfo">Shows on Row 1 over the pole sitter</div></div>
-      <div class="bt"><button id="paLoad">Load badge…</button><button class="go" id="paShow">Show</button><button id="paHide">Hide</button></div></div>
+      <div class="bt"><button id="paLoad">Load badge…</button><button class="vis" data-vis="pole" data-vrole="show" id="paShow">Show</button><button class="vis" data-vis="pole" data-vrole="hide" id="paHide">Hide</button></div></div>
     <input type="file" id="paFile" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" hidden>
     <p class="hint">Starting grid from qualifying, two cars per row, with each car rendered by iRacing in the driver's custom paint. Render tools are on the Setup tab.</p>
   </section>
@@ -394,7 +396,7 @@
     <div id="spRows"></div>
     <div class="grid2" style="margin-top:12px">
       <div><label>Hide by itself after (sec, 0 = stays up)</label><input type="number" id="spHold" min="0" max="600"></div>
-      <div><label>&nbsp;</label><button id="spHideAll" style="width:100%">Hide sponsor</button></div>
+      <div><label>&nbsp;</label><button id="spHideAll" class="vis" data-vis="spAir" data-vrole="hide" style="width:100%">Hide sponsor</button></div>
     </div>
     <input type="file" id="spFile" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" hidden>
     <p class="hint">Load image picks a picture from this device and keeps it for next time. Sponsors play full screen, exactly as the image is: make them 1920 × 1080 PNGs with a transparent background (smaller images are centered). Only one sponsor is on air at a time: Show on another one swaps it in.</p>
@@ -407,8 +409,8 @@
   <section>
     <h2><span class="t">On air</span><span class="pill" id="sAir">HIDDEN</span></h2>
     <div class="row">
-      <button class="big go" data-s="show">Show</button>
-      <button class="big" data-s="hide">Hide</button>
+      <button class="big vis" data-vis="sAir" data-vrole="show" data-s="show">Show</button>
+      <button class="big vis" data-vis="sAir" data-vrole="hide" data-s="hide">Hide</button>
     </div>
     <div class="row">
       <button data-s="replay">Replay animation</button>
@@ -922,7 +924,7 @@ $('grSite').onchange = () => set({ gridw: { site: $('grSite').value } });
 const SPONSORS = [['green', 'Green Flag'], ['restart', 'Restart'], ['white', 'White Flag'], ['read1', 'Sponsor Read 1'], ['read2', 'Sponsor Read 2'], ['read3', 'Sponsor Read 3']];
 $('spRows').innerHTML = SPONSORS.map(([k, n]) => `<div class="sprow" data-sp="${k}"><div class="thumb">no image</div>
   <div><div class="nm">${n}</div><div class="fn"></div></div>
-  <div class="bt"><button data-do="load">Load image…</button><button class="go" data-do="show">Show</button><button data-do="hide">Hide</button></div></div>`).join('');
+  <div class="bt"><button data-do="load">Load image…</button><button class="vis" data-vis="sp-${k}" data-vrole="show" data-do="show">Show</button><button class="vis" data-vis="sp-${k}" data-vrole="hide" data-do="hide">Hide</button></div></div>`).join('');
 let spSlot = '';
 $('spRows').onclick = e => {
   const b = e.target.closest('button'), row = e.target.closest('.sprow'); if (!b || !row) return;
@@ -950,6 +952,7 @@ function sponsorRender() {
   document.querySelectorAll('.sprow[data-sp]').forEach(row => {
     const k = row.dataset.sp, f = files[k] || '', th = row.querySelector('.thumb');
     row.classList.toggle('on', live && sp.active === k);
+    vis('sp-' + k, live && sp.active === k);
     const bg = f ? `url("/sponsor/${f}")` : '';
     if (th.dataset.bg !== bg) { th.dataset.bg = bg; th.style.backgroundImage = bg; th.textContent = f ? '' : 'no image'; }
     let nm = ''; try { nm = localStorage.getItem('vsSpName_' + k) || ''; } catch (e) {}
@@ -965,12 +968,27 @@ function pensRender() {
   const list = (PEN.list || []).filter(e => now - e.t < 30).slice().reverse();   // each penalty stays in the list for 30 seconds, served or not
   const box = $('pens');
   box.hidden = !list.length;
-  const html = !list.length ? '' : `<div class="ph"><span>Penalties · pick a reason, then Show to put it on screen</span><button data-pcmd="hide">Hide box</button></div>` +
+  const html = !list.length ? '' : `<div class="ph"><span>Penalties · pick a reason, then Show to put it on screen</span><button class="vis" data-vis="penAir" data-vrole="hide" data-pcmd="hide">Hide box</button></div>` +
     list.map(e => `<div class="pen ${e.active ? '' : 'old'}" data-pid="${e.id}"><span class="pn">#${esc(e.num)}</span><span class="nm">${esc(e.name)} <span class="ps">${e.pos ? 'P' + e.pos : ''}</span></span>
       <span class="sf ${e.active ? '' : 'done'}">${e.active ? 'BLACK FLAG' : 'SERVED'}</span>
       ${(PEN.reasons || []).map(r => `<button data-reason="${esc(r)}" class="${e.reason === r ? 'on' : ''}">${esc(reasonLabel(r))}</button>`).join('')}
-      <button class="go" data-pcmd="show">Show</button></div>`).join('');
+      <button class="vis" data-vis="pen-${e.id}" data-vrole="show" data-pcmd="show">Show</button></div>`).join('');
   if (box._h !== html) { box._h = html; box.innerHTML = html; }
+  const onId = penOnAir();
+  list.forEach(e => vis('pen-' + e.id, e.id === onId));
+  vis('penAir', onId != null);
+}
+/* which penalty the overlay has on screen: same queue as overlay.html (8 s each, 0.9 s apart, Hide box clears it) */
+function penOnAir() {
+  const P = PEN || {}, now = P.now || Date.now() / 1000;
+  const pressed = (P.list || []).filter(e => e.show && e.show > (P.hide || 0)).sort((a, b) => a.show - b.show);
+  let end = 0;
+  for (const e of pressed) {
+    const start = Math.max(e.show, end ? end + 0.9 : 0);
+    end = start + 8;
+    if (now >= start && now < end) return e.id;
+  }
+  return null;
 }
 $('pens').onclick = e => {
   const b = e.target.closest('button'); if (!b) return;
@@ -1025,7 +1043,7 @@ function gridRender() {
   if (th.dataset.bg !== bg) { th.dataset.bg = bg; th.style.backgroundImage = bg; th.textContent = pf ? '' : 'no badge'; }
   const paOn = !!(g.pole && g.pole.on);
   $('paInfo').textContent = paOn ? (g.visible ? 'On air (Next row takes it away)' : 'Waiting for the Grid') : (pf ? 'Shows on Row 1 over the pole sitter' : 'Load the sponsor badge first');
-  $('paShow').classList.toggle('on', paOn);
+  vis('pole', paOn);
   segOn('grEnd', g.end || 'hide'); segOn('grMode', g.mode || 'auto');
   $('grSec').disabled = g.mode === 'manual'; $('grSec').parentElement.style.opacity = g.mode === 'manual' ? .45 : 1;
   if (document.activeElement !== $('grSec')) $('grSec').value = g.rowSec || 6;
@@ -1223,7 +1241,13 @@ function fillInputs() {
   }
 }
 function segOn(id, v) { document.querySelectorAll('#' + id + ' button').forEach(b => b.classList.toggle('on', b.dataset.v === v)); }
-function air(id, on) { $(id).textContent = on ? 'ON AIR' : 'HIDDEN'; $(id).classList.toggle('air', !!on); }
+function air(id, on) { $(id).textContent = on ? 'ON AIR' : 'HIDDEN'; $(id).classList.toggle('air', !!on); vis(id, on); }
+/* Show / Hide pairs: the Show button turns red while its graphic is on screen and the Hide button turns red while it's hidden.
+   For any new pair, give both buttons class="vis" data-vis="<key>" data-vrole="show" / "hide" and call vis(key, onAir);
+   when the key is the id of the section's ON AIR pill, air() already does it. */
+function vis(key, on) {
+  document.querySelectorAll(`[data-vis="${key}"]`).forEach(b => b.classList.toggle('on', b.dataset.vrole === 'show' ? !!on : !on));
+}
 
 let carsKey = '';
 function render() {
