@@ -373,7 +373,7 @@ def compute_gaps(cars, is_race, racing):
             c["lapsDown"] = laps_down
             c["gapS"] = diff * ref
             if laps_down:
-                c["gap"] = "+%d LAP%s" % (laps_down, "" if laps_down == 1 else "S")
+                c["gap"] = "-%d LAP%s" % (laps_down, "" if laps_down == 1 else "S")
             else:
                 # never negative: after the checkered the order is iRacing's, and a car can be a few metres ahead of
                 # the one listed above it on the run to the line (real race, Oct 25: "+-0.1" at the finish)
@@ -383,7 +383,7 @@ def compute_gaps(cars, is_race, racing):
                 c["interval"] = c["gap"]
             elif pdiff >= 1:
                 n = int(math.floor(pdiff))
-                c["interval"] = "+%d LAP%s" % (n, "" if n == 1 else "S")
+                c["interval"] = "-%d LAP%s" % (n, "" if n == 1 else "S")
             else:
                 c["interval"] = "+%.1f" % max(0.0, pdiff * ref)
             prev = c
@@ -959,7 +959,7 @@ def finish_gaps(store, cars, is_race, state, now_s):
                     return "LEADER", 0.0
                 down = w["laps"] - f["laps"]
                 if down > 0:
-                    return "+%d LAP%s" % (down, "" if down == 1 else "S"), None
+                    return "-%d LAP%s" % (down, "" if down == 1 else "S"), None
                 return "+%.3f" % (f["t"] - w["t"]), f["t"] - w["t"]
 
             for c in cars:
@@ -972,7 +972,7 @@ def finish_gaps(store, cars, is_race, state, now_s):
                     laps = known.get(c["idx"]) or c.get("resultLaps")     # else iRacing's results
                     if laps:
                         down = winner["laps"] - laps
-                        c["gap"] = c["classGap"] = ("+%d LAP%s" % (down, "" if down == 1 else "S")) if down > 0 else (c.get("gap") or "")
+                        c["gap"] = c["classGap"] = ("-%d LAP%s" % (down, "" if down == 1 else "S")) if down > 0 else (c.get("gap") or "")
     for c in cars:
         prev[c["idx"]] = (c.get("progress"), now_s)
 
@@ -1002,7 +1002,7 @@ def results_gaps(cars, results, official):
             return "LEADER"
         down = (r.get("Lap") or 0) - (w.get("Lap") or 0)
         if down > 0:
-            return "+%d LAP%s" % (down, "" if down == 1 else "S")
+            return "-%d LAP%s" % (down, "" if down == 1 else "S")
         t, wt = r.get("Time"), w.get("Time") or 0.0
         return "+%.3f" % (t - wt) if isinstance(t, (int, float)) and t >= 0 else None
 
