@@ -214,6 +214,14 @@
   .inc .dt { font-size: 12px; color: var(--dim); display: flex; justify-content: space-between; gap: 6px; }
   .inc .src { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: #777; white-space: nowrap; }
   .inc .src.ir { color: #8fb4ff; }
+  /* narrower live timing window (e.g. side by side with the control panel): cameras in two compact columns that scroll,
+     so none get cut off; the full-width layout above comes back when the window is wide */
+  @media (max-width: 1500px) {
+    .lt { grid-template-columns: 196px 1fr minmax(260px, 320px) !important; }
+    .ltside { min-width: 0; max-width: 196px; }
+    .ltcams.c2, .ltcams.c3 { grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; overflow-y: auto; gap: 5px; }
+    .ltcams.c2 button, .ltcams.c3 button { padding: 6px 6px; font-size: 12px; }
+  }
   @media (max-width: 1100px) { .lt { grid-template-columns: auto 1fr !important; } .ltinc { grid-column: 1 / -1; border-left: 0; padding-left: 0; max-height: 360px; } }
   .ltside { min-width: 180px; }
   .ctx { position: fixed; z-index: 60; background: #1d1d1e; border: 1px solid #4a4a4b; border-radius: 6px; padding: 4px; min-width: 190px; box-shadow: 0 8px 30px rgba(0,0,0,.6);
