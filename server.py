@@ -33,6 +33,7 @@ import datafiles   # first: moves an older install's files into the data folder
 import standings
 import update
 import diag
+import incidents
 
 ROOT = datafiles.ROOT
 STATIC = os.path.join(ROOT, "static")
@@ -155,7 +156,8 @@ class State:
 
     def snapshot(self):
         return json.dumps({"settings": self.settings, "live": self.live, "standings": standings.summary(), "app": APP,
-                           "penalties": {"list": PEN["list"], "hide": PEN["hide"], "reasons": PEN_REASONS, "now": time.time()}})
+                           "penalties": {"list": PEN["list"], "hide": PEN["hide"], "reasons": PEN_REASONS, "now": time.time()},
+                           "incidentsVer": incidents.STATE["ver"]})
 
     def notify(self):
         with self.lock:
@@ -523,6 +525,8 @@ class IRacingSource:
                 "cars": [[i, self.drivers[i].get("num"), g(lap, i), round(g(pct, i, -1) or 0, 4), int(bool(g(pit, i))),
                           g(surf, i), g(pos, i), g(cflags, i, 0), r3(g(f2, i)), r3(g(est_t, i)), r3(g(last, i)), r3(g(best, i))] for i in ids],
                 "carFlags": [g(cflags, i, 0) for i in ids],
+                # iRacing's incident points per car (same order as cars), to check whether they're shared while spectating
+                "inc": [(results.get(i) or {}).get("Incidents") for i in ids],
             }
             diag.blackbox(bb)
 
@@ -549,6 +553,11 @@ class IRacingSource:
                     "best": best[idx] if best[idx] and best[idx] > 0 else max(0.0, float((results.get(idx) or {}).get("FastestTime") or 0)),
                     "meatball": bool(idx < len(cflags) and (cflags[idx] or 0) & REPAIR_FLAG),
                     "blackFlag": bool(idx < len(cflags) and (cflags[idx] or 0) & BLACK_FLAG),
+                    "warning": bool(idx < len(cflags) and (cflags[idx] or 0) & FURLED_FLAG),
+                    "dq": bool(idx < len(cflags) and (cflags[idx] or 0) & DQ_FLAG),
+                    "surf": surf[idx] if idx < len(surf) else None,   # -1 not in world, 0 off track, 1 pit stall, 2 pit lane, 3 on track
+                    "inc": (results.get(idx) or {}).get("Incidents"),  # incident points from iRacing's results (may be hidden)
+                    "outReason": (results.get(idx) or {}).get("ReasonOutStr") or "",
                 })
                 cars.append(c)
 
@@ -592,6 +601,7 @@ class IRacingSource:
                 "finalLap": rf["finalLap"],       # the lap the white flag comes out (later than totalLaps in overtime)
                 "overtime": rf["overtime"],
                 "timeRemain": fmt_clock(ir["SessionTimeRemain"]),
+                "sessTime": round(now_s, 2), "sessNum": sess_num, "trackM": self.info.get("trackM", 0),
                 # iRacing only sets the green bit around the start; while racing with no other flag it's green.
                 # White and checkered are worked out from the leader's lap (see race_flags)
                 "flag": rf["flag"],
@@ -636,6 +646,17 @@ class IRacingSource:
             return False
         self.ir.replay_search(self.irsdk.RpySrchMode.to_end)
         self.ir.replay_set_play_speed(1, False)
+        return True
+
+    def jump(self, sess_num, sess_time, num=None):
+        """Replay from a moment in a session (incident log), with the camera on that car."""
+        if not self.connected:
+            return False
+        ir = self.ir
+        if num:
+            ir.cam_switch_num(num, int(ir["CamGroupNumber"] or 1), 0)
+        ir.replay_search_session_time(int(sess_num), int(sess_time * 1000))
+        ir.replay_set_play_speed(1, False)
         return True
 
     # ---- replay controls (live timing window) ----
@@ -710,6 +731,8 @@ def compute_class_gaps(cars, is_race, racing):
 
 
 REPAIR_FLAG = 0x00100000   # irsdk_repair: the meatball (black flag with orange circle)
+FURLED_FLAG = 0x00080000   # irsdk_furled: the warning flag
+DQ_FLAG = 0x00020000       # irsdk_disqualify
 BLACK_FLAG = 0x00010000    # irsdk_black: a penalty to serve (iRacing doesn't say what for)
 
 
@@ -911,6 +934,10 @@ class DemoSource:
                 speed *= 0.0 if c.get("stallFrom", 0) <= now < c.get("stallTo", 0) else 0.35
             if c["idx"] in self.finished:
                 speed *= 0.4
+            if c.get("spinUntil", 0) > now:      # demo incident: spins, slowing over ~2.5 s, then crawls
+                speed *= 0.04 + 0.96 * max(0.0, 1 - (now - c.get("spinStart", now)) / 2.5)
+            elif c.get("slowUntil", 0) > now:    # demo incident: a slow car (mechanical)
+                speed *= 0.3
             before = c["progress"]
             c["progress"] += speed * dt
             if math.floor(c["progress"]) > math.floor(before) and before >= 0:
@@ -931,6 +958,36 @@ class DemoSource:
         if self.state == 4 and now > self.__dict__.get("next_black", self.t0 + 25):   # demo: a black flag every ~45s
             self.next_black = now + 45
             random.choice(self.cars[2:18])["blackUntil"] = now + 60
+        # demo incidents: an off-track every ~25s, a spin every ~40s (sometimes two cars), a slow car every ~100s,
+        # and iRacing's incident points a couple of seconds later
+        if self.state == 4 and not caution:
+            if now > self.__dict__.get("next_off", self.t0 + 30):
+                self.next_off = now + random.uniform(18, 32)
+                c = random.choice(self.cars)
+                c["offUntil"] = now + 2.5
+                c.setdefault("incAt", []).append((now + 2, 1))
+            if now > self.__dict__.get("next_spin", self.t0 + 45):
+                self.next_spin = now + random.uniform(30, 50)
+                c = random.choice(self.cars[1:])
+                c["spinUntil"], c["offUntil"], c["spinStart"] = now + 7.5, now + 1.5, now
+                c.setdefault("incAt", []).append((now + 3, 2))
+                if random.random() < 0.4:       # the car behind gets caught up in it
+                    behind = min((o for o in self.cars if o is not c and 0 < c["progress"] - o["progress"] < 0.02),
+                                 key=lambda o: c["progress"] - o["progress"], default=None)
+                    if behind:
+                        behind["spinUntil"], behind["spinStart"] = now + 7, now
+                        behind.setdefault("incAt", []).append((now + 3, 4))
+                        c["incAt"][-1] = (now + 3, 4)
+            if now > self.__dict__.get("next_slow", self.t0 + 100):
+                self.next_slow = now + 100
+                random.choice(self.cars[4:])["slowUntil"] = now + 22
+            if now > self.__dict__.get("next_warn", self.t0 + 70):
+                self.next_warn = now + 90
+                random.choice(self.cars[5:])["warnUntil"] = now + 10
+        for c in self.cars:
+            for due in [x for x in c.get("incAt", []) if x[0] <= now]:
+                c["inc"] = c.get("inc", 0) + due[1]
+                c["incAt"].remove(due)
         if self.state == 4 and now > self.__dict__.get("next_meat", self.t0 + 40):   # demo: a meatball flag every ~50s
             self.next_meat = now + 50
             random.choice(self.cars[3:15])["meatUntil"] = now + 18
@@ -964,6 +1021,9 @@ class DemoSource:
                 "last": c["last"], "best": c["best"],
                 "meatball": c.get("meatUntil", 0) > now,
                 "blackFlag": c.get("blackUntil", 0) > now,
+                "warning": c.get("warnUntil", 0) > now, "dq": False,
+                "surf": 0 if c.get("offUntil", 0) > now else (2 if c["pitUntil"] > now else 3),
+                "inc": c.get("inc", 0), "outReason": "",
             })
         store = self.__dict__.setdefault("pit_store", {})
         src = {c["idx"]: c for c in self.cars}
@@ -984,6 +1044,7 @@ class DemoSource:
             "sessionName": "RACE", "sessionType": "race", "isRace": True,
             "sessionState": self.state, "lap": min(lap_now, self.total), "totalLaps": self.total,
             "timeRemain": "", "flag": flag, "isReplay": self.__dict__.get("rp", {}).get("replay", False),
+            "sessTime": round(now - self.t0, 2), "sessNum": 0, "trackM": 2414.0,
             "oneToGreen": caution and self.caution_until - now < self.base * 1.6,   # demo: the last caution lap, like iRacing
             "replaySpeed": self.__dict__.get("rp", {}).get("speed", 1), "replaySlow": self.__dict__.get("rp", {}).get("slow", False),
             "uiHidden": self.__dict__.get("rp", {}).get("ui", False),
@@ -1008,6 +1069,14 @@ class DemoSource:
 
     def go_live(self):
         self.rp = {"speed": 1, "slow": False, "replay": False, "ui": self.rp["ui"] if hasattr(self, "rp") else False, "lapOffset": 0}
+        return True
+
+    def jump(self, sess_num, sess_time, num=None):
+        car = next((c for c in self.cars if c["num"] == num), None)
+        if car:
+            self.cam = car["idx"]
+        rp = self.__dict__.setdefault("rp", {"speed": 1, "slow": False, "replay": False, "ui": False})
+        rp.update(replay=True, speed=1, slow=False)
         return True
 
     def replay(self, cmd, value=None):
@@ -1190,6 +1259,10 @@ def telemetry_loop(demo, multiclass=False, qual=False):
                 continue
             waiting_printed = False
             track_penalties(live)
+            try:
+                incidents.update(live, log=diag.log)
+            except Exception as e:      # the incident log must never stop the overlay
+                diag.error("Incident log error: %r" % (e,), e)
             STATE.set_live(live)
             diag.STATS["blackbox"] = (STATE.settings.get("diag") or {}).get("blackbox", True)
             diag.watch(live)
@@ -1308,6 +1381,8 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/state":
             with STATE.lock:
                 return self.send_json({"settings": STATE.settings, "live": STATE.live})
+        if path == "/api/incidents":
+            return self.send_json(incidents.snapshot())
         if path == "/api/assets":
             return self.send_json(list_assets())
         if path == "/api/graphics":
@@ -1419,6 +1494,20 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"ok": True})
         if path == "/api/penalty":
             return self.send_json(penalty_command(data))
+        if path == "/api/incident":
+            cmd = str(data.get("cmd") or "")
+            if cmd == "clear":
+                incidents.clear()
+                return self.send_json({"ok": True})
+            if cmd == "jump":    # replay from a few seconds before the incident, camera on the car
+                ev = incidents.find(int(data.get("id") or 0))
+                if not ev:
+                    return self.send_json({"ok": False, "error": "incident not found"})
+                rewind = max(0.0, min(120.0, float(data.get("rewind") or 15)))
+                with SOURCE_LOCK:
+                    ok = SOURCE.jump(ev["sess"], max(0.0, ev["t"] - rewind), ev.get("num") or None)
+                return self.send_json({"ok": bool(ok)})
+            return self.send_json({"ok": False, "error": "unknown command"})
         if path == "/api/camera":
             with SOURCE_LOCK:
                 if "carIdx" in data:

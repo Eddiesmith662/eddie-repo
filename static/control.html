@@ -184,7 +184,37 @@
   .ltcams.c2 button, .ltcams.c3 button { padding: 8px 8px; font-size: 13px; }
   .ltcams.c2 button, .ltcams.c3 button { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .ltside { max-width: 400px; }
-  .lt { grid-template-columns: auto 1fr !important; }
+  .lt { grid-template-columns: auto 1fr minmax(300px, 380px) !important; }
+  /* incident log (live timing window, right-hand column) */
+  .ltinc { display: flex; flex-direction: column; min-height: 0; border-left: 1px solid var(--line); padding-left: 12px; }
+  .ltinc h2 { margin-bottom: 8px; }
+  .itools { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; position: relative; flex-wrap: wrap; }
+  .itools button { padding: 6px 10px; font-size: 13px; }
+  .itools input { width: 56px; padding: 5px 6px; font-size: 13px; }
+  .itools .s { font-size: 12px; color: var(--dim); }
+  .itypes { position: absolute; top: 34px; left: 0; z-index: 40; background: #1d1d1e; border: 1px solid #4a4a4b; border-radius: 6px; padding: 6px; min-width: 210px;
+            box-shadow: 0 8px 30px rgba(0,0,0,.6); }
+  .itypes[hidden] { display: none; }
+  .itypes label { display: flex; align-items: center; gap: 8px; padding: 6px 8px; margin: 0; font-size: 14px; letter-spacing: 0; text-transform: none; color: var(--text); cursor: pointer; border-radius: 4px; }
+  .itypes label:hover { background: #2c2c2d; }
+  .itypes input { width: 16px; height: 16px; accent-color: var(--red); }
+  .itypes .ia { display: flex; gap: 6px; padding: 4px 4px 6px; border-bottom: 1px solid #333; margin-bottom: 4px; }
+  .itypes .ia button { flex: 1; padding: 4px 6px; font-size: 12px; }
+  .ilist { overflow-y: auto; flex: 1; min-height: 120px; display: flex; flex-direction: column; gap: 4px; }
+  .ilist .empty { color: var(--dim); text-align: center; padding: 24px 8px; font-size: 14px; }
+  .inc { display: grid; grid-template-columns: 52px 1fr; gap: 2px 8px; padding: 7px 8px; background: #1d1d1e; border: 1px solid #2f2f30; border-left: 4px solid var(--ic, #666); border-radius: 5px; cursor: pointer; }
+  .inc:hover { border-color: #555; border-left-color: var(--ic, #666); background: #232324; }
+  .inc.cur { outline: 1px solid var(--red); }
+  .inc .when { grid-row: span 2; font-size: 12px; color: var(--dim); line-height: 1.35; font-variant-numeric: tabular-nums; }
+  .inc .when b { display: block; color: var(--text); font-size: 13px; }
+  .inc .top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .inc .chip { font-size: 11px; letter-spacing: .8px; text-transform: uppercase; padding: 2px 6px; border-radius: 3px; background: var(--ic, #666); color: var(--icx, #fff); white-space: nowrap; font-weight: 600; }
+  .inc .who { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; }
+  .inc .pts { font-size: 11px; padding: 1px 5px; border-radius: 3px; border: 1px solid #666; color: #ddd; white-space: nowrap; }
+  .inc .dt { font-size: 12px; color: var(--dim); display: flex; justify-content: space-between; gap: 6px; }
+  .inc .src { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: #777; white-space: nowrap; }
+  .inc .src.ir { color: #8fb4ff; }
+  @media (max-width: 1100px) { .lt { grid-template-columns: auto 1fr !important; } .ltinc { grid-column: 1 / -1; border-left: 0; padding-left: 0; max-height: 360px; } }
   .ltside { min-width: 180px; }
   .ctx { position: fixed; z-index: 60; background: #1d1d1e; border: 1px solid #4a4a4b; border-radius: 6px; padding: 4px; min-width: 190px; box-shadow: 0 8px 30px rgba(0,0,0,.6);
          display: flex; flex-direction: column; max-height: min(460px, calc(100vh - 16px)); }
@@ -367,6 +397,18 @@
           </div>
         </div>
         <p class="hint">Click a driver to put the camera on them. Right-click (or press and hold) a driver to pick the camera too.</p>
+      </div>
+      <div class="ltinc">
+        <h2><span class="t">Incident log</span><span class="pill" id="incCount">0</span></h2>
+        <div class="itools">
+          <button id="incTypesBtn">Types ▾</button>
+          <input type="number" id="incRewind" min="0" max="120" value="15" title="Seconds before the incident to start the replay"><span class="s">s rewind</span>
+          <span class="grow" style="flex:1"></span>
+          <button id="incClear" title="Empty the list">Clear</button>
+          <div class="itypes" id="incTypes" hidden></div>
+        </div>
+        <div class="ilist" id="incList"></div>
+        <p class="hint">Click an incident to replay it from a few seconds before, with the camera on that car. <b>iRacing</b> = reported by iRacing; <b>predicted</b> = worked out from speeds and positions (best guess).</p>
       </div>
     </div>
   </section>
@@ -594,7 +636,7 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 const SOLO = location.pathname.replace(/\/+$/, '') === '/timing' || new URLSearchParams(location.search).get('solo') === 'cars';
 if (SOLO) { document.body.classList.add('solo'); document.title = 'VSPEED Live Timing'; }
 $('camWin').onclick = () => {
-  const w = window.open('/timing', 'vspeedTiming', 'width=1150,height=980');
+  const w = window.open('/timing', 'vspeedTiming', 'width=1560,height=980');
   if (!w) toast('Your browser blocked the pop-up. Open /timing in a new window instead.');
 };
 
@@ -961,6 +1003,60 @@ function sponsorRender() {
   if (document.activeElement !== $('spHold')) $('spHold').value = sp.hold || 0;
 }
 setInterval(() => { if (S) sponsorRender(); }, 1000);
+/* ---------- incident log (live timing window) ---------- */
+const INC_COLORS = { offtrack: ['#8b8f96'], spin: ['#ff8a3d'], contact: ['#ff4d6d'], wall: ['#e11d48'], multi: ['#FF0D40'], stopped: ['#ffb020', '#111'],
+  mechanical: ['#a78bfa'], slow: ['#7dd3fc', '#111'], retired: ['#4b5563'], caution: ['#FFE81F', '#111'], meatball: ['#ff7a00'], penalty: ['#ffffff', '#111'],
+  warning: ['#cbd5e1', '#111'], dq: ['#000000'], pit: ['#33A1FF'] };
+const INC_OFF_DEFAULT = ['multi', 'slow', 'retired', 'dq'];   // hidden until ticked in Types
+const INC = { ver: -1, list: [], types: [], busy: false, cur: null };
+let incOff = new Set(INC_OFF_DEFAULT);
+try { const v = localStorage.getItem('vsIncOff'); if (v) incOff = new Set(JSON.parse(v)); } catch (e) {}
+try { const v = localStorage.getItem('vsIncRewind'); if (v) $('incRewind').value = v; } catch (e) {}
+$('incRewind').onchange = () => { try { localStorage.setItem('vsIncRewind', $('incRewind').value); } catch (e) {} };
+const incSave = () => { try { localStorage.setItem('vsIncOff', JSON.stringify([...incOff])); } catch (e) {} };
+async function incFetch() {
+  if (INC.busy) return; INC.busy = true;
+  try { const d = await (await fetch('/api/incidents')).json(); INC.list = d.list || []; INC.types = d.types || INC.types; INC.ver = d.ver; incRender(); }
+  catch (e) {} finally { INC.busy = false; }
+}
+const clock = t => { t = Math.max(0, Math.floor(t)); const h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60, s2 = t % 60; return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s2).padStart(2, '0'); };
+function incTypesRender() {
+  const n = INC.types.length, on = INC.types.filter(([k]) => !incOff.has(k)).length;
+  $('incTypesBtn').textContent = `Types ${on}/${n} ▾`;
+  const html = `<div class="ia"><button data-ia="all">All</button><button data-ia="none">None</button></div>` +
+    INC.types.map(([k, lbl]) => `<label><input type="checkbox" data-k="${k}" ${incOff.has(k) ? '' : 'checked'}><span class="chip" style="--ic:${INC_COLORS[k][0]};--icx:${INC_COLORS[k][1] || '#fff'};background:var(--ic);color:var(--icx);font-size:10px;padding:1px 5px;border-radius:3px">&nbsp;</span>${esc(lbl)}</label>`).join('');
+  if ($('incTypes')._h !== html) { $('incTypes')._h = html; $('incTypes').innerHTML = html; }
+}
+function incRender() {
+  if (!INC.types.length) return;
+  incTypesRender();
+  const label = Object.fromEntries(INC.types);
+  const shown = INC.list.filter(e => !incOff.has(e.type)).slice().reverse();
+  $('incCount').textContent = shown.length + (shown.length !== INC.list.length ? ' / ' + INC.list.length : '');
+  const srcTxt = { iracing: '<span class="src ir">iRacing</span>', predicted: '<span class="src">predicted</span>', both: '<span class="src ir">iRacing + predicted</span>' };
+  const html = !shown.length ? `<div class="empty">${INC.list.length ? 'No incidents of the ticked types' : 'No incidents yet'}</div>` :
+    shown.map(e => {
+      const [bg, fg] = INC_COLORS[e.type] || ['#666'];
+      const who = e.type === 'caution' ? 'Full course caution' : `#${esc(e.num)} ${esc(e.name)}${e.pos ? ' <span style="color:var(--dim);font-weight:400">P' + e.pos + '</span>' : ''}`;
+      return `<div class="inc ${INC.cur === e.id ? 'cur' : ''}" data-iid="${e.id}" style="--ic:${bg};--icx:${fg || '#fff'}">
+        <div class="when"><b>${e.lap != null ? 'L' + Math.max(1, e.lap) : ''}</b>${clock(e.t)}</div>
+        <div class="top"><span class="chip">${esc(label[e.type] || e.type)}</span><span class="who">${who}</span>${e.pts ? `<span class="pts">+${e.pts}x</span>` : ''}</div>
+        <div class="dt"><span>${esc(e.detail || '')}</span>${srcTxt[e.src] || ''}</div></div>`;
+    }).join('');
+  if ($('incList')._h !== html) { $('incList')._h = html; $('incList').innerHTML = html; }
+}
+$('incTypesBtn').onclick = e => { e.stopPropagation(); $('incTypes').hidden = !$('incTypes').hidden; };
+document.addEventListener('click', e => { if (!$('incTypes').hidden && !e.target.closest('#incTypes') && e.target.id !== 'incTypesBtn') $('incTypes').hidden = true; });
+$('incTypes').onchange = e => { const k = e.target.dataset.k; if (!k) return; e.target.checked ? incOff.delete(k) : incOff.add(k); incSave(); incRender(); };
+$('incTypes').onclick = e => { const b = e.target.closest('[data-ia]'); if (!b) return;
+  incOff = b.dataset.ia === 'all' ? new Set() : new Set(INC.types.map(([k]) => k)); incSave(); $('incTypes')._h = ''; incRender(); };
+$('incClear').onclick = async () => { await post('/api/incident', { cmd: 'clear' }); incFetch(); };
+$('incList').onclick = async e => {
+  const row = e.target.closest('[data-iid]'); if (!row) return;
+  INC.cur = +row.dataset.iid; incRender();
+  const r = await post('/api/incident', { cmd: 'jump', id: INC.cur, rewind: Math.max(0, +$('incRewind').value || 0) });
+  if (!r.ok) toast(r.error || 'Could not jump to the replay');
+};
 /* ---------- penalties (live timing window) ---------- */
 const reasonLabel = r => r.charAt(0) + r.slice(1).toLowerCase();
 function pensRender() {
@@ -1325,7 +1421,7 @@ function render() {
 
 function connect() {
   const es = new EventSource('/events');
-  es.onmessage = e => { const d = JSON.parse(e.data); S = d.settings; L = d.live; SD = d.standings; APP = d.app || APP; PEN = d.penalties || PEN; render(); };
+  es.onmessage = e => { const d = JSON.parse(e.data); S = d.settings; L = d.live; SD = d.standings; APP = d.app || APP; PEN = d.penalties || PEN; render(); if (SOLO && d.incidentsVer !== INC.ver) incFetch(); };
   es.onerror = () => { es.close(); $('conn').textContent = 'Server offline'; $('dot').className = 'dot'; setTimeout(connect, 2000); };
 }
 connect();
