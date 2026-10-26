@@ -591,7 +591,9 @@ class IRacingSource:
                                    surf[idx] if idx < len(surf) else None, d.get("num"), not replaying)
                 c = dict(d)
                 c.update({
-                    "officialPos": pos[idx] or (results.get(idx) or {}).get("Position") or 0,
+                    # iRacing's running position; -1 while a replay is playing after the race (Iowa, Oct 25: the ticker fell
+                    # back to the starting grid and showed the winner P2), so then iRacing's results position is used
+                    "officialPos": (pos[idx] if (pos[idx] or 0) > 0 else 0) or (results.get(idx) or {}).get("Position") or 0,
                     "classPosOfficial": cpos[idx] or 0,
                     "lapsCompleted": max(0, lapc[idx] or 0),
                     "progress": progress,
