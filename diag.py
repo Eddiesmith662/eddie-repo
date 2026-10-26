@@ -408,6 +408,8 @@ def _labels(path, data):
         out.append("Penalty: %s" % d.get("cmd", "?"))
     elif path == "/api/incident":
         out.append("Incident log: %s" % d.get("cmd", "?"))
+    elif path == "/api/gfx":
+        out.append("Track graphic: %s" % d.get("cmd", "?"))
     elif path == "/api/pitrace":
         out.append("Race off pit road: %s" % d.get("cmd", "?"))
     else:

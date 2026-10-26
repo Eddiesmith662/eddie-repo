@@ -1414,7 +1414,8 @@ def penalty_command(data):
 def on_air_now():
     """Names of the graphics on screen right now, for the usage stats in the diagnostics."""
     st = STATE.settings
-    names = [diag._SHOW_NAMES.get(k, k) for k, v in (st.get("show") or {}).items() if v and k != "flags"]
+    # only graphics the overlay has today (old settings files can still carry keys from earlier versions, e.g. bottombar)
+    names = [diag._SHOW_NAMES[k] for k, v in (st.get("show") or {}).items() if v and k in diag._SHOW_NAMES and k != "flags"]
     gw = st.get("gridw") or {}
     if gw.get("visible"):
         names.append("Grid")

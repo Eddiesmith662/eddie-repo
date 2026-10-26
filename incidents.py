@@ -293,8 +293,10 @@ def update(live, track_m=0.0, log=None):
                 cs["slowLogged"] = True
                 emit("slow", "predicted", "%d mph, field at %d mph" % (mph, median))
             if dur >= MECH_SECS and not cs["mechLogged"]:
-                trouble = [e for e in STATE["list"] if e.get("idx") == idx and e["sess"] == car["sess"] and 0 <= cs["slowT"] - e["t"] < 20
-                           and e["type"] in ("offtrack", "spin", "contact", "wall", "stopped", "multi")]
+                # anything happening to this car from 20 s before it slowed until now explains it (Oct 25: a crash
+                # detected a moment after the car started slowing was missed, and it was logged as "mechanical" too)
+                trouble = [e for e in STATE["list"] if e.get("idx") == idx and e["sess"] == car["sess"] and e["t"] >= cs["slowT"] - 20
+                           and e["type"] in ("offtrack", "spin", "contact", "wall", "stopped", "multi", "meatball", "retired")]
                 cs["mechLogged"] = True
                 if not trouble:
                     emit("mechanical", "predicted", "Slow for %ds with no incident: possible mechanical problem" % MECH_SECS)

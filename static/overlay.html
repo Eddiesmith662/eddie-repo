@@ -297,6 +297,11 @@
   #grid.aw .gpole { display: flex; }
   #grid.aw .gwash, #grid.aw .gframe { display: block; }
   #grid.aw .gaw { display: flex; }
+  /* the pole sitter's car render steps aside for the badge. Done with a class + transition, not a script animation:
+     in the broadcasting software's browser (Chrome 115) the scripted fade left the render at opacity 0 after the
+     award came off (Oct 25 log). Leaving: fades back after .15s; entering: fades out after .4s, under the badge. */
+  #grid .gside.l .gcar { transition: opacity .3s ease .15s, transform .3s ease .15s; }
+  #grid.awcar .gside.l .gcar { opacity: 0; transform: translateX(-30px); transition: opacity .35s ease .4s, transform .35s ease .4s; }
   #grid .gwash { inset: 0; background: linear-gradient(90deg, rgba(255,13,64,.34), rgba(255,13,64,.06) 75%); }
   #grid .gframe { inset: 0; width: 100%; height: 100%; overflow: visible; }
   #grid .gframe rect { fill: none; stroke: var(--blue); stroke-width: 4px; vector-effect: non-scaling-stroke; x: 2px; y: 2px; width: calc(100% - 4px); height: calc(100% - 4px); }   /* VSPEED blue frame, kept fully inside the box */
@@ -1180,13 +1185,15 @@ OUT.grid = () => {
    check that both car renders are really on screen, and if one isn't, write what was covering or hiding it to the log. */
 function gridCheck(why) {
   setTimeout(() => {
-    if (!(VIS.grid && VIS.grid.on) || AW.on) return;
+    if (!(VIS.grid && VIS.grid.on) || AW.on || document.hidden) return;
     const info = side => {
       const s = q('grid', '.gside.' + side), car = s.querySelector('.gcar'), img = car.querySelector('img'), gin = s.querySelector('.gin');
       if (s.classList.contains('empty') || !img.getAttribute('src') || img.classList.contains('none')) return null;
-      const r = car.getBoundingClientRect(), top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+      const r = car.getBoundingClientRect();
+      if (!r.width || !r.height) return null;       // not laid out (a page in the background, e.g. a browser tab): nothing to judge
+      const top = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
       const cs = getComputedStyle(car), gs = getComputedStyle(gin);
-      return { ok: !!top && car.contains(top), top: top ? (top.tagName + '.' + top.className) : 'none', op: cs.opacity, vis: cs.visibility,
+      return { ok: (+cs.opacity > 0.5) && cs.visibility !== 'hidden' && (!top || car.contains(top) || top.classList.contains('shine')), top: top ? (top.tagName + '.' + top.className) : 'none', op: cs.opacity, vis: cs.visibility,
                ginClip: gs.clipPath, ginOp: gs.opacity, ginTf: gs.transform, anims: s.getAnimations({ subtree: true }).length,
                img: img.complete + '/' + img.naturalWidth, rect: [r.x, r.y, r.width, r.height].map(Math.round).join(',') };
     };
@@ -1218,7 +1225,7 @@ function awardIn() {
   anim($('gPole'), [{ clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0 0 0)' }], { duration: 380 });
   anim(side.querySelector('.gwash'), [{ clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0 0 0)' }], { duration: 550, delay: 200 });
   anim(rect, [{ strokeDasharray: '100', strokeDashoffset: '100' }, { strokeDasharray: '100', strokeDashoffset: '0' }], { duration: 750, delay: 200, fill: 'both' });
-  anim(side.querySelector('.gcar'), [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateX(-30px)' }], { duration: 350, delay: 400, fill: 'forwards' });
+  g.classList.add('awcar');      // the car render fades out (CSS transition, see #grid.awcar)
   anim($('gawImg'), [{ opacity: 0, transform: 'scale(.55)' }, { opacity: 1, transform: 'scale(1.08)', offset: .7 }, { opacity: 1, transform: 'scale(1)' }], { duration: 550, delay: 600, easing: 'cubic-bezier(.2,.8,.3,1)' });
   anim(side.querySelector('.gawc'), wipeIn, { duration: 450, delay: 900 });
   shineOn(side.querySelector('.gaw'), 1000);
@@ -1228,9 +1235,8 @@ function awardOut() {
   const g = $('grid'), side = q('grid', '.gside.l');
   const fade = [{ opacity: 1 }, { opacity: 0 }];
   [side.querySelector('.gaw'), side.querySelector('.gwash'), side.querySelector('.gframe'), $('gPole')].forEach(e => anim(e, fade, { duration: 250, easing: 'ease-in', fill: 'forwards' }));
-  const car = side.querySelector('.gcar');
-  car.getAnimations().forEach(a => a.cancel());
-  anim(car, [{ opacity: 0 }, { opacity: 1 }], { duration: 300, delay: 150 });
+  side.querySelector('.gcar').getAnimations().forEach(a => a.cancel());
+  g.classList.remove('awcar');   // the car render fades back in (CSS transition)
   setTimeout(() => { if (AW.on) return; g.classList.remove('aw'); side.querySelectorAll('.gwash, .gframe, .gaw, .gaw *').forEach(e => e.getAnimations().forEach(a => a.cancel())); $('gPole').getAnimations().forEach(a => a.cancel()); }, 300);
 }
 function renderGrid() {
