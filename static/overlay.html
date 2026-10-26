@@ -314,6 +314,12 @@
   #flag .sw { width: 64px; }
   /* sponsor graphic (Race tab): full screen, the loaded image as is (made at 1920x1080 it fills the frame; smaller art is centered) */
   #sponsor { left: 0; top: 0; width: 1920px; height: 1080px; }
+  /* ---------- Podium (after the race): full-screen VSPEED artwork for the winner / 2nd / 3rd, with the driver's data ---------- */
+  #podium { left: 0; top: 0; width: 1920px; height: 1080px; }
+  #podium img { position: absolute; inset: 0; width: 1920px; height: 1080px; }
+  #podium .ptx { position: absolute; left: 206px; top: 836px; right: 120px; }   /* in the dark band along the bottom of the artwork */
+  #podium .pn { font-family: var(--semi); font-weight: 600; font-size: 100px; line-height: 1; color: var(--red); text-transform: uppercase; white-space: nowrap; letter-spacing: .5px; }
+  #podium .ps { margin-top: 16px; display: flex; gap: 78px; font-family: var(--semi); font-weight: 600; font-size: 36px; color: #fff; text-transform: uppercase; white-space: nowrap; letter-spacing: .3px; }
   #sponsor .pic { width: 100%; height: 100%; }
   #sponsor img { display: block; width: 100%; height: 100%; object-fit: contain; }
   #flag .tx { position: relative; overflow: hidden; background: var(--grey); padding: 0 34px; display: flex; align-items: center; font-size: 30px; letter-spacing: 2px; text-transform: uppercase; }
@@ -364,6 +370,7 @@
   <div class="gline"></div>
 </div>
 
+<div id="podium" class="widget off"><img id="podImg" alt=""><div class="ptx"><div class="pn" id="podName"></div><div class="ps" id="podStats"></div></div></div>
 <div id="sponsor" class="widget off"><div class="pic"><img id="spImg" alt=""></div></div>
 <div id="flag" class="widget off"><div class="sw"></div><div class="tx" id="flagText"></div></div>
 
@@ -466,6 +473,12 @@ const IN = {
     shineOn(q('pitrace', '.h'), 600);
     return 1100;
   },
+  podium(el) {   // the artwork slides in from the left, then the name and the stats
+    anim($('podImg'), [{ clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0 0 0)' }], { duration: 700, easing: 'cubic-bezier(.2,.8,.3,1)' });
+    anim(q('podium', '.pn'), wipeIn, { duration: 600, delay: 450 });
+    anim(q('podium', '.ps'), [{ opacity: 0, transform: 'translateY(12px)' }, { opacity: 1, transform: 'none' }], { duration: 450, delay: 750 });
+    return 1200;
+  },
   movers(el) {
     const h = q('movers', '.h');
     anim(h, wipeIn, { duration: 600 });
@@ -537,6 +550,10 @@ const OUT = {
   },
   pitrace(el) {    // drops back down into the bottom of the ticker
     anim(el, [{ clipPath: 'inset(0 0 0 0)', transform: 'none' }, { clipPath: 'inset(100% 0 0 0)', transform: 'translateY(40px)' }], { duration: 500, easing: EASE_IN, fill: 'forwards' });
+    return 520;
+  },
+  podium(el) {
+    anim(el, [{ clipPath: 'inset(0 0 0 0)' }, { clipPath: 'inset(0 0 0 100%)' }], { duration: 500, easing: EASE_IN, fill: 'forwards' });
     return 520;
   },
   board() {
@@ -879,6 +896,33 @@ function renderPenalty() {
   show('penalty', !!ev);
 }
 setInterval(() => { if (S && L) renderPenalty(); }, 250);
+
+/* ---------- podium: winner / 2nd / 3rd one at a time, with started, laps led and fastest lap ---------- */
+const POD = { shown: 0 };
+function podiumWant() { const p = (RAW && RAW.podium) || {}; return LAYOUT_MODE ? 0 : (+p.show || 0); }
+function renderPodium() {
+  const n = podiumWant();
+  const cars = filteredCars(), byPos = k => cars.find(c => (S.classFilter ? c.classPos : c.pos) === k);
+  const c = n ? byPos(n) : null;
+  const on = !!(n && c && L.connected);
+  if (on) {
+    const lap = (c.resFastest > 0 ? c.resFastest : c.best) || 0;
+    const stats = [c.startPos ? 'STARTED: ' + ordinal(c.startPos) : '', c.lapsLed != null ? 'LAPS LED: ' + c.lapsLed : '', lap > 0 ? 'FAST LAP: ' + fmtLap(lap) : ''].filter(Boolean);
+    const key = n + '|' + c.idx;
+    if ($('podImg').dataset.n !== String(n)) { $('podImg').dataset.n = n; $('podImg').src = '/static/assets/podium_' + n + '.png'; }
+    $('podName').textContent = cleanName(c.name).toUpperCase();
+    const sh = stats.map(x => `<span>${esc(x)}</span>`).join('');
+    if ($('podStats').innerHTML !== sh) $('podStats').innerHTML = sh;
+    if (VIS.podium && VIS.podium.on && POD.key && POD.key !== key) {   // switching place while it's up: wipe the new one in
+      anim($('podImg'), [{ opacity: 0 }, { opacity: 1 }], { duration: 350 });
+      anim(q('podium', '.pn'), wipeIn, { duration: 500, delay: 150 });
+      anim(q('podium', '.ps'), [{ opacity: 0, transform: 'translateY(10px)' }, { opacity: 1, transform: 'none' }], { duration: 400, delay: 350 });
+    }
+    POD.key = key;
+  }
+  show('podium', on);
+}
+function fmtLap(t) { const m = Math.floor(t / 60), s = t - m * 60; return m ? m + ':' + (s < 10 ? '0' : '') + s.toFixed(3) : s.toFixed(3); }
 
 /* ---------- race off pit road: order off pit road among the cars that pitted, spots gained/lost, stop time ---------- */
 function renderPitrace() {
@@ -1418,10 +1462,13 @@ function render() {
     }
   }
   if (sponsorLive(RAW)) vis.lowerthird = false;   // driver info steps aside while a sponsor graphic is up
+  if (podiumWant()) {   // the podium artwork has its own VSPEED logo and covers the screen: the other graphics step aside
+    ['logo', 'tower', 'lowerthird', 'movers', 'board', 'pitrace'].forEach(k => vis[k] = false);
+  }
   S = Object.assign({}, RAW, { show: vis }, LAYOUT_MODE ? { lowerThirdMode: 'always' } : {});
   const realL = L;
   if (LAYOUT_MODE && !(L.connected && L.cars && L.cars.length)) L = sampleLive();
-  renderChrome(); renderTower(); renderLower(); renderBoard(); renderMovers(); renderPitrace(); renderGfx(); renderGrid(); gridAward(); renderSponsor(); renderPenalty();
+  renderChrome(); renderTower(); renderLower(); renderBoard(); renderMovers(); renderPitrace(); renderPodium(); renderGfx(); renderGrid(); gridAward(); renderSponsor(); renderPenalty();
   if (LAYOUT_MODE && FLAG_BANNERS) { const fl = $('flag'); Object.keys(FLAG_TEXT).forEach(k => fl.classList.toggle(k, k === 'green')); $('flagText').textContent = 'GREEN FLAG'; show('flag', true); } else renderFlag();
   L = realL;
 }

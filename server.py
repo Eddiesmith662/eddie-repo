@@ -92,6 +92,7 @@ DEFAULT_SETTINGS = {
     "graphicsDir": "",         # Drive for desktop folder with ready-made graphics, e.g. G:\\My Drive\\VSPEED\\Graphics
     "gfx": {"file": "", "visible": False, "anim": "slide", "hold": 0, "t": 0},
     "flagTrigger": {"flag": "", "t": 0},  # manual flag banner from the panel
+    "podium": {"show": 0, "t": 0},        # podium graphic after the race: 0 = off, 1 = winner, 2 = 2nd place, 3 = 3rd place
     "diag": {"blackbox": True},           # keep the last 3 hours of raw iRacing data in data/logs (Setup tab)
     # sponsor graphics (Race tab): one image per slot, one on air at a time; hold = seconds before it hides itself (0 = stays)
     "sponsor": {"active": "", "t": 0, "hold": 0, "files": {k: "" for k in SPONSOR_SLOTS}},
@@ -613,6 +614,8 @@ class IRacingSource:
                     "inc": (results.get(idx) or {}).get("Incidents"),  # incident points from iRacing's results (may be hidden)
                     "outReason": (results.get(idx) or {}).get("ReasonOutStr") or "",
                     "resultLaps": (results.get(idx) or {}).get("LapsComplete"),
+                    "lapsLed": (results.get(idx) or {}).get("LapsLed"),          # podium graphic
+                    "resFastest": (results.get(idx) or {}).get("FastestTime"),
                 })
                 cars.append(c)
 
@@ -1172,6 +1175,11 @@ class DemoSource:
             self.next_meat = now + 50
             random.choice(self.cars[3:15])["meatUntil"] = now + 18
         leader_prog = max(c["progress"] for c in self.cars)
+        if self.state == 4:          # demo: count laps led for the podium graphic
+            ld = max(self.cars, key=lambda c: c["progress"])
+            if int(ld["progress"]) != self.__dict__.get("led_lap"):
+                self.led_lap = int(ld["progress"])
+                ld["led"] = ld.get("led", 0) + 1
         if leader_prog >= self.total and self.state == 4:
             self.state = 5
         lap_now = max(0, int(math.floor(leader_prog)) + 1)
@@ -1202,6 +1210,7 @@ class DemoSource:
                 "meatball": c.get("meatUntil", 0) > now,
                 "blackFlag": c.get("blackUntil", 0) > now,
                 "warning": c.get("warnUntil", 0) > now, "dq": False,
+                "lapsLed": c.get("led", 0), "resFastest": c["best"] or None,
                 "surf": 0 if c.get("offUntil", 0) > now else (2 if c["pitUntil"] > now else 3),
                 "inc": c.get("inc", 0), "outReason": "",
             })
@@ -1425,6 +1434,8 @@ def on_air_now():
             names.append("Pole Award")
     if (st.get("gfx") or {}).get("visible"):
         names.append("Track graphic")
+    if (st.get("podium") or {}).get("show"):
+        names.append("Podium " + {1: "winner", 2: "2nd", 3: "3rd"}.get(st["podium"]["show"], ""))
     sp = st.get("sponsor") or {}
     if sp.get("active") and (sp.get("files") or {}).get(sp["active"]) and not (sp.get("hold", 0) > 0 and time.time() * 1000 - (sp.get("t") or 0) > sp["hold"] * 1000):
         names.append("Sponsor " + sp["active"])

@@ -391,11 +391,14 @@ def _labels(path, data):
         if "active" in (d.get("sponsor") or {}):
             a = d["sponsor"]["active"]
             out.append("Sponsor %s: show" % a if a else "Sponsor: hide")
+        if "show" in (d.get("podium") or {}):
+            n = d["podium"]["show"]
+            out.append("Podium: " + ({1: "winner", 2: "2nd place", 3: "3rd place"}.get(n, "hide")))
         if "flagTrigger" in d:
             out.append("Flag banner: %s" % (d["flagTrigger"] or {}).get("flag", ""))
         if "layout" in d:
             out.append("Layout: move / resize")
-        rest = [k for k in d if k not in ("show", "gridw", "gfx", "sponsor", "flagTrigger", "layout")]
+        rest = [k for k in d if k not in ("show", "gridw", "gfx", "sponsor", "flagTrigger", "layout", "podium")]
         if rest and not out:
             out.append("Setting: " + ", ".join(sorted(rest))[:60])
     elif path == "/api/camera":

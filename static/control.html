@@ -359,6 +359,17 @@
   </section>
 
   <section>
+    <h2><span class="t">Podium</span><span class="pill" id="podAir">HIDDEN</span></h2>
+    <div class="row">
+      <button class="vis" data-vis="pod1" data-vrole="show" data-pod="1">Winner</button>
+      <button class="vis" data-vis="pod2" data-vrole="show" data-pod="2">2nd place</button>
+      <button class="vis" data-vis="pod3" data-vrole="show" data-pod="3">3rd place</button>
+      <button class="vis" data-vis="podAir" data-vrole="hide" data-pod="0">Hide</button>
+    </div>
+    <p class="hint" id="podInfo">After the race: one place at a time, with the driver's starting position, laps led and fastest lap (iRacing's results). Press another place to switch; the ticker and driver info step aside while it's up.</p>
+  </section>
+
+  <section>
     <h2><span class="t">Ticker &amp; driver info</span></h2>
     <label>Ticker gaps</label>
     <div class="seg" id="towerSeg"><button data-v="interval">Interval</button><button data-v="leader">To leader</button></div>
@@ -1018,6 +1029,16 @@ function sponsorRender() {
   if (document.activeElement !== $('spHold')) $('spHold').value = sp.hold || 0;
 }
 setInterval(() => { if (S) sponsorRender(); }, 1000);
+/* ---------- podium (Race tab) ---------- */
+document.querySelectorAll('[data-pod]').forEach(b => b.onclick = () => set({ podium: { show: +b.dataset.pod, t: Date.now() } }));
+function podiumRender() {
+  const n = +((S && S.podium) || {}).show || 0;
+  air('podAir', n > 0);
+  [1, 2, 3].forEach(k => vis('pod' + k, n === k));
+  const cars = (L && L.cars) || [], c = k => cars.find(x => x.pos === k);
+  $('podInfo').textContent = [1, 2, 3].map(k => c(k) ? `${['', 'Winner', '2nd', '3rd'][k]}: #${c(k).num} ${c(k).name}` : '').filter(Boolean).join(' · ') ||
+    'After the race: one place at a time, with the driver\'s starting position, laps led and fastest lap.';
+}
 /* ---------- race off pit road (Race tab) ---------- */
 let PR = {};
 $('prShow').onclick = () => { if (!(PR.list || []).length && !(PR.live || []).length) return toast('Nothing yet: cars appear as they come off pit road under caution'); set({ show: { pitrace: true } }); };
@@ -1391,7 +1412,7 @@ function render() {
   const lsm = document.querySelector('.tile[data-k="logo"] small'), lst = S.logoStyle === 'straight' ? 'top left · straight' : 'top left · slanted';
   if (lsm && lsm.textContent !== lst) lsm.textContent = lst;
   if (S.gfx) { trackList(); }
-  gridRender(); sponsorRender(); pensRender(); rendersRender(); classRowsRender(); pitraceRender();
+  gridRender(); sponsorRender(); pensRender(); rendersRender(); classRowsRender(); pitraceRender(); podiumRender();
   segOn('towerSeg', S.towerMode); segOn('ltSeg', S.lowerThirdMode);
   const replay = !!L.isReplay;
 
