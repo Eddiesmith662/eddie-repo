@@ -592,7 +592,14 @@ const OUT = {
     anim(el, [{ clipPath: 'inset(0 0 0 0)' }, { clipPath: 'inset(0 0 0 100%)' }], { duration: 500, easing: EASE_IN, fill: 'forwards' });
     return 520;
   },
-  nextrace() {
+  movers() {   // the rows fold up into the title bar, the red line pulls back, then the title wipes out
+    anim($('mvBody'), foldUp, { duration: 500, easing: 'cubic-bezier(.5,0,.7,.4)', fill: 'forwards' });
+    anim(q('movers', '.h'), lineOut, { duration: 300, delay: 400, easing: 'ease-in', fill: 'forwards', pseudoElement: '::after' });
+    anim(q('movers', '.h'), wipeOut, { duration: 450, delay: 500, easing: EASE_IN, fill: 'forwards' });
+    anim($('movers'), [{ boxShadow: '0 10px 40px rgba(0,0,0,.5)' }, { boxShadow: '0 10px 40px rgba(0,0,0,0)' }], { duration: 300, delay: 650, fill: 'forwards' });
+    return 950;
+  },
+  nextrace(el) {
     anim(q('nextrace', '.tx'), [{ opacity: 1 }, { opacity: 0 }], { duration: 250, easing: 'ease-in', fill: 'forwards' });
     anim(q('nextrace', '.bar'), lineOut, { duration: 350, easing: EASE_IN, fill: 'forwards' });
     anim(q('nextrace', '.b'), foldUp, { duration: 500, delay: 150, easing: 'cubic-bezier(.5,0,.7,.4)', fill: 'forwards' });
@@ -1337,10 +1344,12 @@ function awardOut() {
   AW.on = false;
   const g = $('grid'), side = q('grid', '.gside.l');
   const fade = [{ opacity: 1 }, { opacity: 0 }];
-  [side.querySelector('.gaw'), side.querySelector('.gwash'), side.querySelector('.gframe'), $('gPole')].forEach(e => anim(e, fade, { duration: 250, easing: 'ease-in', fill: 'forwards' }));
+  // the badge shrinks away first, then the award panel fades and the car render comes back (about half a second, like the other exits)
+  anim($('gPole'), [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.8)' }], { duration: 350, easing: EASE_IN, fill: 'forwards' });
+  [side.querySelector('.gaw'), side.querySelector('.gwash'), side.querySelector('.gframe')].forEach(e => anim(e, fade, { duration: 400, delay: 120, easing: 'ease-in', fill: 'forwards' }));
   side.querySelector('.gcar').getAnimations().forEach(a => a.cancel());
-  g.classList.remove('awcar');   // the car render fades back in (CSS transition)
-  setTimeout(() => { if (AW.on) return; g.classList.remove('aw'); side.querySelectorAll('.gwash, .gframe, .gaw, .gaw *').forEach(e => e.getAnimations().forEach(a => a.cancel())); $('gPole').getAnimations().forEach(a => a.cancel()); }, 300);
+  setTimeout(() => { if (!AW.on) g.classList.remove('awcar'); }, 250);   // the car render fades back in (CSS transition)
+  setTimeout(() => { if (AW.on) return; g.classList.remove('aw'); side.querySelectorAll('.gwash, .gframe, .gaw, .gaw *').forEach(e => e.getAnimations().forEach(a => a.cancel())); $('gPole').getAnimations().forEach(a => a.cancel()); }, 560);
 }
 function renderGrid() {
   const w = (RAW && RAW.gridw) || {};
