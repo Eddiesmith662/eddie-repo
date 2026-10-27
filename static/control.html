@@ -277,8 +277,14 @@
   @media (min-width: 861px) and (max-width: 1150px) {
     .lt { grid-template-columns: 112px minmax(0, 1fr) 240px !important; gap: 8px !important; }
     .ltside { max-width: 112px !important; min-width: 0 !important; }
-    .ltcams, .ltcams.c2, .ltcams.c3 { display: flex !important; flex-direction: column; overflow-y: auto; gap: 4px; }
-    .ltcams button, .ltcams.c2 button, .ltcams.c3 button { padding: 6px 7px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    /* cameras fill the window height without scrolling: the button height is worked out by fitCams(), two columns if there are too many */
+    .ltcams, .ltcams.c2, .ltcams.c3 { display: grid !important; grid-template-columns: minmax(0, 1fr) !important; grid-auto-rows: var(--camh, 30px); align-content: start; overflow-y: auto; gap: 4px; }
+    .ltcams.fit2 { grid-template-columns: repeat(2, minmax(0, 1fr)) !important; }
+    .ltcams button, .ltcams.c2 button, .ltcams.c3 button { padding: 0 7px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1; }
+    .ltcams.tiny button, .ltcams.fit2 button { font-size: 11px; padding: 0 4px; letter-spacing: -.1px; }
+    .ltcams.tiny button { border-radius: 4px; }
+    .lt.cams2 { grid-template-columns: 184px minmax(0, 1fr) 240px !important; }
+    .lt.cams2 .ltside { max-width: 184px !important; }
     .ltinc { padding-left: 8px; }
     .inc { grid-template-columns: 36px minmax(0, 1fr); padding: 6px; gap: 2px 6px; }
     .inc .when { font-size: 11px; } .inc .when b { font-size: 12px; }
@@ -1550,6 +1556,8 @@ const LT_DEFAULT_OFF = { wide: [], half: ['mph', 'stops'], phone: ['int', 'mph',
 const ltMode = () => innerWidth <= 760 ? 'phone' : innerWidth <= 1150 ? 'half' : 'wide';
 function ltCols() {
   let off = LT_DEFAULT_OFF[ltMode()];
+  // two columns of cameras (lots of cameras) leave the table less room: Last lap starts off too
+  if (ltMode() === 'half' && document.querySelector('.lt.cams2')) off = off.concat(['last']);
   try { const v = localStorage.getItem('vsLtCols_' + ltMode()); if (v) off = JSON.parse(v); } catch (e) {}
   return LT_COLS.filter(x => x.fixed || !off.includes(x.k)).map(x => x.k);
 }
@@ -1568,6 +1576,24 @@ $('colTypes').onclick = e => { const b = e.target.closest('[data-ca]'); if (!b) 
   if (b.dataset.ca === 'def') { try { localStorage.removeItem('vsLtCols_' + ltMode()); } catch (x) {} carsKey = ''; render(); } else colSave([]);
   colMenu(); };
 addEventListener('resize', () => { carsKey = ''; if (S && L) render(); });
+// half-screen live timing: size the camera buttons so every camera fits the window height (no scrolling);
+// with too many for one column (buttons under 22px), two columns
+function fitCams() {
+  const el = $('ltCams'), lt = el && el.closest('.lt'); if (!el || !lt) return;
+  const n = el.querySelectorAll('button').length;
+  const half = innerWidth > 860 && innerWidth <= 1150;
+  el.classList.remove('fit2', 'tiny'); lt.classList.remove('cams2'); el.style.removeProperty('--camh');
+  if (!half || !n) return;
+  const side = el.closest('.ltside').getBoundingClientRect(), avail = side.bottom - el.getBoundingClientRect().top - 2, gap = 4;
+  const per = rows => Math.floor((avail - (rows - 1) * gap) / rows);
+  let h = per(n), two = false;
+  if (h < 20) { two = true; h = Math.min(30, per(Math.ceil(n / 2))); }
+  h = Math.max(19, Math.min(34, h));
+  el.style.setProperty('--camh', h + 'px');
+  el.classList.toggle('fit2', two); el.classList.toggle('tiny', h < 26);
+  if (lt.classList.contains('cams2') !== two) { lt.classList.toggle('cams2', two); carsKey = ''; }   // the table's default columns depend on it
+}
+addEventListener('resize', () => fitCams());
 let carsKey = '';
 function render() {
   if (!S || !L) return;
@@ -1633,7 +1659,7 @@ function render() {
     const ck = groups.map(g => g.num + g.name).join('|') + '#' + L.camGroup;
     $('ltCams').classList.toggle('c2', groups.length > 12 && groups.length <= 24); $('ltCams').classList.toggle('c3', groups.length > 24);
     $('rpLap').textContent = L.camLap != null && L.camLap >= 0 ? 'LAP ' + Math.max(1, L.camLap) : 'LAP –';
-    if ($('ltCams')._k !== ck) { $('ltCams')._k = ck; $('ltCams').innerHTML = groups.length ? groups.map(g => `<button data-g="${g.num}" class="${g.num === L.camGroup ? 'on' : ''}">${esc(g.name)}</button>`).join('') : '<p class="hint">Cameras appear when iRacing is running.</p>'; }
+    if ($('ltCams')._k !== ck) { $('ltCams')._k = ck; $('ltCams').innerHTML = groups.length ? groups.map(g => `<button data-g="${g.num}" class="${g.num === L.camGroup ? 'on' : ''}" title="${esc(g.name)}">${esc(g.name)}</button>`).join('') : '<p class="hint">Cameras appear when iRacing is running.</p>'; fitCams(); }
     const sp = L.replaySpeed ?? 1, slow = !!L.replaySlow, eff = slow ? 1 / (sp + 1) : sp;
     const label = !L.isReplay ? 'LIVE' : (sp === 0 ? 'REPLAY · PAUSED' : `REPLAY · ${sp < 0 ? '◀◀ ' : ''}×${Math.abs(eff) >= 1 ? Math.abs(eff) : (Math.round(Math.abs(eff) * 100) / 100)}`);
     $('rpState').textContent = label; $('rpState').classList.toggle('air', !L.isReplay); $('rpState').classList.toggle('rep', !!L.isReplay);
