@@ -1532,9 +1532,12 @@ function render() {
     }
   }
   if (sponsorLive(RAW)) vis.lowerthird = false;   // driver info steps aside while a sponsor graphic is up
-  if (podiumWant()) {   // the podium artwork has its own VSPEED logo and covers the screen: the other graphics step aside
-    ['logo', 'tower', 'lowerthird', 'movers', 'board', 'pitrace'].forEach(k => vis[k] = false);
+  const pod = podiumWant();
+  if (pod) {   // the podium artwork covers the screen: the other graphics step aside, except the VSPEED logo, which stays
+    ['tower', 'lowerthird', 'movers', 'board', 'pitrace'].forEach(k => vis[k] = false);
+    vis.logo = true;   // the overlay's own logo (the artwork no longer has one baked in), in its usual spot
   }
+  WIDGETS.logo.holder.style.zIndex = pod ? '30' : '';   // above the podium artwork while it's up
   S = Object.assign({}, RAW, { show: vis }, LAYOUT_MODE ? { lowerThirdMode: 'always' } : {});
   const realL = L;
   if (LAYOUT_MODE && !(L.connected && L.cars && L.cars.length)) L = sampleLive();
