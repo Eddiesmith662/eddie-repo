@@ -516,6 +516,7 @@ class IRacingSource:
             "trackM": track_meters(wi.get("TrackLength")),
             # overtime: how many green-white-checkered attempts the race allows (iRacing's race settings)
             "gwcLimit": (lambda v: int(v) if str(v).isdigit() else None)((wi.get("WeekendOptions") or {}).get("GreenWhiteCheckeredLimit")),
+            "subId": wi.get("SubSessionID"),
             "gridOrder": grid_order,
             "track": wi.get("TrackDisplayName", ""),
             "sessions": sessions,
@@ -548,6 +549,14 @@ class IRacingSource:
                 total_laps = int(total_laps)
             except Exception:
                 total_laps = 0
+            # iRacing raises SessionLaps by one for every caution lap near the end, to make room for a
+            # green-white-checkered (Nashville, Oct 26: scheduled 80, then 81, 82, 83 under the lap-78 caution, so the
+            # ticker sat on "3 TO GO" and never saw overtime). The scheduled distance is the lowest value seen.
+            sched = self.__dict__.setdefault("sched_laps", {})
+            if total_laps > 0:
+                key = (sess_num, self.info.get("subId"))
+                sched[key] = min(sched.get(key, total_laps), total_laps)
+                total_laps = sched[key]
 
             pos = ir["CarIdxPosition"] or []
             cpos = ir["CarIdxClassPosition"] or []
