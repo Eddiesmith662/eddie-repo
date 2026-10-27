@@ -242,7 +242,15 @@ def race_flags(store, is_race, state, bits, leader_prog, total, gwc_limit=None):
     elif lap > total:
         final = 0      # in overtime without having seen its restart (overlay started mid-race): final lap unknown, no white flag
     out["finalLap"] = final
-    out["overtime"] = state <= 5 and (final > total or (state == 4 and lap > total))
+    # under caution with 2 to go or fewer the restart can't come before the last lap, so overtime is already certain
+    # (Nashville, Oct 26: 82 laps, caution on lap 78; the ticker said 2 TO GO / 1 TO GO under yellow until lap 83)
+    # (a caution that first comes out on the last lap itself isn't counted here: that can end the race under yellow)
+    if state == 4 and yellow and leader_prog is not None and total - 1 <= lap < total:
+        store["otYellow"] = True
+    elif not yellow:
+        store.pop("otYellow", None)
+    ot_now = state == 4 and yellow and bool(store.get("otYellow"))
+    out["overtime"] = state <= 5 and (final > total or (state == 4 and lap > total) or ot_now)
     # overtime attempts so far (None if the overlay started mid-overtime) and iRacing's limit (WeekendOptions)
     out["otAttempts"] = store.get("otAttempts", 0) if store.get("firstLap", 10 ** 6) <= total else None
     out["otLimit"] = gwc_limit
