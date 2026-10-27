@@ -291,6 +291,7 @@ def tow_fix(store, idx, progress, surf, num=None, log=True):
 
 PIT_SHOW_AFTER = 8.0   # seconds the final stop time stays up after the car leaves pit road
 PIT_HIDE_AT = 50.0     # a stop this long means the car is just parked: drop the tag until the next visit
+PIT_PARKED_MAX = 300.0  # a "stop" longer than this was a parked car: no stop time kept
 PIT_MIN_STOP = 2.0     # shorter than this isn't a real stop (rolling over the box): not counted, no stop time
 
 
@@ -309,7 +310,9 @@ def pit_timer(store, idx, now, on_pit_road, in_stall, count=True, laps=None):
             else:
                 return None, None
         else:
-            if st["start"] is not None and now - st["start"] >= PIT_MIN_STOP:
+            # a car parked in its stall for minutes isn't a pit stop worth showing (Nashville, Oct 26: #69 sat there
+            # 25 minutes after a crash and live timing's Pit column read 1506.7s)
+            if st["start"] is not None and PIT_MIN_STOP <= now - st["start"] <= PIT_PARKED_MAX:
                 st["lastStop"] = now - st["start"]
             st.update(start=None, last=None, endAt=None, parked=False)
             return None, None
