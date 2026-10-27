@@ -57,7 +57,10 @@ DEFAULT_SETTINGS = {
         "board": False,        # starting grid / results board
         "movers": False,       # biggest movers: top 5 positions gained since the start
         "pitrace": False,      # race off pit road (shown from its section on the Race tab)
+        "nextrace": False,     # next broadcast box (Prerace tab)
     },
+    # next broadcast box: text typed on the Prerace tab; logo = an image in data\logos ("" = none)
+    "nextRace": {"title": "NEXT BROADCAST", "event": "RACE 2 - TEXAS", "date": "JAN 19TH", "time": "8:00 PM ET", "logo": ""},
     "raceName": "VSPEED RACING LEAGUE",
     "leagueLogo": "league_logo.png",
     "logoStyle": "slant",      # VSPEED logo box: slant | straight (right-click the logo tile)
@@ -1722,6 +1725,8 @@ class Handler(BaseHTTPRequestHandler):
         length = int(self.headers.get("Content-Length") or 0)
         if path == "/api/sponsor/upload":
             return self.send_json(sponsor_upload(parse_qs(urlparse(self.path).query), self.headers, self.rfile, length))
+        if path == "/api/logo/upload":
+            return self.send_json(logo_upload(self.headers, self.rfile, length))
         try:
             data = json.loads(self.rfile.read(length) or b"{}")
         except Exception:
@@ -1865,6 +1870,26 @@ def sponsor_upload(query, headers, rfile, length):
     ref = "%s?v=%d" % (fname, int(time.time() * 1000))   # new address each time, so the broadcasting software never shows a cached old picture
     STATE.update_settings({"sponsor": {"files": {slot: ref}}})
     return {"ok": True, "file": ref, "name": name}
+
+
+def logo_upload(headers, rfile, length):
+    """Save an image sent from the control panel into data/logos (the logo lists on the Prerace tab pick from there)."""
+    name = os.path.basename(unquote(headers.get("X-Filename") or "").replace("\\", "/"))
+    base, ext = os.path.splitext(name)
+    ext = ext.lower()
+    base = re.sub(r"[^A-Za-z0-9 _.()-]+", "_", base).strip(" .") or "logo"
+    if ext not in SPONSOR_EXT:
+        rfile.read(length)
+        return {"ok": False, "error": "use a PNG, JPG, WEBP, GIF or SVG image"}
+    if length <= 0 or length > 40 * 1024 * 1024:
+        rfile.read(length)
+        return {"ok": False, "error": "image is empty or bigger than 40 MB"}
+    body = rfile.read(length)
+    os.makedirs(LOGO_DIR, exist_ok=True)
+    fname = base[:80] + ext
+    with open(os.path.join(LOGO_DIR, fname), "wb") as f:
+        f.write(body)
+    return {"ok": True, "file": fname}
 
 
 GFX_EXT = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".webm", ".mp4"}

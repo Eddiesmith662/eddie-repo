@@ -21,11 +21,12 @@ A custom iRacing overlay for broadcasting software, built to the VSPEED Brand St
 | **Race info** | Bottom right | The race analysis box (title + 5 lines) |
 | **Broadcast team** | Bottom center | Up to 3 people with roles |
 | **Track graphic** | Anywhere | A ready-made track graphic (PNG / JPG / WebM) from a Google Drive folder, wiped in and out |
+| **Next broadcast** | Bottom centre | "Next broadcast" box with a logo, the event, date and time, all typed on the Prerace tab |
 | **Sponsors** | Full screen | Six sponsor slots on the Race tab (Green Flag, Restart, White Flag, Sponsor Read 1–3): load an image for each, then Show / Hide. One on air at a time, optional auto-hide |
 
 Standings, race info and broadcast team are your existing standings graphic (same look and animations), now run by this server instead of the separate Standings Control program. They live in the main overlay, and while one is on screen the live graphics it would cover step aside on their own.
 
-The **control panel** (Prerace, Race, Standings, Layout and Setup tabs; race info, broadcast team, broadcast text, the track graphic and the results board title are on the Prerace tab) toggles every graphic, edits all text, and switches the iRacing camera to any car with one tap. It works from a phone or tablet on the same network.
+The **control panel** (Prerace, Race, Standings, Layout and Setup tabs; race info, broadcast team, next broadcast, broadcast text, the track graphic and the results board title are on the Prerace tab) toggles every graphic, edits all text, and switches the iRacing camera to any car with one tap. It works from a phone or tablet on the same network.
 
 ## Setup (Windows broadcast PC)
 
@@ -40,6 +41,8 @@ The **control panel** (Prerace, Race, Standings, Layout and Setup tabs; race inf
 6. Open the control panel at `http://localhost:8765/control`. The console window also prints a link for your phone.
 
 **Moving things around:** the control panel's **Layout** tab shows a preview of the screen with every graphic on it. Drag any graphic to move it and use the sliders to resize it. It updates live in your broadcasting software as you go and is saved for next time. While standings, race info or the team box are on air, any live graphic they overlap steps aside on its own.
+
+**Next broadcast:** on the **Prerace** tab, type the title, event, date and time (changes go straight to the graphic, even while it's on screen) and pick a logo: any image in `data\logos`, or press **Load…** to pick one on the PC (it's copied into `data\logos`). Leave the date or time empty and the divider between them goes away; pick "No logo" and the text moves over.
 
 **Track graphic:** in the **Prerace** tab's Track graphic section, press **Browse…** and pick the folder with your track graphics in the Windows folder window (from a phone or another PC, Browse shows an in-page folder list instead) (any folder on the PC, including a Google Drive for desktop folder), or paste its path and press Save. Pick tonight's track from the list, then use **Show track** / **Hide** or the Track graphic tile. Tip: right-click the folder in File Explorer and choose **Offline access → Available offline**, so nothing has to download at the moment you hit Show.
 

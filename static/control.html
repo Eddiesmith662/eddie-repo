@@ -353,6 +353,21 @@
   </section>
 
   <section>
+    <h2><span class="t">Next broadcast</span><span class="pill" id="nrAir">HIDDEN</span></h2>
+    <div class="row"><button class="vis" data-vis="nrAir" data-vrole="show" id="nrShow">Show</button><button class="vis" data-vis="nrAir" data-vrole="hide" id="nrHide">Hide</button></div>
+    <label>Title</label><input id="nrTitle" data-nr="title" placeholder="NEXT BROADCAST">
+    <label>Event</label><input id="nrEvent" data-nr="event" placeholder="RACE 2 - TEXAS">
+    <div class="grid2">
+      <div><label>Date</label><input id="nrDate" data-nr="date" placeholder="JAN 19TH"></div>
+      <div><label>Time</label><input id="nrTime" data-nr="time" placeholder="8:00 PM ET"></div>
+    </div>
+    <label>Logo</label>
+    <div class="row" style="margin:0"><select id="nrLogo"></select><button id="nrLoad" style="flex:0 0 auto" title="Pick an image on this device; it's saved in the data\logos folder">Load…</button></div>
+    <input type="file" id="nrFile" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" hidden>
+    <p class="hint">Text changes go straight to the graphic, even while it's on screen. Pick any image in the data\logos folder, or Load… one from this PC.</p>
+  </section>
+
+  <section>
     <h2><span class="t">Broadcast text</span></h2>
     <label>Race name (ticker header)</label><input id="raceName">
     <label>League logo (image in the data\logos folder)</label><select id="leagueLogo"></select>
@@ -1042,6 +1057,34 @@ document.querySelectorAll('main[data-tab="race"] section').forEach(sec => {
   b.onclick = () => sec.classList.toggle('tipon');
   const pill = h.querySelector('.pill'); pill ? h.insertBefore(b, pill) : h.appendChild(b);
 });
+/* ---------- next broadcast (Prerace tab) ---------- */
+$('nrShow').onclick = () => set({ show: { nextrace: true } });
+$('nrHide').onclick = () => set({ show: { nextrace: false } });
+document.querySelectorAll('[data-nr]').forEach(i => i.oninput = () => {   // typed text goes to the graphic as you type (short pause)
+  clearTimeout(i._t); i._t = setTimeout(() => { i._t = 0; set({ nextRace: { [i.dataset.nr]: i.value } }); }, 350);
+});
+$('nrLogo').onchange = () => set({ nextRace: { logo: $('nrLogo').value } });
+$('nrLoad').onclick = () => { $('nrFile').value = ''; $('nrFile').click(); };
+$('nrFile').onchange = async () => {
+  const f = $('nrFile').files[0]; if (!f) return;
+  toast('Loading ' + f.name + '…');
+  try {
+    const r = await (await fetch('/api/logo/upload', { method: 'POST', headers: { 'X-Filename': encodeURIComponent(f.name), 'Content-Type': 'application/octet-stream' }, body: f })).json();
+    if (r.ok) { await set({ nextRace: { logo: r.file } }); S.nextRace = Object.assign({}, S.nextRace, { logo: r.file }); await loadLogos(); toast('Logo loaded'); }
+    else toast(r.error || 'Could not load the image');
+  } catch (e) { toast('Server not reachable'); }
+};
+function nextRender() {
+  const n = S.nextRace || {};
+  air('nrAir', !!(S.show && S.show.nextrace));
+  for (const k of ['title', 'event', 'date', 'time']) {
+    const i = document.querySelector(`[data-nr="${k}"]`);
+    if (document.activeElement !== i && !i._t) i.value = n[k] || '';
+  }
+  if (document.activeElement !== $('nrLogo') && $('nrLogo').options.length && $('nrLogo').value !== (n.logo || '')) {
+    if (![...$('nrLogo').options].some(o => o.value === (n.logo || ''))) loadLogos(); else $('nrLogo').value = n.logo || '';
+  }
+}
 let spSlot = '';
 $('spRows').onclick = e => {
   const b = e.target.closest('[data-do]'), row = e.target.closest('.spcard'); if (!b || !row) return;
@@ -1421,6 +1464,12 @@ $('resetBtn').onclick = async () => { if (confirm('Reset live race settings and 
 async function loadLogos() {
   try {
     const a = await (await fetch('/api/assets')).json();
+    {   // next broadcast: any image in data\logos, or none
+      const sel = $('nrLogo'), cur = (S && S.nextRace && S.nextRace.logo) || '';
+      const opts = a.logos.filter(f => f !== 'preview_bg.jpg');
+      if (cur && !opts.includes(cur)) opts.unshift(cur);
+      sel.innerHTML = `<option value="">No logo</option>` + opts.map(f => `<option value="${esc(f)}" ${f === cur ? 'selected' : ''}>${esc(f)}</option>`).join('');
+    }
     const sel = $('leagueLogo'), cur = S ? S.leagueLogo : '';
     const opts = a.logos.filter(f => !f.startsWith('vspeed_') && f !== 'preview_bg.jpg');
     if (cur && !opts.includes(cur)) opts.unshift(cur);
@@ -1461,7 +1510,7 @@ function render() {
   const lsm = document.querySelector('.tile[data-k="logo"] small'), lst = S.logoStyle === 'straight' ? 'top left · straight' : 'top left · slanted';
   if (lsm && lsm.textContent !== lst) lsm.textContent = lst;
   if (S.gfx) { trackList(); }
-  gridRender(); sponsorRender(); pensRender(); rendersRender(); classRowsRender(); pitraceRender(); podiumRender();
+  gridRender(); nextRender(); sponsorRender(); pensRender(); rendersRender(); classRowsRender(); pitraceRender(); podiumRender();
   segOn('towerSeg', S.towerMode); segOn('ltSeg', S.lowerThirdMode);
   const replay = !!L.isReplay;
 
