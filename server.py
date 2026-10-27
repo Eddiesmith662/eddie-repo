@@ -377,12 +377,13 @@ def compute_gaps(cars, is_race, racing):
                 c["gap"] = "LEADER"
                 c["interval"] = "LEADER"
                 c["gapS"] = 0.0
+                c["intS"] = None
                 c["lapsDown"] = 0
                 prev = c
                 continue
             if not racing or c["progress"] is None or leader["progress"] is None:
                 c["gap"] = c["interval"] = ""
-                c["gapS"] = None
+                c["gapS"] = c["intS"] = None
                 c["lapsDown"] = 0
                 prev = c
                 continue
@@ -397,6 +398,8 @@ def compute_gaps(cars, is_race, racing):
                 # the one listed above it on the run to the line (real race, Oct 25: "+-0.1" at the finish)
                 c["gap"] = "+%.1f" % max(0.0, c["gapS"])
             pdiff = (prev["progress"] - c["progress"]) if prev["progress"] is not None else 0
+            # seconds to the car ahead (live timing's interval column turns red under half a second); None when a lap or more apart
+            c["intS"] = round(max(0.0, pdiff * ref), 3) if 0 <= pdiff < 1 and prev["progress"] is not None else None
             if laps_down:                      # a lapped car always shows how many laps down it is
                 c["interval"] = c["gap"]
             elif pdiff >= 1:

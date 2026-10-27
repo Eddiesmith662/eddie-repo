@@ -76,9 +76,18 @@
   .f-checkered { border-left: 6px solid #888 !important; }
   .f-red { border-left: 6px solid #E11 !important; }
   .cars { max-height: 560px; overflow: auto; border: 1px solid var(--line); border-radius: 5px; }
-  .car, .carh { display: grid; grid-template-columns: 40px 48px minmax(110px, 1fr) 44px 84px 50px 74px 74px 46px 52px 62px 38px; align-items: center; padding: 9px 10px; border-bottom: 1px solid #2f2f30; cursor: pointer; gap: 6px; }
+  /* columns come from the Columns menu (--cols is set by the page) */
+  .car, .carh { display: grid; grid-template-columns: var(--cols, 40px 48px minmax(110px, 1fr) 44px 84px 50px 74px 74px 46px 52px 62px 38px); align-items: center; padding: 9px 10px; border-bottom: 1px solid #2f2f30; cursor: pointer; gap: 6px; }
+  .car .iv { text-align: right; color: var(--dim); font-variant-numeric: tabular-nums; }
+  .car .iv.ld { color: #ffb347; }
+  .car .dv { display: flex; align-items: center; min-width: 0; }
+  .car .dv .nm { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  .car .dv .bflag { flex: 0 0 auto; }
+  .car .iv.close { color: #fff; background: var(--red); border-radius: 3px; padding: 1px 4px; font-weight: 600; justify-self: end; }   /* within half a second of the car ahead */
+  .carh span.r { text-align: right; } .carh span.c { text-align: center; }
+  .colbtn { padding: 3px 9px; font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--dim); background: transparent; }
+  .coltypes { top: 26px; left: auto; right: 0; width: 230px; min-width: 0; font-size: 14px; letter-spacing: 0; text-transform: none; font-weight: 400; }
   .carh { position: sticky; top: 0; z-index: 1; background: #161617; cursor: default; padding-top: 7px; padding-bottom: 7px; font-size: 11px; letter-spacing: 1px; color: var(--dim); text-transform: uppercase; }
-  .carh span:nth-child(n+4) { text-align: right; } .carh span:nth-child(4) { text-align: center; }
   .car .gn { text-align: center; font-size: 13px; font-weight: 600; color: #777; }
   .car .gn.up { color: var(--green); } .car .gn.dn { color: #ff5a6e; }
   .car .t { text-align: right; font-variant-numeric: tabular-nums; color: #cfcfcf; }
@@ -86,7 +95,7 @@
   .car .g.ld { color: #ffb347; }
   .car .bflag { height: 20px; width: auto; vertical-align: -4px; margin-left: 10px; filter: drop-shadow(0 0 3px rgba(255,255,255,.35)); }
   .car .sp { text-align: right; font-variant-numeric: tabular-nums; color: #cfcfcf; }
-  @media (max-width: 760px) { .car, .carh { grid-template-columns: 30px 40px minmax(80px, 1fr) 34px 66px 34px 32px; gap: 4px; } .car .x, .carh .x { display: none; } }
+  @media (max-width: 1150px) { .car, .carh { padding: 8px 6px; gap: 4px; font-size: 14px; } .carh { font-size: 10px; letter-spacing: .5px; } .car .bflag { height: 16px; margin-left: 6px; } }
   .car:nth-child(even) { background: #1f1f20; }
   .car:hover { background: #303031; }
   .car.cam { background: rgba(255,13,64,.25); }
@@ -262,8 +271,27 @@
     .ltcams.c2, .ltcams.c3 { grid-template-columns: repeat(2, minmax(0, 1fr)); align-content: start; overflow-y: auto; gap: 5px; }
     .ltcams.c2 button, .ltcams.c3 button { padding: 6px 6px; font-size: 12px; }
   }
-  @media (max-width: 1100px) { .lt { grid-template-columns: auto 1fr !important; } .ltinc { grid-column: 1 / -1; border-left: 0; padding-left: 0; max-height: 360px; } }
+  @media (max-width: 860px) { .lt { grid-template-columns: auto 1fr !important; } .ltinc { grid-column: 1 / -1; border-left: 0; padding-left: 0; max-height: 360px; } }
   .ltside { min-width: 180px; }
+  /* half a 1920 screen (about 1000px): one narrow column of cameras, a slimmer incident log, compact table */
+  @media (min-width: 861px) and (max-width: 1150px) {
+    .lt { grid-template-columns: 112px minmax(0, 1fr) 240px !important; gap: 8px !important; }
+    .ltside { max-width: 112px !important; min-width: 0 !important; }
+    .ltcams, .ltcams.c2, .ltcams.c3 { display: flex !important; flex-direction: column; overflow-y: auto; gap: 4px; }
+    .ltcams button, .ltcams.c2 button, .ltcams.c3 button { padding: 6px 7px; font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .ltinc { padding-left: 8px; }
+    .inc { grid-template-columns: 36px minmax(0, 1fr); padding: 6px; gap: 2px 6px; }
+    .inc .when { font-size: 11px; } .inc .when b { font-size: 12px; }
+    .inc .top { flex-wrap: wrap; row-gap: 2px; }
+    .inc .chip { font-size: 10px; padding: 1px 5px; letter-spacing: .5px; }
+    .inc .who { font-size: 13px; flex: 1 1 100%; }
+    .inc .dt { flex-direction: column; gap: 0; font-size: 11px; }
+    .itools .s { display: none; }
+    .rprow.last { gap: 4px; }
+    .rprow .rp.replay { padding: 9px 10px; font-size: 15px; }
+    .lapsel span { min-width: 58px; font-size: 13px; }
+    .rprow .rp.small { padding: 7px 6px; font-size: 12px; }
+  }
   .ctx { position: fixed; z-index: 60; background: #1d1d1e; border: 1px solid #4a4a4b; border-radius: 6px; padding: 4px; min-width: 190px; box-shadow: 0 8px 30px rgba(0,0,0,.6);
          display: flex; flex-direction: column; max-height: min(460px, calc(100vh - 16px)); }
   .ctx .list { overflow-y: auto; overscroll-behavior: contain; }
@@ -450,7 +478,8 @@
         <div class="ltcams" id="ltCams"></div>
       </div>
       <div class="ltmain">
-        <h2><span class="t">Live timing</span><span class="pill" id="rpState">LIVE</span></h2>
+        <h2 style="position:relative"><span class="t">Live timing</span><button id="colBtn" class="colbtn" title="Pick the columns shown in this window">Columns ▾</button><span class="pill" id="rpState">LIVE</span>
+          <div class="itypes coltypes" id="colTypes" hidden></div></h2>
         <div class="pens" id="pens" hidden></div>
         <div class="cars" id="cars"></div>
         <div class="rpbox">
@@ -1500,6 +1529,45 @@ function vis(key, on) {
   document.querySelectorAll(`[data-vis="${key}"]`).forEach(b => b.classList.toggle('on', b.dataset.vrole === 'show' ? !!on : !on));
 }
 
+// live timing columns: key, header, width (full window), width (half screen), align, tooltip
+const LT_COLS = [
+  { k: 'pos', h: 'Pos', w: '40px', n: '30px', a: 'c', fixed: true },
+  { k: 'num', h: '#', w: '48px', n: '38px', a: 'c' },
+  { k: 'driver', h: 'Driver', w: 'minmax(110px, 1fr)', n: 'minmax(84px, 1fr)', fixed: true },
+  { k: 'gain', h: '+/-', w: '44px', n: '32px', a: 'c', t: 'Positions gained or lost since the start' },
+  { k: 'gap', h: 'Gap', w: '78px', n: '58px', a: 'r', t: 'Gap to the leader' },
+  { k: 'int', h: 'Int', w: '64px', n: '52px', a: 'r', t: 'Interval to the car ahead (red: within half a second)' },
+  { k: 'mph', h: 'MPH', w: '50px', n: '36px', a: 'r', t: 'Current speed' },
+  { k: 'last', h: 'Last', w: '74px', n: '58px', a: 'r' },
+  { k: 'best', h: 'Best', w: '74px', n: '58px', a: 'r' },
+  { k: 'stops', h: 'Stops', w: '46px', n: '38px', a: 'r', t: 'Pit stops this race' },
+  { k: 'pit', h: 'Pit', w: '52px', n: '46px', a: 'r', t: 'Last pit stop time' },
+  { k: 'since', h: 'Since pit', w: '62px', n: '40px', a: 'r', t: 'Laps since the last pit stop (since the start before the first stop)' },
+];
+// sensible defaults per window size: everything on a full-width window, the less-used columns off at half screen and on a phone
+const COL_LABEL = { num: 'Car number', gain: '+/- since start', gap: 'Gap to leader', int: 'Interval to car ahead', mph: 'MPH', last: 'Last lap', best: 'Best lap', stops: 'Stops', pit: 'Last stop time', since: 'Laps since pit' };
+const LT_DEFAULT_OFF = { wide: [], half: ['mph', 'stops'], phone: ['int', 'mph', 'last', 'best', 'stops', 'pit', 'since'] };
+const ltMode = () => innerWidth <= 760 ? 'phone' : innerWidth <= 1150 ? 'half' : 'wide';
+function ltCols() {
+  let off = LT_DEFAULT_OFF[ltMode()];
+  try { const v = localStorage.getItem('vsLtCols_' + ltMode()); if (v) off = JSON.parse(v); } catch (e) {}
+  return LT_COLS.filter(x => x.fixed || !off.includes(x.k)).map(x => x.k);
+}
+function colMenu() {
+  const on = ltCols(), m = ltMode();
+  $('colTypes').innerHTML = `<div class="ia"><button data-ca="def">Default</button><button data-ca="all">All</button></div>` +
+    LT_COLS.filter(x => !x.fixed).map(x => `<label title="${x.t || ''}"><input type="checkbox" data-c="${x.k}" ${on.includes(x.k) ? 'checked' : ''}>${COL_LABEL[x.k] || x.h}</label>`).join('') +
+    `<div class="hint" style="padding:4px 6px 2px;max-width:240px">Saved for ${m === 'wide' ? 'a full-width' : m === 'half' ? 'a half-screen' : 'a phone-size'} window in this browser.</div>`;
+}
+function colSave(off) { try { localStorage.setItem('vsLtCols_' + ltMode(), JSON.stringify(off)); } catch (e) {} carsKey = ''; render(); }
+$('colBtn').onclick = e => { e.stopPropagation(); colMenu(); $('colTypes').hidden = !$('colTypes').hidden; };
+document.addEventListener('click', e => { if (!$('colTypes').hidden && !e.target.closest('#colTypes') && e.target.id !== 'colBtn') $('colTypes').hidden = true; });
+$('colTypes').onchange = e => { const k = e.target.dataset.c; if (!k) return;
+  const on = ltCols(); colSave(LT_COLS.filter(x => !x.fixed && (x.k === k ? !e.target.checked : !on.includes(x.k))).map(x => x.k)); };
+$('colTypes').onclick = e => { const b = e.target.closest('[data-ca]'); if (!b) return; e.stopPropagation();
+  if (b.dataset.ca === 'def') { try { localStorage.removeItem('vsLtCols_' + ltMode()); } catch (x) {} carsKey = ''; render(); } else colSave([]);
+  colMenu(); };
+addEventListener('resize', () => { carsKey = ''; if (S && L) render(); });
 let carsKey = '';
 function render() {
   if (!S || !L) return;
@@ -1535,16 +1603,31 @@ function render() {
   const fastest = Math.min(...lc.map(c => c.best > 0 ? c.best : 1e9));
   const tcls = (t, c) => !(t > 0) ? '' : (Math.abs(t - fastest) < 0.0005 ? 'ob' : (Math.abs(t - c.best) < 0.0005 ? 'pb' : ''));
   const gainCell = c => c.gained == null ? '<span class="gn">–</span>' : c.gained > 0 ? `<span class="gn up">▲${c.gained}</span>` : c.gained < 0 ? `<span class="gn dn">▼${-c.gained}</span>` : '<span class="gn">–</span>';
-  const head = '<div class="carh"><span>Pos</span><span>#</span><span>Driver</span><span title="Positions gained or lost since the start">+/-</span><span>Gap</span><span title="Current speed">MPH</span><span class="x">Last</span><span class="x">Best</span><span class="x" title="Pit stops this race">Stops</span><span class="x" title="Last pit stop time">Pit</span><span class="x" title="Laps since the last pit stop (since the start before the first stop)">Since pit</span><span></span></div>';
-  const html = lc.map(c => `<div class="car ${c.idx === L.camCarIdx ? 'cam' : ''}" data-idx="${c.idx}">
-      <span class="p">${c.pos}</span><span class="n">#${esc(c.num)}</span><span>${esc(c.name)}${c.blackFlag ? BLACK_FLAG_SVG : ''}${c.meatball ? MEATBALL_SVG : ''}</span>${gainCell(c)}
-      <span class="g ${c.lapsDown ? 'ld' : ''}">${esc(c.gap === 'LEADER' ? 'LEADER' : (c.gap || ''))}</span>
-      <span class="sp">${c.mph != null ? c.mph : ''}</span>
-      <span class="t x ${tcls(c.last, c)}">${esc(c.lastStr || '')}</span><span class="t x ${tcls(c.best, c) === 'ob' ? 'ob' : ''}">${esc(c.bestStr || '')}</span>
-      <span class="t x">${c.stops ? c.stops : ''}</span>
-      <span class="t x">${c.lastPit != null ? c.lastPit.toFixed(1) + 's' : ''}</span>
-      <span class="t x">${c.lapsSincePit != null ? c.lapsSincePit : ''}</span>
-      <span>${c.pit ? '<span class="pt">PIT</span>' : ''}</span></div>`).join('');
+  // columns: picked in the Columns menu (saved in this browser, separately for full width, half screen and phone)
+  const cols = ltCols(), on = k => cols.includes(k);
+  const flagNow = L.flag, quiet = flagNow === 'caution' || flagNow === 'pace' || flagNow === 'red' || (L.sessionState || 0) >= 5;
+  const cell = {
+    pos: c => `<span class="p">${c.pos}</span>`,
+    num: c => `<span class="n">#${esc(c.num)}</span>`,
+    driver: c => `<span class="dv"><span class="nm" title="${esc(c.name)}">${esc(c.name)}</span>${c.blackFlag ? BLACK_FLAG_SVG : ''}${c.meatball ? MEATBALL_SVG : ''}</span>`,
+    gain: c => gainCell(c),
+    gap: c => `<span class="g ${c.lapsDown ? 'ld' : ''}">${esc(c.gap === 'LEADER' ? 'LEADER' : (c.gap || ''))}</span>`,
+    // interval to the car ahead; red when within half a second (not under caution, on pit road or after the finish)
+    int: c => { const v = c.interval === 'LEADER' ? '' : (c.interval || ''); const close = L.isRace && !quiet && c.intS != null && c.intS <= 0.5 && !c.pit && v && !/LAP/.test(v);
+                return `<span class="iv ${close ? 'close' : ''} ${/LAP/.test(v) ? 'ld' : ''}">${esc(v)}</span>`; },
+    mph: c => `<span class="sp">${c.mph != null ? c.mph : ''}</span>`,
+    last: c => `<span class="t ${tcls(c.last, c)}">${esc(c.lastStr || '')}</span>`,
+    best: c => `<span class="t ${tcls(c.best, c) === 'ob' ? 'ob' : ''}">${esc(c.bestStr || '')}</span>`,
+    stops: c => `<span class="t">${c.stops ? c.stops : ''}</span>`,
+    pit: c => `<span class="t">${c.lastPit != null ? c.lastPit.toFixed(1) + 's' : ''}</span>`,
+    since: c => `<span class="t">${c.lapsSincePit != null ? c.lapsSincePit : ''}</span>`,
+  };
+  const shown = LT_COLS.filter(x => on(x.k));
+  const narrow = innerWidth <= 1150;
+  $('cars').style.setProperty('--cols', shown.map(x => narrow ? x.n : x.w).join(' ') + (narrow ? ' 30px' : ' 38px'));
+  const head = '<div class="carh">' + shown.map(x => `<span class="${x.a || ''}" title="${x.t || ''}">${x.h}</span>`).join('') + '<span></span></div>';
+  const html = lc.map(c => `<div class="car ${c.idx === L.camCarIdx ? 'cam' : ''}" data-idx="${c.idx}">` + shown.map(x => cell[x.k](c)).join('') +
+      `<span>${c.pit ? '<span class="pt">PIT</span>' : ''}</span></div>`).join('');
   if (html !== carsKey) { carsKey = html; $('cars').innerHTML = html ? head + html : '<p class="hint" style="padding:12px">No cars yet.</p>'; }
   if (SOLO) {
     const ck = groups.map(g => g.num + g.name).join('|') + '#' + L.camGroup;
