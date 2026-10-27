@@ -168,6 +168,46 @@
   .rprow .s { color: var(--dim); font-size: 13px; margin-left: -4px; }
   .pill.rep { background: var(--blue); }
   /* sponsors */
+  /* sponsors: compact cards, three across (click the picture to load an image) */
+  /* Race tab: boxes stack in columns (as many as fit, 300px+ each) so short boxes don't leave gaps and it fits half a screen */
+  body:not(.solo) main[data-tab="race"].on { display: block; columns: 300px 4; column-gap: 14px; }
+  body:not(.solo) main[data-tab="race"].on > section { break-inside: avoid; margin-bottom: 14px; display: block; }
+  body:not(.solo) main[data-tab="race"].on > section#carsSec { display: none; }
+  /* help text on the Race tab folds behind an (i) in the box title; click it to show / hide */
+  body:not(.solo) main[data-tab="race"] p.hint.tip { display: none; }
+  body:not(.solo) main[data-tab="race"] section.tipon p.hint.tip { display: block; }
+  h2 .tipb { flex: 0 0 auto; width: 20px; height: 20px; border-radius: 50%; border: 1px solid #5a5a5b; color: var(--dim); font-size: 12px; letter-spacing: 0;
+             display: inline-flex; align-items: center; justify-content: center; cursor: pointer; text-transform: none; font-style: italic; font-family: Georgia, serif; }
+  h2 .tipb:hover, section.tipon h2 .tipb { border-color: #aaa; color: #fff; }
+  body.solo h2 .tipb { display: none; }
+  /* pole award row in a narrow column: picture and name on top, buttons underneath */
+  #paRow { grid-template-columns: 72px 1fr; }
+  #paRow .thumb { width: 72px; height: 40px; }
+  #paRow .bt { grid-column: 1 / -1; } #paRow .bt button { flex: 1; min-width: 0; }
+  .spgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+  #grEnd button, #grMode button { padding: 9px 10px; white-space: nowrap; }
+  .sptools .s, .sptools button { white-space: nowrap; }
+  #paLoad { white-space: nowrap; }
+  body:not(.solo) main[data-tab="race"].on > section { padding: 12px 14px; }
+  body:not(.solo) main[data-tab="race"] h2 { margin-bottom: 10px; }
+  body:not(.solo) main[data-tab="race"].on { columns: 300px 3; }
+  /* three columns side by side (half a 1920 screen and up): graphics + pit road | podium + ticker | grid + sponsors */
+  @media (min-width: 940px) {
+    body:not(.solo) main[data-tab="race"].on > section#podSec, body:not(.solo) main[data-tab="race"].on > section#gridSec { break-before: column; }
+  }
+  .spcard { background: rgba(0,0,0,.25); border: 1px solid transparent; border-radius: 6px; padding: 6px; min-width: 0; }
+  .spcard.on { border-color: var(--red); background: rgba(255,13,64,.12); }
+  .spcard .thumb { width: 100%; aspect-ratio: 16 / 9; border-radius: 4px; background: rgba(255,255,255,.06) center/contain no-repeat; display: flex; align-items: center;
+                   justify-content: center; font-size: 11px; color: #888; cursor: pointer; border: 1px dashed transparent; }
+  .spcard .thumb:hover { border-color: #777; }
+  .spcard .nm { font-size: 11px; letter-spacing: .4px; text-transform: uppercase; margin: 5px 0 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .spcard .bt { display: flex; gap: 4px; }
+  .spcard .bt button { flex: 1; padding: 6px 4px; font-size: 13px; min-width: 0; }
+  .sptools { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
+  .sptools input { width: 54px; padding: 6px 6px; }
+  .sptools .s { font-size: 12px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; }
+  .sptools .grow { flex: 1; }
+  .sptools button { padding: 7px 12px; }
   .sprow { display: grid; grid-template-columns: 96px 1fr auto; gap: 10px; align-items: center; padding: 8px; margin-top: 8px; border-radius: 6px; background: rgba(0,0,0,.25); border: 1px solid transparent; }
   .sprow.on { border-color: var(--red); background: rgba(255,13,64,.12); }
   .sprow .thumb { width: 96px; height: 54px; border-radius: 4px; background: rgba(255,255,255,.06) center/contain no-repeat; display: flex; align-items: center; justify-content: center; font-size: 11px; color: #888; }
@@ -348,17 +388,17 @@
       <button id="hideAll">Hide all</button>
       <button id="showBase">Show base package</button>
     </div>
-    <p class="hint">Base package = logo, league, ticker and driver info. While standings, race info or the team box are on screen, the driver info steps aside on its own.</p>
+    <p class="hint tip">Base package = logo, league, ticker and driver info. While standings, race info or the team box are on screen, the driver info steps aside on its own.</p>
   </section>
 
   <section>
     <h2><span class="t">Race off pit road</span><span class="pill" id="prState">WAITING</span></h2>
     <p class="hint" id="prInfo" style="margin:0 0 10px">Fills in by itself when cars pit under caution.</p>
     <div class="row"><button class="vis" data-vis="prAir" data-vrole="show" id="prShow">Show</button><button class="vis" data-vis="prAir" data-vrole="hide" id="prHide">Hide</button><button id="prCapture">Capture now</button></div>
-    <p class="hint">Live: cars appear as they reach the pit lane exit, with spots gained or lost against the order they came in and their stop times; cars that stayed out are added once the cycle is over (READY). Show it any time from the first car out; it stays up until you press Hide. "Capture now" starts one by hand, e.g. for green-flag stops.</p>
+    <p class="hint tip">Cars appear as they leave pit road, with spots gained or lost. Stays up until Hide. "Capture now" starts one by hand (green-flag stops).</p>
   </section>
 
-  <section>
+  <section id="podSec">
     <h2><span class="t">Podium</span><span class="pill" id="podAir">HIDDEN</span></h2>
     <div class="row">
       <button class="vis" data-vis="pod1" data-vrole="show" data-pod="1">Winner</button>
@@ -384,7 +424,7 @@
     <div id="csRows" class="grid2" style="margin-top:4px"></div>
     <label>Driver info (lower third)</label>
     <div class="seg" id="ltSeg"><button data-v="always">Always on</button><button data-v="oncut">8s on camera cut</button></div>
-    <p class="hint">When the field is bigger than the rows shown, the top drivers stay put and the rows below them page through everyone else (e.g. 20 rows, top 14 fixed: P15–20, then P21–26, …). The driver info always follows the car the iRacing camera is on.</p>
+    <p class="hint tip">When the field is bigger than the rows shown, the top drivers stay put and the rows below them page through everyone else (e.g. 20 rows, top 14 fixed: P15–20, then P21–26, …). The driver info always follows the car the iRacing camera is on.</p>
   </section>
 
   <section class="wide" id="carsSec">
@@ -440,34 +480,35 @@
   </section>
   <div class="ctx" id="ctx" hidden></div>
 
-  <section>
+  <section id="gridSec">
     <h2><span class="t">Grid</span><span class="pill" id="grAir">HIDDEN</span></h2>
-    <div class="row"><button class="vis" data-vis="grAir" data-vrole="show" id="grShow">Show from row 1</button><button class="vis" data-vis="grAir" data-vrole="hide" id="grHide">Hide</button></div>
+    <div class="row"><button class="vis" data-vis="grAir" data-vrole="show" id="grShow" title="Show the grid from row 1">Show</button><button class="vis" data-vis="grAir" data-vrole="hide" id="grHide">Hide</button></div>
     <div class="row"><button id="grPrev">◀ Previous row</button><button id="grNext">Next row ▶</button></div>
     <label>Next row</label>
-    <div class="seg" id="grMode"><button data-v="auto">Automatic</button><button data-v="manual">Manual (I press Next row)</button></div>
+    <div class="seg" id="grMode"><button data-v="auto">Automatic</button><button data-v="manual" title="Rows change when you press Next row">Manual</button></div>
     <div class="grid2">
       <div><label>Seconds per row</label><input type="number" id="grSec" min="2" max="60"></div>
-      <div><label>After the last row</label><div class="seg" id="grEnd"><button data-v="hide">Hide</button><button data-v="loop">Start over</button></div></div>
+      <div><label>After last row</label><div class="seg" id="grEnd"><button data-v="hide">Hide</button><button data-v="loop">Start over</button></div></div>
     </div>
     <label>Text under the logo</label><input id="grSite" placeholder="vspeedsim.com">
     <label>Pole Award</label>
-    <div class="sprow" style="margin-top:2px"><div class="thumb" id="paThumb">no badge</div>
+    <div class="sprow" id="paRow" style="margin-top:2px"><div class="thumb" id="paThumb">no badge</div>
       <div><div class="nm">Pole Award badge</div><div class="fn" id="paInfo">Shows on Row 1 over the pole sitter</div></div>
-      <div class="bt"><button id="paLoad">Load badge…</button><button class="vis" data-vis="pole" data-vrole="show" id="paShow">Show</button><button class="vis" data-vis="pole" data-vrole="hide" id="paHide">Hide</button></div></div>
+      <div class="bt"><button id="paLoad" title="Load the badge image">Load…</button><button class="vis" data-vis="pole" data-vrole="show" id="paShow">Show</button><button class="vis" data-vis="pole" data-vrole="hide" id="paHide">Hide</button></div></div>
     <input type="file" id="paFile" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" hidden>
-    <p class="hint">Starting grid from qualifying, two cars per row, with each car rendered by iRacing in the driver's custom paint. Render tools are on the Setup tab.</p>
+    <p class="hint tip">Starting grid from qualifying, two cars per row, with each car rendered by iRacing in the driver's custom paint. Render tools are on the Setup tab.</p>
   </section>
 
-  <section class="wide">
+  <section id="spSec">
     <h2><span class="t">Sponsors</span><span class="pill" id="spAir">HIDDEN</span></h2>
-    <div id="spRows"></div>
-    <div class="grid2" style="margin-top:12px">
-      <div><label>Hide by itself after (sec, 0 = stays up)</label><input type="number" id="spHold" min="0" max="600"></div>
-      <div><label>&nbsp;</label><button id="spHideAll" class="vis" data-vis="spAir" data-vrole="hide" style="width:100%">Hide sponsor</button></div>
+    <div class="spgrid" id="spRows"></div>
+    <div class="sptools">
+      <span class="s">Auto-hide</span><input type="number" id="spHold" min="0" max="600" title="0 = stays up until you press Hide"><span class="s">s</span>
+      <span class="grow"></span>
+      <button id="spHideAll" class="vis" data-vis="spAir" data-vrole="hide">Hide sponsor</button>
     </div>
     <input type="file" id="spFile" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" hidden>
-    <p class="hint">Load image picks a picture from this device and keeps it for next time. Sponsors play full screen, exactly as the image is: make them 1920 × 1080 PNGs with a transparent background (smaller images are centered). Only one sponsor is on air at a time: Show on another one swaps it in.</p>
+    <p class="hint tip">Click a picture to load a new one (1920 × 1080 PNG, transparent background). One sponsor on air at a time; Show on another swaps it in.</p>
   </section>
 
 </main>
@@ -990,12 +1031,20 @@ $('grMode').onclick = e => { const b = e.target.closest('button'); if (b) set({ 
 $('grSite').onchange = () => set({ gridw: { site: $('grSite').value } });
 /* ---------- sponsors ---------- */
 const SPONSORS = [['green', 'Green Flag'], ['restart', 'Restart'], ['white', 'White Flag'], ['read1', 'Sponsor Read 1'], ['read2', 'Sponsor Read 2'], ['read3', 'Sponsor Read 3']];
-$('spRows').innerHTML = SPONSORS.map(([k, n]) => `<div class="sprow" data-sp="${k}"><div class="thumb">no image</div>
-  <div><div class="nm">${n}</div><div class="fn"></div></div>
-  <div class="bt"><button data-do="load">Load image…</button><button class="vis" data-vis="sp-${k}" data-vrole="show" data-do="show">Show</button><button class="vis" data-vis="sp-${k}" data-vrole="hide" data-do="hide">Hide</button></div></div>`).join('');
+const SP_SHORT = { read1: 'Read 1', read2: 'Read 2', read3: 'Read 3' };
+$('spRows').innerHTML = SPONSORS.map(([k, n]) => `<div class="spcard" data-sp="${k}"><div class="thumb" data-do="load" title="Click to load an image">no image</div>
+  <div class="nm" title="${n}">${SP_SHORT[k] || n}</div>
+  <div class="bt"><button class="vis" data-vis="sp-${k}" data-vrole="show" data-do="show">Show</button><button class="vis" data-vis="sp-${k}" data-vrole="hide" data-do="hide">Hide</button></div></div>`).join('');
+// (i) buttons for the folded help text on the Race tab
+document.querySelectorAll('main[data-tab="race"] section').forEach(sec => {
+  const tip = sec.querySelector('p.hint.tip'), h = sec.querySelector('h2'); if (!tip || !h) return;
+  const b = document.createElement('span'); b.className = 'tipb'; b.textContent = 'i'; b.title = tip.textContent;
+  b.onclick = () => sec.classList.toggle('tipon');
+  const pill = h.querySelector('.pill'); pill ? h.insertBefore(b, pill) : h.appendChild(b);
+});
 let spSlot = '';
 $('spRows').onclick = e => {
-  const b = e.target.closest('button'), row = e.target.closest('.sprow'); if (!b || !row) return;
+  const b = e.target.closest('[data-do]'), row = e.target.closest('.spcard'); if (!b || !row) return;
   const k = row.dataset.sp, sp = S.sponsor || {};
   if (b.dataset.do === 'load') { spSlot = k; $('spFile').value = ''; $('spFile').click(); }
   else if (b.dataset.do === 'show') {
@@ -1017,14 +1066,14 @@ function sponsorRender() {
   const sp = S.sponsor || {}, files = sp.files || {};
   const live = !!sp.active && !!files[sp.active] && !(+sp.hold > 0 && Date.now() - (sp.t || 0) > sp.hold * 1000);
   air('spAir', live);
-  document.querySelectorAll('.sprow[data-sp]').forEach(row => {
+  document.querySelectorAll('.spcard[data-sp]').forEach(row => {
     const k = row.dataset.sp, f = files[k] || '', th = row.querySelector('.thumb');
     row.classList.toggle('on', live && sp.active === k);
     vis('sp-' + k, live && sp.active === k);
     const bg = f ? `url("/sponsor/${f}")` : '';
     if (th.dataset.bg !== bg) { th.dataset.bg = bg; th.style.backgroundImage = bg; th.textContent = f ? '' : 'no image'; }
     let nm = ''; try { nm = localStorage.getItem('vsSpName_' + k) || ''; } catch (e) {}
-    row.querySelector('.fn').textContent = live && sp.active === k ? 'On air' : (f ? (nm || 'Image loaded') : 'No image yet');
+    th.title = (f ? (nm || 'Image loaded') + ' (click to load a different one)' : 'Click to load an image');
   });
   if (document.activeElement !== $('spHold')) $('spHold').value = sp.hold || 0;
 }
