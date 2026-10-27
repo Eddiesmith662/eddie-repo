@@ -286,7 +286,7 @@ PIT_HIDE_AT = 50.0     # a stop this long means the car is just parked: drop the
 PIT_MIN_STOP = 2.0     # shorter than this isn't a real stop (rolling over the box): not counted, no stop time
 
 
-def pit_timer(store, idx, now, on_pit_road, in_stall, count=True):
+def pit_timer(store, idx, now, on_pit_road, in_stall, count=True, laps=None):
     """Time each stop in the pit box. Returns (state, seconds): ('road', None) on pit road,
     ('stall', running time) while stopped, ('done', final time) for a while after the stop, else (None, None).
     Once a stop reaches PIT_HIDE_AT seconds the tag is hidden for the rest of that pit visit.
@@ -314,6 +314,7 @@ def pit_timer(store, idx, now, on_pit_road, in_stall, count=True):
         if t >= PIT_MIN_STOP and not st.get("counted") and count and now - st.get("countAt", -1e9) > 20:
             st["stops"] = st.get("stops", 0) + 1
             st["countAt"] = now
+            st["pitLaps"] = laps          # laps completed at this stop: live timing's "laps since last pit"
             st["counted"] = True
         if t >= PIT_HIDE_AT:
             st["parked"] = True
@@ -602,7 +603,7 @@ class IRacingSource:
                     "onTrack": in_world,
                 })
                 c["pitState"], c["pitTime"] = pit_timer(self.pit_store, idx, now_s, c["pit"], count=not replaying, in_stall=
-                                                        idx < len(surf) and surf[idx] == 1)
+                                                        idx < len(surf) and surf[idx] == 1, laps=c["lapsCompleted"])
                 c.update({
                     "last": last[idx] if last[idx] and last[idx] > 0 else max(0.0, float((results.get(idx) or {}).get("LastTime") or 0)),
                     "best": best[idx] if best[idx] and best[idx] > 0 else max(0.0, float((results.get(idx) or {}).get("FastestTime") or 0)),
@@ -923,6 +924,9 @@ def add_extras(cars, is_race, start_order, pit_store, speed_store, now_s, track_
         st = pit_store.get(idx) or {}
         c["lastPit"] = round(st["lastStop"], 1) if st.get("lastStop") else None
         c["stops"] = st.get("stops", 0)
+        # laps since the last stop in the pit box (since the start until the first stop); races only
+        done = c.get("lapsCompleted") or 0
+        c["lapsSincePit"] = (max(0, done - st["pitLaps"]) if st.get("pitLaps") is not None else done) if is_race else None
 
 
 def finish_gaps(store, cars, is_race, state, now_s):
@@ -1219,7 +1223,7 @@ class DemoSource:
         for c in cars:
             sc = src[c["idx"]]
             stall = sc.get("stallFrom", 0) <= now < sc.get("stallTo", 0)
-            c["pitState"], c["pitTime"] = pit_timer(store, c["idx"], now, c["pit"], stall)
+            c["pitState"], c["pitTime"] = pit_timer(store, c["idx"], now, c["pit"], stall, laps=c["lapsCompleted"])
         cars.sort(key=lambda c: -c["progress"])
         compute_gaps(cars, True, self.state >= 4)
         compute_class_gaps(cars, True, self.state >= 4)

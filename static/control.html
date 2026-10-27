@@ -76,7 +76,7 @@
   .f-checkered { border-left: 6px solid #888 !important; }
   .f-red { border-left: 6px solid #E11 !important; }
   .cars { max-height: 560px; overflow: auto; border: 1px solid var(--line); border-radius: 5px; }
-  .car, .carh { display: grid; grid-template-columns: 40px 48px minmax(110px, 1fr) 44px 84px 50px 74px 74px 46px 52px 38px; align-items: center; padding: 9px 10px; border-bottom: 1px solid #2f2f30; cursor: pointer; gap: 6px; }
+  .car, .carh { display: grid; grid-template-columns: 40px 48px minmax(110px, 1fr) 44px 84px 50px 74px 74px 46px 52px 62px 38px; align-items: center; padding: 9px 10px; border-bottom: 1px solid #2f2f30; cursor: pointer; gap: 6px; }
   .carh { position: sticky; top: 0; z-index: 1; background: #161617; cursor: default; padding-top: 7px; padding-bottom: 7px; font-size: 11px; letter-spacing: 1px; color: var(--dim); text-transform: uppercase; }
   .carh span:nth-child(n+4) { text-align: right; } .carh span:nth-child(4) { text-align: center; }
   .car .gn { text-align: center; font-size: 13px; font-weight: 600; color: #777; }
@@ -1437,7 +1437,7 @@ function render() {
   const fastest = Math.min(...lc.map(c => c.best > 0 ? c.best : 1e9));
   const tcls = (t, c) => !(t > 0) ? '' : (Math.abs(t - fastest) < 0.0005 ? 'ob' : (Math.abs(t - c.best) < 0.0005 ? 'pb' : ''));
   const gainCell = c => c.gained == null ? '<span class="gn">–</span>' : c.gained > 0 ? `<span class="gn up">▲${c.gained}</span>` : c.gained < 0 ? `<span class="gn dn">▼${-c.gained}</span>` : '<span class="gn">–</span>';
-  const head = '<div class="carh"><span>Pos</span><span>#</span><span>Driver</span><span title="Positions gained or lost since the start">+/-</span><span>Gap</span><span title="Current speed">MPH</span><span class="x">Last</span><span class="x">Best</span><span class="x" title="Pit stops this race">Stops</span><span class="x" title="Last pit stop time">Pit</span><span></span></div>';
+  const head = '<div class="carh"><span>Pos</span><span>#</span><span>Driver</span><span title="Positions gained or lost since the start">+/-</span><span>Gap</span><span title="Current speed">MPH</span><span class="x">Last</span><span class="x">Best</span><span class="x" title="Pit stops this race">Stops</span><span class="x" title="Last pit stop time">Pit</span><span class="x" title="Laps since the last pit stop (since the start before the first stop)">Since pit</span><span></span></div>';
   const html = lc.map(c => `<div class="car ${c.idx === L.camCarIdx ? 'cam' : ''}" data-idx="${c.idx}">
       <span class="p">${c.pos}</span><span class="n">#${esc(c.num)}</span><span>${esc(c.name)}${c.blackFlag ? BLACK_FLAG_SVG : ''}${c.meatball ? MEATBALL_SVG : ''}</span>${gainCell(c)}
       <span class="g ${c.lapsDown ? 'ld' : ''}">${esc(c.gap === 'LEADER' ? 'LEADER' : (c.gap || ''))}</span>
@@ -1445,6 +1445,7 @@ function render() {
       <span class="t x ${tcls(c.last, c)}">${esc(c.lastStr || '')}</span><span class="t x ${tcls(c.best, c) === 'ob' ? 'ob' : ''}">${esc(c.bestStr || '')}</span>
       <span class="t x">${c.stops ? c.stops : ''}</span>
       <span class="t x">${c.lastPit != null ? c.lastPit.toFixed(1) + 's' : ''}</span>
+      <span class="t x">${c.lapsSincePit != null ? c.lapsSincePit : ''}</span>
       <span>${c.pit ? '<span class="pt">PIT</span>' : ''}</span></div>`).join('');
   if (html !== carsKey) { carsKey = html; $('cars').innerHTML = html ? head + html : '<p class="hint" style="padding:12px">No cars yet.</p>'; }
   if (SOLO) {
