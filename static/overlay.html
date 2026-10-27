@@ -80,7 +80,7 @@
   #tower.f-checkered .head::after { background: repeating-conic-gradient(#111 0 25%, #fff 0 50%) 0 0/8px 8px; }
   #tower .rows { position: relative; overflow: hidden; transition: height .4s ease; }
   /* caution: a yellow CAUTION band opens under the lap line, and the rows flash solid yellow for a moment */
-  #tower .cbar { height: 0; overflow: hidden; background: var(--yellow); color: #111; text-align: center; font-size: 16px; letter-spacing: 3px;
+  #tower .cbar { position: relative; height: 0; overflow: hidden; background: var(--yellow); color: #111; text-align: center; font-size: 16px; letter-spacing: 3px;
                  line-height: 26px; text-transform: uppercase; transition: height .35s cubic-bezier(.3,.8,.3,1); }
   #tower .cbar span { padding: 0 12px; }
   #tower.f-caution .cbar, #tower.f-pace .cbar, #tower.f-white .cbar, #tower.f-checkered .cbar { height: 26px; }
@@ -405,6 +405,11 @@ const VIS = {};
 function anim(el, frames, o) { if (!el || !el.animate) return null; return el.animate(frames, Object.assign({ easing: EASE, fill: 'backwards' }, o)); }
 function shineOn(box, delay) {
   if (!box) return;
+  // the sweep must stay inside its box: an unpositioned box lets it attach to the widget and run past the edge
+  // (the caution band did this: a sweep across empty screen right of the ticker, Oct 2026)
+  const cs = getComputedStyle(box);
+  if (cs.position === 'static') box.style.position = 'relative';
+  if (cs.overflow !== 'hidden') box.style.overflow = 'hidden';
   let sh = box.querySelector(':scope > .shine');
   if (!sh) { sh = document.createElement('div'); sh.className = 'shine'; box.appendChild(sh); }
   anim(sh, [{ transform: 'translateX(-200px)', opacity: 1 }, { transform: `translateX(${box.offsetWidth + 200}px)`, opacity: 1 }], { duration: 850, delay, easing: 'ease-in-out', fill: 'none' });
