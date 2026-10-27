@@ -45,10 +45,10 @@ def _publish(**kw):
         STATE["ver"] += 1
 
 
-def _start(live, t, manual):
+def _start(live, t, manual, before=None):
     global _cap
     order = [c for c in (live.get("cars") or [])]
-    _cap = {"before": STATE.get("status", "idle"), "t0": t, "lap": live.get("lap"), "caution": live.get("flag") == "caution", "manual": manual,
+    _cap = {"before": before or STATE.get("status", "idle"), "t0": t, "lap": live.get("lap"), "caution": live.get("flag") == "caution", "manual": manual,
             "inPos": {c["idx"]: i for i, c in enumerate(order)},          # running order when the cycle began
             "cars": {}, "lastEntry": t}
     # the last finished cycle stays in "list" (and on air, if it is) until this one is ready
@@ -95,6 +95,13 @@ def update(live, log=None):
     if _cap is not None and STATE["status"] == "capturing":
         byi = {c["idx"]: c for c in cars}
         for c in entering:
+            if (t - _cap["lastEntry"] > ENTRY_GAP and 0 < len(_cap["cars"]) < MIN_CARS and not _cap["manual"]
+                    and live.get("flag") == "caution"):
+                # the car(s) that started the cycle were on their own (in early for damage, a penalty): the real pit cycle
+                # is this wave (Nashville, Oct 26: #52 came in alone 31 s before the field, and the field was missed)
+                _start(live, t, False, before=_cap["before"])
+                if log:
+                    log("Race off pit road: restarted with the main wave (lap %s)" % live.get("lap"))
             if t - _cap["lastEntry"] <= ENTRY_GAP or not _cap["cars"]:
                 _cap["cars"][c["idx"]] = {"in": t, "out": None, "stop": None, "pen": False,
                                           "num": c.get("num"), "name": c.get("name"), "cls": c.get("cls")}
@@ -111,7 +118,9 @@ def update(live, log=None):
                 e["stop"] = round(c["pitTime"], 1)       # the box time (final once the car has left)
         open_ = t - _cap["lastEntry"] <= ENTRY_GAP
         waiting = [e for e in _cap["cars"].values() if e["out"] is None and t - e["in"] < STUCK]
-        live = _rows(_cap)                 # the live look: cars appear as they reach the pit lane exit
+        # the live look: cars appear as they reach the pit lane exit (only once it's a real cycle, so one car in on its
+        # own doesn't take the place of the last finished list on air)
+        live = _rows(_cap) if (len(_cap["cars"]) >= MIN_CARS or _cap["manual"]) else []
         upd = {"count": len(_cap["cars"]), "lastOut": max((e["out"] for e in _cap["cars"].values() if e["out"]), default=None)}
         if live != STATE.get("live"):
             upd.update(live=live, liveLap=_cap["lap"], liveCaution=_cap["caution"])
