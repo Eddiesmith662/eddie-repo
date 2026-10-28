@@ -35,6 +35,7 @@ import update
 import diag
 import incidents
 import pitrace
+import livepoints
 
 ROOT = datafiles.ROOT
 STATIC = os.path.join(ROOT, "static")
@@ -58,7 +59,10 @@ DEFAULT_SETTINGS = {
         "movers": False,       # biggest movers: top 5 positions gained since the start
         "pitrace": False,      # race off pit road (shown from its section on the Race tab)
         "nextrace": False,     # next broadcast box (Prerace tab)
+        "livepoints": False,   # live points: the championship if the race ended now, over the ticker (Race tab)
     },
+    # live points: points per finishing place (P1 first), bonuses, cutoff line position and rows on the graphic
+    "livePoints": copy.deepcopy(livepoints.DEFAULTS),
     # next broadcast box: text typed on the Prerace tab; logo = an image in data\logos ("" = none)
     "nextRace": {"title": "NEXT BROADCAST", "event": "RACE 2 - TEXAS", "date": "JAN 19TH", "time": "8:00 PM ET", "logo": ""},
     "raceName": "VSPEED RACING LEAGUE",
@@ -1523,6 +1527,10 @@ def telemetry_loop(demo, multiclass=False, qual=False):
                 pitrace.update(live, log=diag.log)
             except Exception as e:
                 diag.error("Race off pit road error: %r" % (e,), e)
+            try:
+                live["livePoints"] = livepoints.compute(live, STATE.settings.get("livePoints"), standings.data_snapshot())
+            except Exception as e:      # live points must never stop the overlay
+                diag.error("Live points error: %r" % (e,), e)
             STATE.set_live(live)
             if time.time() - usage_t[0] >= 1.0:      # once a second: which graphics are on air (usage stats)
                 usage_t[0] = time.time()

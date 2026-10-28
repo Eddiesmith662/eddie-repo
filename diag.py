@@ -370,7 +370,7 @@ _use_dirty = False
 
 _SHOW_NAMES = {"logo": "VSPEED logo", "league": "League logo", "tower": "Ticker", "lowerthird": "Driver info", "flags": "Flag banners",
                "board": "Results board", "movers": "Biggest movers", "pitrace": "Race off pit road",
-               "nextrace": "Next broadcast"}
+               "nextrace": "Next broadcast", "livepoints": "Live points"}
 
 
 def _labels(path, data):

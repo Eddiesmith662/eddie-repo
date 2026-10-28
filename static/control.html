@@ -193,6 +193,12 @@
   #paRow { grid-template-columns: 72px 1fr; }
   #paRow .thumb { width: 72px; height: 40px; }
   #paRow .bt { grid-column: 1 / -1; } #paRow .bt button { flex: 1; min-width: 0; }
+  .lprow { display: flex; align-items: center; gap: 5px; flex: 0 0 auto !important; }
+  .lprow input { width: 52px; padding: 8px 6px; text-align: center; }
+  .lprow .s { font-size: 12px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; white-space: nowrap; }
+  .lptable { display: grid; grid-template-columns: repeat(auto-fill, minmax(54px, 1fr)); gap: 6px; }
+  .lptable label { margin: 0 0 2px; font-size: 11px; text-align: center; }
+  .lptable input { padding: 6px 4px; text-align: center; }
   .spgrid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
   #grEnd button, #grMode button { padding: 9px 10px; white-space: nowrap; }
   .sptools .s, .sptools button { white-space: nowrap; }
@@ -458,6 +464,14 @@
     <p class="hint" id="podInfo">After the race: one place at a time, with the driver's starting position, laps led and fastest lap (iRacing's results). Press another place to switch; the ticker and driver info step aside while it's up.</p>
   </section>
 
+  <section id="lpSec">
+    <h2><span class="t">Live points</span><span class="pill" id="lpAir">HIDDEN</span></h2>
+    <p class="hint" id="lpInfo" style="margin:0 0 10px">The championship if the race ended now.</p>
+    <div class="row" style="margin:0"><button class="vis" data-vis="lpAir" data-vrole="show" id="lpShow">Show</button><button class="vis" data-vis="lpAir" data-vrole="hide" id="lpHide">Hide</button>
+      <span class="lprow" title="The red cutoff line goes under this many drivers (12 = after 12th)"><span class="s">Line after</span><input type="number" id="lpCut" min="1" max="60"></span></div>
+    <p class="hint tip">Standings points (Standings tab: pull or load them before the race) plus the points each driver would score for where they're running now, plus bonuses (led a lap, most laps led, pole). Drivers with a win, and the race leader, are locked in at the top; the rest of the spots up to the cutoff go on points, like the playoff standings. It sits over the ticker like Race off pit road (showing one hides the other). The points table and bonuses are on the Setup tab.</p>
+  </section>
+
   <section>
     <h2><span class="t">Ticker &amp; driver info</span></h2>
     <label>Ticker gaps</label>
@@ -658,6 +672,19 @@
 
 <!-- ================= SETUP ================= -->
 <main data-tab="setup">
+  <section class="wide" id="lpScoring">
+    <h2><span class="t">Live points scoring</span></h2>
+    <label>Points for each finishing place</label>
+    <div class="lptable" id="lpTable"></div>
+    <div class="grid2" style="grid-template-columns:repeat(4,minmax(0,1fr))">
+      <div><label>Rows on the graphic</label><input type="number" id="lpRows" min="5" max="15"></div>
+      <div><label>Led a lap (bonus)</label><input type="number" step="any" id="lpLed"></div>
+      <div><label>Most laps led (bonus)</label><input type="number" step="any" id="lpMost"></div>
+      <div><label>Pole (bonus)</label><input type="number" step="any" id="lpPole"></div>
+    </div>
+    <div class="row" style="margin-top:10px"><button class="go" id="lpSave">Save points</button><button id="lpDefault">VSPEED default</button></div>
+    <p class="hint">Used by Live points on the Race tab. Places with 0 score nothing. Most laps led goes to everyone tied for the most, on top of the led-a-lap bonus.</p>
+  </section>
   <section class="wide">
     <h2><span class="t">Broadcasting software inputs (web browser input, 1920 × 1080)</span></h2>
     <label>Everything in one input (recommended)</label>
@@ -1168,9 +1195,42 @@ function podiumRender() {
 }
 /* ---------- race off pit road (Race tab) ---------- */
 let PR = {};
-$('prShow').onclick = () => { if (!(PR.list || []).length && !(PR.live || []).length) return toast('Nothing yet: cars appear as they come off pit road under caution'); set({ show: { pitrace: true } }); };
+$('prShow').onclick = () => { if (!(PR.list || []).length && !(PR.live || []).length) return toast('Nothing yet: cars appear as they come off pit road under caution'); set({ show: { pitrace: true, livepoints: false } }); };
 $('prHide').onclick = () => set({ show: { pitrace: false } });
 $('prCapture').onclick = async () => { await post('/api/pitrace', { cmd: 'capture' }); toast('Capturing: the next cars down pit road count'); };
+/* ---------- live points (Race tab) and its scoring (Setup tab) ---------- */
+const LP_DEFAULT = [46].concat(Array.from({ length: 42 }, (_, i) => 42 - i), Array(17).fill(0));   // P1 46, P2 42 ... P43 1, then 0
+$('lpShow').onclick = () => {
+  const P = (L && L.livePoints) || {};
+  if (!P.ok) return toast(P.why || 'Live points work in race sessions');
+  set({ show: { livepoints: true, pitrace: false } });
+};
+$('lpHide').onclick = () => set({ show: { livepoints: false } });
+$('lpCut').onchange = () => set({ livePoints: { cutoff: Math.max(1, Math.min(60, +$('lpCut').value || 12)) } });
+$('lpRows').onchange = () => set({ livePoints: { rows: Math.max(5, Math.min(15, +$('lpRows').value || 15)) } });
+$('lpTable').innerHTML = Array.from({ length: 60 }, (_, i) => `<div><label>P${String(i + 1).padStart(2, '0')}</label><input type="number" step="any" data-lp="${i}"></div>`).join('');
+function lpFill(table, b) {
+  document.querySelectorAll('[data-lp]').forEach(x => { x.value = table[+x.dataset.lp] ?? 0; });
+  $('lpLed').value = b.bonusLed ?? 1; $('lpMost').value = b.bonusMost ?? 1; $('lpPole').value = b.bonusPole ?? 1;
+}
+$('lpSave').onclick = async () => {
+  const table = [...document.querySelectorAll('[data-lp]')].map(x => +x.value || 0);
+  if (await set({ livePoints: { table, bonusLed: +$('lpLed').value || 0, bonusMost: +$('lpMost').value || 0, bonusPole: +$('lpPole').value || 0 } })) toast('Points saved');
+};
+$('lpDefault').onclick = () => { lpFill(LP_DEFAULT, { bonusLed: 1, bonusMost: 1, bonusPole: 1 }); toast('VSPEED default filled in: press Save points to use it'); };
+let lpFilled = false;
+function livePointsRender() {
+  const P = (L && L.livePoints) || {}, lp = S.livePoints || {};
+  air('lpAir', !!(S.show && S.show.livepoints) && !!P.ok);
+  if (document.activeElement !== $('lpCut')) $('lpCut').value = lp.cutoff ?? 12;
+  if (document.activeElement !== $('lpRows')) $('lpRows').value = lp.rows ?? 15;
+  if (!lpFilled && lp.table) { lpFilled = true; lpFill(lp.table, lp); }
+  if (!P.ok) { $('lpInfo').textContent = P.why || 'The championship if the race ended now.'; return; }
+  const rows = P.rows || [], last = rows[P.lineAfter], next = rows[P.lineAfter + 1];
+  const missing = (P.cars || 0) - (P.matched || 0);
+  $('lpInfo').textContent = (last ? `Line after ${P.lineAfter + 1}: last in #${last.num} ${last.name}` + (next ? ` (${last.cut === 'IN' ? 'locked in' : last.cut} on #${next.num})` : '') : 'No cutoff line') +
+    (P.locked ? ` · ${P.locked} locked in` : '') + (missing > 0 ? ` · ${missing} driver${missing === 1 ? '' : 's'} not in the standings (start from 0)` : '');
+}
 function pitraceRender() {
   const st = PR.status || 'idle', n = (PR.list || []).length;
   const pill = $('prState');
@@ -1604,7 +1664,7 @@ function render() {
   const lsm = document.querySelector('.tile[data-k="logo"] small'), lst = S.logoStyle === 'straight' ? 'top left · straight' : 'top left · slanted';
   if (lsm && lsm.textContent !== lst) lsm.textContent = lst;
   if (S.gfx) { trackList(); }
-  gridRender(); nextRender(); sponsorRender(); pensRender(); rendersRender(); classRowsRender(); pitraceRender(); podiumRender();
+  gridRender(); nextRender(); livePointsRender(); sponsorRender(); pensRender(); rendersRender(); classRowsRender(); pitraceRender(); podiumRender();
   segOn('towerSeg', S.towerMode); segOn('ltSeg', S.lowerThirdMode);
   const replay = !!L.isReplay;
 

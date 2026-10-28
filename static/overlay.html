@@ -248,6 +248,30 @@
   #pitrace .r .c6.best { color: #c86bff; font-family: var(--semi); font-weight: 600; }   /* fastest stop, like a fastest lap */
   #pitrace .ft { background: var(--black); font-family: var(--light); font-weight: 300; font-size: 13px; padding: 6px 12px; letter-spacing: .3px; color: #ddd; line-height: 1.35; }
   #pitrace .ft b { display: block; font-family: var(--semi); font-weight: 600; color: #fff; letter-spacing: 1px; font-size: 12px; }
+  /* ---------- Live points: same place and style as Race off pit road (rises up over the ticker) ---------- */
+  #tower #livepts { position: absolute; left: 0; right: 0; bottom: 0; z-index: 7; box-shadow: 0 -8px 24px rgba(0,0,0,.45); }
+  #tower #livepts:not(.off) { visibility: visible; }   /* shows even when the ticker itself is switched off */
+  #livepts .h { background: var(--grey); font-size: 19px; padding: 8px 14px 9px; position: relative; overflow: hidden; text-transform: uppercase; letter-spacing: .5px; white-space: nowrap; }
+  #livepts .h::after { content: ""; position: absolute; left: 0; bottom: 0; height: 4px; width: 55%; background: var(--red); transform-origin: left; }
+  #livepts .h small { float: right; font-family: var(--light); font-weight: 300; font-size: 14px; margin-top: 4px; letter-spacing: 1px; }
+  #livepts .sh { display: flex; background: var(--black); font-family: var(--light); font-weight: 300; font-size: 11px; padding: 4px 0; letter-spacing: 1px; }
+  #livepts .r { position: relative; display: flex; align-items: center; height: var(--row); font-size: 17px; background: #1e1e1f; }
+  #livepts .r:nth-child(odd) { background: #151515; }
+  #livepts .r.qual { background: #053e03; }                     /* above the cutoff: one solid green, like the playoff standings */
+  #livepts .r.cutafter::after { content: ""; position: absolute; left: 0; right: 0; bottom: -2px; height: 4px; background: var(--red); z-index: 2; }
+  #livepts .r.away .c3 { color: #9a9a9a; }                     /* in the standings but not in this race */
+  #livepts .c1 { width: 38px; text-align: center; }
+  #livepts .r .c1 { background: #080808; height: 100%; display: flex; align-items: center; justify-content: center; }
+  #livepts .c2 { width: 40px; text-align: center; color: var(--midgrey); }
+  #livepts .sh .c2 { color: #fff; }
+  #livepts .r.qual .c2 { color: #b9d3b7; }
+  #livepts .c3 { flex: 1; min-width: 0; padding-left: 2px; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  #livepts .c4 { width: 46px; text-align: right; font-variant-numeric: tabular-nums; }
+  #livepts .c5 { width: 64px; text-align: right; padding-right: 10px; font-variant-numeric: tabular-nums; }
+  #livepts .r .c5 { font-family: var(--light); font-weight: 300; font-size: 15px; }
+  #livepts .r .c5.neg { color: #ff8a96; }
+  #livepts .r .c5.lock { font-family: var(--semi); font-weight: 600; font-size: 12px; letter-spacing: .5px; }
+  #livepts .r .c5.lock span { background: var(--green); color: #06280f; padding: 2px 6px; border-radius: 2px; }
   #movers .h { background: var(--grey); font-size: 24px; padding: 10px 18px 12px; position: relative; overflow: hidden; text-transform: uppercase; letter-spacing: .5px; }
   #movers .h::after { content: ""; position: absolute; left: 0; bottom: 0; height: 4px; width: 45%; background: var(--red); transform-origin: left; }
   #movers .h small { float: right; font-family: var(--light); font-weight: 300; font-size: 15px; margin-top: 7px; letter-spacing: 1px; }
@@ -364,6 +388,7 @@
   <div class="rows" id="tRows"><div class="cwipe" id="tCwipe"></div></div>
   <div class="pits" id="tPits"></div>
   <div id="pitrace" class="widget off"><div class="h"><span>Race off pit road</span><small id="prSub"></small></div><div id="prBody"></div></div>
+  <div id="livepts" class="widget off"><div class="h"><span>Live points</span><small id="lpSub"></small></div><div id="lpBody"></div></div>
 </div>
 
 <div id="lower" class="widget off">
@@ -491,6 +516,12 @@ const IN = {
     shineOn(q('penalty', '.tx'), 600);
     return 1000;
   },
+  livepts(el) {   // rises up from the bottom of the ticker, like Race off pit road
+    anim(el, [{ clipPath: 'inset(100% 0 0 0)', transform: 'translateY(40px)' }, { clipPath: 'inset(0 0 0 0)', transform: 'none' }], { duration: 650, easing: 'cubic-bezier(.2,.8,.3,1)' });
+    anim(q('livepts', '.h'), lineIn, { duration: 700, delay: 450, pseudoElement: '::after' });
+    shineOn(q('livepts', '.h'), 600);
+    return 1100;
+  },
   pitrace(el) {   // rises up from the bottom of the ticker
     anim(el, [{ clipPath: 'inset(100% 0 0 0)', transform: 'translateY(40px)' }, { clipPath: 'inset(0 0 0 0)', transform: 'none' }], { duration: 650, easing: 'cubic-bezier(.2,.8,.3,1)' });
     anim(q('pitrace', '.h'), lineIn, { duration: 700, delay: 450, pseudoElement: '::after' });
@@ -583,6 +614,10 @@ const OUT = {
     anim(q('lower', '.n'), wipeOut, { duration: 350, delay: 450, easing: EASE_IN, fill: 'forwards' });
     anim(q('lower', '.p'), [{ opacity: 1, transform: 'none' }, { opacity: 0, transform: 'scale(.6)' }], { duration: 300, delay: 550, easing: 'ease-in', fill: 'forwards' });
     return 850;
+  },
+  livepts(el) {    // drops back down into the bottom of the ticker
+    anim(el, [{ clipPath: 'inset(0 0 0 0)', transform: 'none' }, { clipPath: 'inset(100% 0 0 0)', transform: 'translateY(40px)' }], { duration: 500, easing: EASE_IN, fill: 'forwards' });
+    return 520;
   },
   pitrace(el) {    // drops back down into the bottom of the ticker
     anim(el, [{ clipPath: 'inset(0 0 0 0)', transform: 'none' }, { clipPath: 'inset(100% 0 0 0)', transform: 'translateY(40px)' }], { duration: 500, easing: EASE_IN, fill: 'forwards' });
@@ -1018,6 +1053,27 @@ function renderNext() {
   if ($('nrLogo').dataset.src !== src) { $('nrLogo').dataset.src = src; if (src) $('nrLogo').src = src; else $('nrLogo').removeAttribute('src'); }
   el.classList.toggle('nologo', !src);
   show('nextrace', on);
+}
+
+/* ---------- live points: the championship if the race ended now (worked out by the server, livepoints.py) ---------- */
+function renderLivePoints() {
+  const P = (L && L.livePoints) || {}, n = Math.max(1, Math.min(15, +((S.livePoints || {}).rows) || 15));
+  let rows = (P.rows || []).slice(0, n), lineAfter = P.lineAfter;
+  const sample = LAYOUT_MODE && !rows.length;
+  if (sample) {
+    rows = ['R. Carter', 'J. Morrison', 'T. Brooks', 'C. Hensley', 'A. Reed', 'M. Pike', 'D. Hart', 'C. Whitaker', 'B. Cole', 'L. Fisher', 'E. Sutton', 'K. Barrett', 'N. Delgado', 'G. Lowe', 'H. Vance']
+      .map((nm, i) => ({ pos: i + 1, num: String(i * 7 + 2), name: nm, pts: String(400 - i * 9), cut: i < 2 ? 'IN' : i < 12 ? '+' + (9 * (12 - i)) : String(-9 * (i - 11)), status: i < 2 ? 'lock' : i < 12 ? 'in' : 'out', racing: true }));
+    lineAfter = 11;
+  }
+  const on = sample || ((S.show.livepoints || LAYOUT_MODE) && L.connected && !!P.ok && rows.length > 0);
+  show('livepts', on);
+  if (!on) return;
+  $('lpSub').textContent = sample ? 'LAP 47' : (L.sessionState >= 5 ? 'FINAL' : L.lap ? 'LAP ' + L.lap : '');
+  const html = `<div class="sh"><span class="c1"></span><span class="c2">#</span><span class="c3">DRIVER</span><span class="c4">PTS</span><span class="c5">TO CUT</span></div>` +
+    rows.map((r, i) => `<div class="r ${r.status !== 'out' ? 'qual' : ''} ${i === lineAfter && i < rows.length - 1 ? 'cutafter' : ''} ${r.racing ? '' : 'away'}">` +
+      `<span class="c1">${r.pos}</span><span class="c2">${esc(r.num)}</span><span class="c3">${esc(tickerName(r.name))}</span><span class="c4">${esc(r.pts)}</span>` +
+      (r.status === 'lock' ? '<span class="c5 lock"><span>IN</span></span>' : `<span class="c5 ${/^-/.test(r.cut) ? 'neg' : ''}">${esc(r.cut)}</span>`) + '</div>').join('');
+  if ($('lpBody').innerHTML !== html) $('lpBody').innerHTML = html;
 }
 
 /* ---------- biggest movers: top 5 positions gained since the start ---------- */
@@ -1534,14 +1590,14 @@ function render() {
   if (sponsorLive(RAW)) vis.lowerthird = false;   // driver info steps aside while a sponsor graphic is up
   const pod = podiumWant();
   if (pod) {   // the podium artwork covers the screen: the other graphics step aside, except the VSPEED logo, which stays
-    ['tower', 'lowerthird', 'movers', 'board', 'pitrace'].forEach(k => vis[k] = false);
+    ['tower', 'lowerthird', 'movers', 'board', 'pitrace', 'livepoints'].forEach(k => vis[k] = false);
     vis.logo = true;   // the overlay's own logo (the artwork no longer has one baked in), in its usual spot
   }
   WIDGETS.logo.holder.style.zIndex = pod ? '30' : '';   // above the podium artwork while it's up
   S = Object.assign({}, RAW, { show: vis }, LAYOUT_MODE ? { lowerThirdMode: 'always' } : {});
   const realL = L;
   if (LAYOUT_MODE && !(L.connected && L.cars && L.cars.length)) L = sampleLive();
-  renderChrome(); renderTower(); renderLower(); renderBoard(); renderMovers(); renderNext(); renderPitrace(); renderPodium(); renderGfx(); renderGrid(); gridAward(); renderSponsor(); renderPenalty();
+  renderChrome(); renderTower(); renderLower(); renderBoard(); renderMovers(); renderNext(); renderPitrace(); renderLivePoints(); renderPodium(); renderGfx(); renderGrid(); gridAward(); renderSponsor(); renderPenalty();
   if (LAYOUT_MODE && FLAG_BANNERS) { const fl = $('flag'); Object.keys(FLAG_TEXT).forEach(k => fl.classList.toggle(k, k === 'green')); $('flagText').textContent = 'GREEN FLAG'; show('flag', true); } else renderFlag();
   L = realL;
 }
