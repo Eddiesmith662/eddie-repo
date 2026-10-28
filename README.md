@@ -57,7 +57,7 @@ The **control panel** (Prerace, Race, Standings, Layout and Setup tabs; race inf
 
 **Moving over from Standings Control:** close the old program first, since both use port 8765. To keep your saved title, logo, bracket and team/race-info text, copy `config.json`, `standings.json`, `bracket.json` and your `logo.*` file from the old program's folder into this folder's `data\standings` folder (create it if it isn't there yet). Old browser inputs for `/analysis` and `/team` keep working; the standings graphic itself is now at `/standings` (or just use the single `/overlay` input).
 
-**No iRacing handy?** Double-click **`start-demo.bat`** to run a fake 24-car race so you can test the look in your broadcasting software.
+**No iRacing handy?** Double-click **`start-demo.bat`** to run a fake 24-car race so you can test the look in your broadcasting software. To race your own drivers in the demo instead (handy for testing live points against your real standings), put a `demo-field.csv` in the `data` folder with one driver per line as `car number,name` (a `#,Driver` header line is fine); the file's order is the starting grid. Delete it to go back to the made-up field.
 
 To check the layout in a normal browser over a sample background, open `http://localhost:8765/overlay?preview`.
 

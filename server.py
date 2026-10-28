@@ -1085,13 +1085,36 @@ DEMO_NAMES = [
 ]
 
 
+DEMO_FIELD_FILE = os.path.join(datafiles.DATA, "demo-field.csv")
+
+
+def demo_field():
+    """Your own drivers for the demo race (e.g. to test live points against your real standings): data/demo-field.csv,
+    one driver per line as car number,name (a header line is fine). It's in the data folder, so it never goes into the
+    program files or an update. Returns [(number, name)], or None to use the made-up field."""
+    import csv
+    try:
+        with open(DEMO_FIELD_FILE, encoding="utf-8-sig", newline="") as f:
+            rows = [r for r in csv.reader(f) if len(r) >= 2 and r[1].strip()]
+    except OSError:
+        return None
+    if rows and rows[0][1].strip().lower() in ("driver", "name"):
+        rows = rows[1:]
+    field = [(r[0].strip().lstrip("#"), r[1].strip()) for r in rows][:60]
+    if field:
+        print("Demo race: %d drivers from %s" % (len(field), DEMO_FIELD_FILE))
+    return field or None
+
+
 class DemoSource:
     def __init__(self, multiclass=False):
         rnd = random.Random(7)
-        nums = rnd.sample(range(1, 99), len(DEMO_NAMES))
+        field = demo_field()
+        names = [n for _, n in field] if field else DEMO_NAMES
+        nums = [str(k) for k, _ in field] if field else rnd.sample(range(1, 99), len(DEMO_NAMES))   # the file's order is the starting grid
         self.base = 29.6
         self.cars = []
-        for i, name in enumerate(DEMO_NAMES):
+        for i, name in enumerate(names):
             self.cars.append({
                 "idx": i + 1, "num": str(nums[i]), "name": name, "abbrev": name,
                 "team": "VSPEED Demo", "cls": "CUP", "clsColor": "#FF0D40",
