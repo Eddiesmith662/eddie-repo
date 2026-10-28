@@ -1255,12 +1255,15 @@ function livePointsRender() {
   if (!P.ok) { $('lpInfo').textContent = P.why || 'The championship if the race ended now.'; return; }
   if (P.champ4) { const a = (P.rows || [])[0]; $('lpInfo').textContent = 'Championship 4' + (a && a.status === 'champ' ? ` · ahead: #${a.num} ${a.name}` : ''); $('lpInfo').title = 'Playoffs: the highest finisher of the four takes the championship'; return; }
   const rows = P.rows || [], last = rows[P.lineAfter], next = rows[P.lineAfter + 1];
-  const missing = (P.cars || 0) - (P.matched || 0);
+  const miss = P.unmatched || [];   // cars in the race that aren't in the standings (start from 0)
+  const missTxt = miss.length ? `Not in standings: ${miss[0]}${miss.length > 1 ? ' +' + (miss.length - 1) + ' more' : ''} · ` : '';
   const full = (last ? `Line after ${P.lineAfter + 1}: last in #${last.num} ${last.name}` + (next ? ` (${last.cut === 'IN' ? 'locked in' : last.cut} on #${next.num})` : '') : 'No cutoff line') +
-    (P.locked ? ` · ${P.locked} locked in` : '') + (missing > 0 ? ` · ${missing} driver${missing === 1 ? '' : 's'} not in the standings (start from 0)` : '');
+    (P.locked ? ` · ${P.locked} locked in` : '') +
+    (miss.length ? `\n\nNot in the standings (start from 0): ${miss.join(', ')}.\nA driver new to the series is expected here; anyone else means their name and car number don't match Xtreme.` : '');
   // one short line (the panel fits half a screen); the whole thing on hover
-  $('lpInfo').textContent = (po && P.title ? ({ 'ROUND OF 12': 'Round of 12', 'ROUND OF 8': 'Round of 8' }[P.title] || P.title) + ' · ' : '') +
-    (last ? `Last in: #${last.num} ${last.name}${last.cut && last.cut !== 'IN' ? ' (' + last.cut + ')' : ''}` : 'No cutoff line') + (missing > 0 ? ` · ${missing} not in standings` : '');
+  $('lpInfo').textContent = missTxt + (po && P.title ? ({ 'ROUND OF 12': 'Round of 12', 'ROUND OF 8': 'Round of 8' }[P.title] || P.title) + ' · ' : '') +
+    (last ? `Last in: #${last.num} ${last.name}${last.cut && last.cut !== 'IN' ? ' (' + last.cut + ')' : ''}` : 'No cutoff line');
+  $('lpInfo').style.color = miss.length ? 'var(--yellow)' : '';
   $('lpInfo').title = full;
 }
 function pitraceRender() {

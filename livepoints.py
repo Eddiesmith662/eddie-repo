@@ -113,6 +113,8 @@ def compute(live, cfg, standings_data, bracket=None):
             people.append(p)
         p["car"] = c
 
+    # cars in this race that aren't in the standings (a first race in the series, or a name and number that don't match)
+    out["unmatched"] = ["#%s %s" % (p["num"], p["name"]) for p in people if p["car"] is not None and not p["basePos"]]
     for p in people:
         c = p["car"]
         race = bonus = 0.0
