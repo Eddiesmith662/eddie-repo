@@ -274,6 +274,9 @@
   #livepts .r .c5.neg { color: #ff8a96; }
   #livepts .r .c5.lock { font-family: var(--semi); font-weight: 600; font-size: 12px; letter-spacing: .5px; }
   #livepts .r .c5.lock span { background: var(--green); color: #06280f; padding: 2px 6px; border-radius: 2px; }
+  #livepts .r .c5.champ span { background: #f5c542; color: #2a1d00; padding: 2px 4px; font-size: 11px; }
+  #livepts .champ4 .c4 { width: 40px; padding-right: 4px; }      /* Championship 4: whoever's ahead of the other three */
+  #livepts .r.champ { background: #4a3a06; }
   #movers .h { background: var(--grey); font-size: 24px; padding: 10px 18px 12px; position: relative; overflow: hidden; text-transform: uppercase; letter-spacing: .5px; }
   #movers .h::after { content: ""; position: absolute; left: 0; bottom: 0; height: 4px; width: 45%; background: var(--red); transform-origin: left; }
   #movers .h small { float: right; font-family: var(--light); font-weight: 300; font-size: 15px; margin-top: 7px; letter-spacing: 1px; }
@@ -390,7 +393,7 @@
   <div class="rows" id="tRows"><div class="cwipe" id="tCwipe"></div></div>
   <div class="pits" id="tPits"></div>
   <div id="pitrace" class="widget off"><div class="h"><span>Race off pit road</span><small id="prSub"></small></div><div id="prBody"></div></div>
-  <div id="livepts" class="widget off"><div class="h"><span>Live points</span><small id="lpSub"></small></div><div id="lpBody"></div></div>
+  <div id="livepts" class="widget off"><div class="h"><span id="lpTitle">Live points</span><small id="lpSub"></small></div><div id="lpBody"></div></div>
 </div>
 
 <div id="lower" class="widget off">
@@ -1028,6 +1031,7 @@ function renderPitrace() {
   const multi = (L.classes || []).length > 1;
   const clsColor = Object.fromEntries((L.cars || []).map(c => [c.num, c.clsColor]));
   const stayed = sample ? [{ num: '11', name: 'C. Abbiate' }] : isLive ? [] : (P.stayed || []);   // known once the cycle is over
+  $('lpBody').classList.toggle('champ4', champ4);
   const html = `<div class="sh"><span class="c1"></span>${multi ? '<span class="cc"></span>' : ''}<span class="c2">#</span><span class="c3">DRIVER</span><span class="c5">+/-</span><span class="c6">STOP</span></div>` +
     rows.map((r, i) => `<div class="r"><span class="c1">${i + 1}</span>${multi ? `<span class="cc" style="background:${clsColor[r.num] || 'transparent'}"></span>` : ''}<span class="c2">${esc(r.num)}</span><span class="c3">${esc(tickerName(r.name))}</span>` +
       (r.penalty ? '<span class="c5 pen">PENALTY</span>' : `<span class="c5 ${r.gained > 0 ? 'up' : r.gained < 0 ? 'dn' : ''}">${r.gained > 0 ? '▲ ' + r.gained : r.gained < 0 ? '▼ ' + -r.gained : '–'}</span>`) +
@@ -1073,10 +1077,14 @@ function renderLivePoints() {
   show('livepts', on);
   if (!on) return;
   $('lpSub').textContent = sample ? 'LAP 47' : (L.sessionState >= 5 ? 'FINAL' : L.lap ? 'LAP ' + L.lap : '');
-  const html = `<div class="sh"><span class="c1"></span><span class="c2">#</span><span class="c3">DRIVER</span><span class="c4">PTS</span><span class="c5">TO CUT</span></div>` +
-    rows.map((r, i) => `<div class="r ${r.status !== 'out' ? 'qual' : ''} ${i === lineAfter ? 'cutafter' : ''} ${i === 0 && lineAfter === -1 && P.lineAfter != null && P.lineAfter >= 0 ? 'cutbefore' : ''} ${r.racing ? '' : 'away'}">` +
+  $('lpTitle').textContent = sample ? 'Live points' : (P.title || 'Live points');   // playoff mode: ROUND OF 12 / ROUND OF 8 / CHAMPIONSHIP 4
+  const champ4 = !!P.champ4;
+  $('lpBody').classList.toggle('champ4', champ4);
+  const html = `<div class="sh"><span class="c1"></span><span class="c2">#</span><span class="c3">DRIVER</span><span class="c4">${champ4 ? 'RUN' : 'PTS'}</span><span class="c5">${champ4 ? '' : 'TO CUT'}</span></div>` +
+    rows.map((r, i) => `<div class="r ${r.status === 'champ' ? 'champ' : r.status !== 'out' ? 'qual' : ''} ${i === lineAfter ? 'cutafter' : ''} ${i === 0 && lineAfter === -1 && P.lineAfter != null && P.lineAfter >= 0 ? 'cutbefore' : ''} ${r.racing ? '' : 'away'}">` +
       `<span class="c1">${r.pos}</span><span class="c2">${esc(r.num)}</span><span class="c3">${esc(tickerName(r.name))}</span><span class="c4">${esc(r.pts)}</span>` +
-      (r.status === 'lock' ? '<span class="c5 lock"><span>IN</span></span>' : `<span class="c5 ${/^-/.test(r.cut) ? 'neg' : ''}">${esc(r.cut)}</span>`) + '</div>').join('');
+      (r.status === 'lock' ? '<span class="c5 lock"><span>IN</span></span>' : r.status === 'champ' ? '<span class="c5 lock champ"><span>CHAMP</span></span>'
+        : `<span class="c5 ${/^-/.test(r.cut) ? 'neg' : ''}">${esc(r.cut)}</span>`) + '</div>').join('');
   if ($('lpBody').innerHTML !== html) $('lpBody').innerHTML = html;
 }
 

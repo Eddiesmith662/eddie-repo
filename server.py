@@ -1551,7 +1551,8 @@ def telemetry_loop(demo, multiclass=False, qual=False):
             except Exception as e:
                 diag.error("Race off pit road error: %r" % (e,), e)
             try:
-                live["livePoints"] = livepoints.compute(live, STATE.settings.get("livePoints"), standings.data_snapshot())
+                live["livePoints"] = livepoints.compute(live, STATE.settings.get("livePoints"), standings.data_snapshot(),
+                                                        standings.bracket_snapshot())
             except Exception as e:      # live points must never stop the overlay
                 diag.error("Live points error: %r" % (e,), e)
             STATE.set_live(live)

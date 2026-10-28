@@ -116,13 +116,16 @@
   table.st input { padding: 5px 6px; min-width: 44px; }
   table.st td.drv input { min-width: 170px; }
   .tablewrap { overflow: auto; max-height: 640px; border: 1px solid var(--line); border-radius: 5px; }
-  .bracket { display: grid; grid-template-columns: repeat(4, minmax(200px, 1fr)); gap: 10px; overflow-x: auto; }
+  .bracket { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 10px; }   /* 4 rounds across on a wide window, wrapping on half a screen */
   .bcol h3 { margin: 0 0 6px; font-size: 12px; letter-spacing: 1.5px; color: var(--dim); font-weight: 400; text-transform: uppercase; }
   .bent { display: flex; align-items: center; gap: 6px; background: #1d1d1e; border: 1px solid #333; border-radius: 4px; padding: 5px 6px; margin-bottom: 4px; font-size: 14px; }
-  .bent .sd { background: var(--red); min-width: 26px; text-align: center; border-radius: 3px; font-size: 12px; padding: 2px 0; }
-  .bent .cn { color: var(--yellow); min-width: 30px; }
-  .bent .nm { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-  .bent button { padding: 3px 7px; font-size: 13px; }
+  .bent .sd { background: var(--red); min-width: 24px; text-align: center; border-radius: 3px; font-size: 12px; padding: 2px 0; }
+  .bent .cn { color: var(--yellow); min-width: 26px; }
+  .bent .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bent button { padding: 3px 6px; font-size: 12px; flex: 0 0 auto; }
+  .bent .bwon { opacity: .35; filter: grayscale(1); }
+  .bent .bwon.on { opacity: 1; filter: none; background: #3d3210; border-color: #f5c542; }
+  .bent:has(.bwon.on) { border-color: #f5c542; }
   .empty { color: var(--dim); font-size: 13px; padding: 6px 0; }
   .log { font-family: Consolas, monospace; font-size: 12px; color: #bbb; background: #111; border-radius: 5px; padding: 8px; max-height: 170px; overflow: auto; white-space: pre-wrap; }
   .url { display: flex; gap: 6px; }
@@ -648,8 +651,11 @@
   <section class="wide">
     <h2><span class="t">Playoff bracket</span>
       <button id="bLoad" style="flex:0 0 auto">Load top 12</button><button id="bClear" style="flex:0 0 auto">Clear</button></h2>
-    <div class="bracket" id="bracket"></div>
-    <p class="hint">→ advances a driver to the next round. × takes them out of that round and later ones. ✎ fixes a name or car number everywhere. The bracket is filled by hand and never changed by a standings pull.</p>
+    <label>Live points (Race tab)</label>
+    <div class="seg" id="lpModeSeg"><button data-v="season">Regular season</button><button data-v="playoff">Playoffs: use this bracket</button></div>
+    <div class="bracket" id="bracket" style="margin-top:10px"></div>
+    <p class="hint">→ advances a driver to the next round. × takes them out of that round and later ones. ✎ fixes a name or car number everywhere. 🏆 marks a driver who won a race in that round: in playoff mode live points shows them locked in (a win only counts in its own round, so it's not carried into the next one). The bracket is filled by hand and never changed by a standings pull.</p>
+    <p class="hint">Playoff mode: live points lists only the drivers in the current round (the latest round with drivers in it), with its own cutline (8 go through from the Round of 12, 4 from the Round of 8). Regular-season wins don't count; round winners (🏆) and a playoff driver leading the race are locked in. The Championship 4 shows the four in running order: highest finisher takes it. Pull the standings before each race so the reset playoff points are in.</p>
   </section>
 
   <section class="wide">
@@ -965,7 +971,8 @@ function renderBracket() {
   const rounds = (SD && SD.state.bracket && SD.state.bracket.rounds) || [[], [], [], []];
   const key = JSON.stringify(rounds); if (key === bKey) return; bKey = key;
   $('bracket').innerHTML = BNAMES.map((n, r) => `<div class="bcol"><h3>${n} (${rounds[r].length})</h3>` +
-    (rounds[r].length ? rounds[r].map((e, i) => `<div class="bent"><span class="sd">${esc(e.seed)}</span><span class="cn">${esc(e.num)}</span><span class="nm">${esc(e.name)}</span>` +
+    (rounds[r].length ? rounds[r].map((e, i) => `<div class="bent"><span class="sd">${esc(e.seed)}</span><span class="cn">${esc(e.num)}</span><span class="nm" title="${esc(e.name)}">${esc(e.name)}</span>` +
+      (r < 3 ? `<button data-b="bracketWon" data-r="${r}" data-i="${i}" class="bwon ${e.won ? 'on' : ''}" title="${e.won ? 'Won a race in this round (click to clear)' : 'Mark: won a race in this round'}">🏆</button>` : '') +
       (r < 3 ? `<button data-b="bracketAdvance" data-r="${r}" data-i="${i}" title="Advance">→</button>` : '') +
       (r > 0 ? `<button data-b="bracketRemove" data-r="${r}" data-i="${i}" title="Remove">×</button>` : '') +
       `<button data-b="edit" data-r="${r}" data-i="${i}" title="Edit">✎</button></div>`).join('') : '<div class="empty">Empty</div>') + '</div>').join('');
@@ -979,8 +986,10 @@ $('bracket').onclick = e => {
     const name = prompt('Driver name', ent.name); if (name === null) return;
     return std('bracketEdit', { seed: ent.seed, num, name });
   }
+  if (b.dataset.b === 'bracketWon') return std('bracketWon', { r, idx: i, on: !SD.state.bracket.rounds[r][i].won });
   std(b.dataset.b, { r, idx: i });
 };
+$('lpModeSeg').onclick = e => { const b = e.target.closest('button'); if (b) set({ livePoints: { playoff: b.dataset.v === 'playoff' } }); };
 $('bLoad').onclick = () => std('bracketLoad');
 $('bClear').onclick = () => std('bracketClear');
 
@@ -1240,13 +1249,18 @@ function livePointsRender() {
   if (document.activeElement !== $('lpFrom')) $('lpFrom').value = lp.from ?? 1;
   if (document.activeElement !== $('lpTo')) $('lpTo').value = lp.to ?? 15;
   if (!lpFilled && lp.table) { lpFilled = true; lpFill(lp.table, lp); }
+  const po = !!lp.playoff;
+  segOn('lpModeSeg', po ? 'playoff' : 'season');
+  $('lpCut').disabled = po; $('lpCut').title = po ? 'Playoff mode: the cutline is set by the round (8 go through from the Round of 12, 4 from the Round of 8)' : '';
   if (!P.ok) { $('lpInfo').textContent = P.why || 'The championship if the race ended now.'; return; }
+  if (P.champ4) { const a = (P.rows || [])[0]; $('lpInfo').textContent = 'Championship 4' + (a && a.status === 'champ' ? ` · ahead: #${a.num} ${a.name}` : ''); $('lpInfo').title = 'Playoffs: the highest finisher of the four takes the championship'; return; }
   const rows = P.rows || [], last = rows[P.lineAfter], next = rows[P.lineAfter + 1];
   const missing = (P.cars || 0) - (P.matched || 0);
   const full = (last ? `Line after ${P.lineAfter + 1}: last in #${last.num} ${last.name}` + (next ? ` (${last.cut === 'IN' ? 'locked in' : last.cut} on #${next.num})` : '') : 'No cutoff line') +
     (P.locked ? ` · ${P.locked} locked in` : '') + (missing > 0 ? ` · ${missing} driver${missing === 1 ? '' : 's'} not in the standings (start from 0)` : '');
   // one short line (the panel fits half a screen); the whole thing on hover
-  $('lpInfo').textContent = (last ? `Last in: #${last.num} ${last.name}${last.cut && last.cut !== 'IN' ? ' (' + last.cut + ')' : ''}` : 'No cutoff line') + (missing > 0 ? ` · ${missing} not in standings` : '');
+  $('lpInfo').textContent = (po && P.title ? ({ 'ROUND OF 12': 'Round of 12', 'ROUND OF 8': 'Round of 8' }[P.title] || P.title) + ' · ' : '') +
+    (last ? `Last in: #${last.num} ${last.name}${last.cut && last.cut !== 'IN' ? ' (' + last.cut + ')' : ''}` : 'No cutoff line') + (missing > 0 ? ` · ${missing} not in standings` : '');
   $('lpInfo').title = full;
 }
 function pitraceRender() {

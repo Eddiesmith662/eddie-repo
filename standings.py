@@ -274,7 +274,7 @@ def _clean_rounds(rounds):
         lst, seen = [], set()
         for e in (rounds[k] if isinstance(rounds, list) and k < len(rounds) else []):
             try:
-                ent = {"seed": int(e["seed"]), "num": str(e.get("num", "")), "name": str(e.get("name", ""))}
+                ent = {"seed": int(e["seed"]), "num": str(e.get("num", "")), "name": str(e.get("name", "")), "won": bool(e.get("won"))}
             except (KeyError, TypeError, ValueError, AttributeError):
                 continue
             if ent["seed"] in seen or len(lst) >= cap:
@@ -330,7 +330,7 @@ def bracket_advance(rounds, r, idx):
     rounds = copy.deepcopy(rounds)
     if r < 0 or r > 2 or idx < 0 or idx >= len(rounds[r]):
         return rounds, "Pick a driver first." if r <= 2 else "The champion has nowhere to advance to."
-    ent = rounds[r][idx]
+    ent = dict(rounds[r][idx], won=False)      # a win only counts in the round it was in
     nxt = rounds[r + 1]
     if any(e["seed"] == ent["seed"] for e in nxt):
         return rounds, "%s is already in the %s." % (ent["name"], BRACKET_NAMES[r + 1])
@@ -721,6 +721,15 @@ def command(cmd, d):
             log("%s advanced to the %s." % (name, BRACKET_NAMES[r + 1]))
         else:
             log("%s removed from the %s%s." % (name, BRACKET_NAMES[r], " and later rounds" if r < 3 else ""))
+        return True, ""
+    if cmd == "bracketWon":      # live points playoff mode: this driver won a race in this round (locked in)
+        r, idx = _int(d.get("r"), -1, 9, -1), _int(d.get("idx"), -1, 99, -1)
+        rounds = bracket_snapshot()
+        if not (0 <= r <= 2 and 0 <= idx < len(rounds[r])):
+            return False, "Pick a driver in the Round of 12, Round of 8 or Championship 4."
+        rounds[r][idx]["won"] = bool(d.get("on"))
+        set_bracket(rounds)
+        log("%s %s a win in the %s." % (rounds[r][idx]["name"], "marked with" if d.get("on") else "no longer marked with", BRACKET_NAMES[r]))
         return True, ""
     if cmd == "bracketEdit":
         rounds, problem = bracket_edit(bracket_snapshot(), _int(d.get("seed"), 0, 999, 0), d.get("num", ""), d.get("name", ""))

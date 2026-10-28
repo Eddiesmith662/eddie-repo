@@ -8,6 +8,13 @@ top (here that's anyone with a win in the standings' Wins column, plus whoever i
 remaining spots up to the cutoff go to the best of the rest on points, and the line sits under the last
 driver who's in.
 
+Playoff mode (cfg "playoff", switched on with the bracket on the Standings tab): only the drivers in the current
+playoff round (the latest bracket round with drivers in it) are listed, regular-season wins don't count, and a driver
+is locked in by a win in this round (ticked in the bracket) or by leading the race. The cutline sets itself: 8 go
+through from the Round of 12, 4 from the Round of 8. The Championship 4 has no points: highest finisher of the four
+takes it, so it lists them in running order with the leader as CHAMP. Points still come from the standings (Xtreme
+Scoring shows the reset playoff points) plus tonight's points and bonuses.
+
 Drivers are matched to the standings by name (ignoring case, spaces, punctuation and the digits iRacing adds
 to some names), then by car number. iRacing drivers not in the standings start from 0. Drivers in the
 standings who aren't in this race keep their points and stay in the list.
@@ -17,7 +24,9 @@ import re
 # VSPEED's points table: P1 46, P2 42, P3 41, then one point less per place to P43 = 1, 0 after that
 DEFAULT_TABLE = [46] + [44 - p for p in range(2, 44)] + [0] * 17      # 60 places
 # from / to = the places shown on the graphic (e.g. 3 and 16 = 3rd to 16th), at most MAX_ROWS of them
-DEFAULTS = {"cutoff": 12, "from": 1, "to": 15, "table": DEFAULT_TABLE, "bonusLed": 1, "bonusMost": 1, "bonusPole": 1}
+DEFAULTS = {"cutoff": 12, "from": 1, "to": 15, "table": DEFAULT_TABLE, "bonusLed": 1, "bonusMost": 1, "bonusPole": 1, "playoff": False}
+ROUNDS = ["ROUND OF 12", "ROUND OF 8", "CHAMPIONSHIP 4"]
+ADVANCE = [8, 4]             # drivers who go through from the Round of 12 and the Round of 8
 MAX_ROWS = 15
 
 
@@ -45,10 +54,20 @@ def _fmt(x):
     return str(int(x)) if abs(x - round(x)) < 1e-9 else ("%.1f" % x)
 
 
-def compute(live, cfg, standings_data):
+def _find(people, name, num):
+    k = _key(name)
+    p = next((p for p in people if k and _key(p["name"]) == k), None)
+    if p is None and num:
+        p = next((p for p in people if p["num"] == str(num).strip()), None)
+    return p
+
+
+def compute(live, cfg, standings_data, bracket=None):
     """Returns what the live points graphic and the control panel show (see the module notes)."""
     cfg = dict(DEFAULTS, **(cfg or {}))
-    out = {"ok": False, "why": "", "rows": [], "cutoff": int(cfg.get("cutoff") or 12), "lap": live.get("lap")}
+    playoff = bool(cfg.get("playoff"))
+    out = {"ok": False, "why": "", "rows": [], "cutoff": int(cfg.get("cutoff") or 12), "lap": live.get("lap"),
+           "mode": "playoff" if playoff else "season", "title": "LIVE POINTS"}
     if not live.get("connected"):
         out["why"] = "Waiting for iRacing"
         return out
@@ -110,14 +129,51 @@ def compute(live, cfg, standings_data):
                 bonus += b_pole
         p["race"], p["bonus"] = race, bonus
         p["pts"] = p["base"] + race + bonus
-        p["lock"] = p["wins"] > 0 or (c is not None and racing and (c.get("pos") or 0) == 1)
+        p["leading"] = c is not None and racing and (c.get("pos") or 0) == 1
+        p["lock"] = p["wins"] > 0 or p["leading"]
+
+    cut = max(1, int(cfg.get("cutoff") or 12))
+    if playoff:
+        rounds = (bracket or [[], [], [], []]) + [[]] * 4
+        r = max((k for k in range(3) if rounds[k]), default=None)
+        if r is None:
+            out["why"] = "Playoff mode: the bracket is empty (Standings tab: Load top 12)"
+            return out
+        field = []
+        for e in rounds[r]:            # the drivers in this round, with their standings points
+            p = _find(people, e.get("name"), e.get("num"))
+            if p is None:
+                p = {"name": e.get("name", ""), "num": str(e.get("num") or ""), "base": 0.0, "wins": 0, "basePos": None,
+                     "car": None, "race": 0.0, "bonus": 0.0, "pts": 0.0, "leading": False}
+            if p in field:
+                continue
+            p["wins"] = 0                                          # regular-season wins don't count any more
+            p["lock"] = bool(e.get("won")) or p["leading"]         # won a race in this round, or leading this one
+            field.append(p)
+        people = field
+        out["title"] = ROUNDS[r]
+        out["round"] = r
+        if r == 2:
+            # Championship 4: no points, the highest finisher of the four takes it
+            people.sort(key=lambda p: ((p["car"] or {}).get("pos") or 999, p["basePos"] or 999))
+            rows = []
+            for k, p in enumerate(people):
+                c = p["car"]
+                rows.append({"pos": k + 1, "num": p["num"] or (c or {}).get("num", ""), "name": p["name"],
+                             "pts": ("P%d" % c["pos"]) if c is not None and c.get("pos") else "",
+                             "race": "", "cut": "CHAMP" if k == 0 and c is not None and racing else "",
+                             "status": "champ" if k == 0 and c is not None and racing else "out",
+                             "racing": c is not None, "runPos": (c or {}).get("pos"), "move": None})
+            out.update(ok=True, rows=rows, lineAfter=0 if rows else -1, cutoff=1, locked=0,
+                       matched=sum(1 for p in people if p["car"] is not None), cars=len(people), champ4=True)
+            return out
+        cut = ADVANCE[r]
 
     # points order (ties: more wins, then the better place in the standings before the race, then running order)
     people.sort(key=lambda p: (-p["pts"], -p["wins"], p["basePos"] or 999, (p["car"] or {}).get("pos") or 999))
     for k, p in enumerate(people):
         p["ptsPos"] = k + 1
     # playoff order: everyone locked in first (keeping points order), then the rest
-    cut = max(1, int(cfg.get("cutoff") or 12))
     locked = [p for p in people if p["lock"]]
     rest = [p for p in people if not p["lock"]]
     spots = max(0, cut - len(locked))
@@ -143,5 +199,6 @@ def compute(live, cfg, standings_data):
                      "racing": c is not None, "runPos": (c or {}).get("pos"),
                      "move": (p["basePos"] - (k + 1)) if p["basePos"] else None})
     out.update(ok=True, rows=rows, lineAfter=line_after, cutoff=cut, locked=len(locked),
-               matched=sum(1 for p in people if p["car"] is not None and p["basePos"]), cars=len(cars))
+               matched=sum(1 for p in people if p["car"] is not None and p["basePos"]),
+               cars=sum(1 for p in people if p["car"] is not None) if playoff else len(cars))
     return out
