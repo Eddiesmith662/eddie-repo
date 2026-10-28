@@ -1031,7 +1031,6 @@ function renderPitrace() {
   const multi = (L.classes || []).length > 1;
   const clsColor = Object.fromEntries((L.cars || []).map(c => [c.num, c.clsColor]));
   const stayed = sample ? [{ num: '11', name: 'C. Abbiate' }] : isLive ? [] : (P.stayed || []);   // known once the cycle is over
-  $('lpBody').classList.toggle('champ4', champ4);
   const html = `<div class="sh"><span class="c1"></span>${multi ? '<span class="cc"></span>' : ''}<span class="c2">#</span><span class="c3">DRIVER</span><span class="c5">+/-</span><span class="c6">STOP</span></div>` +
     rows.map((r, i) => `<div class="r"><span class="c1">${i + 1}</span>${multi ? `<span class="cc" style="background:${clsColor[r.num] || 'transparent'}"></span>` : ''}<span class="c2">${esc(r.num)}</span><span class="c3">${esc(tickerName(r.name))}</span>` +
       (r.penalty ? '<span class="c5 pen">PENALTY</span>' : `<span class="c5 ${r.gained > 0 ? 'up' : r.gained < 0 ? 'dn' : ''}">${r.gained > 0 ? '▲ ' + r.gained : r.gained < 0 ? '▼ ' + -r.gained : '–'}</span>`) +
