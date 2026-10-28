@@ -1527,9 +1527,8 @@ def telemetry_loop(demo, multiclass=False, qual=False):
         try:
             SOURCE = IRacingSource()
         except ImportError:
-            print("\n!! pyirsdk (the iRacing connection) is not installed, so this is the DEMO race, not iRacing.")
-            print("!! Close this window and run start.bat again to install it. If that keeps failing, install Python 3.13")
-            print("!! from python.org (tick \"Add Python to PATH\") and try again.\n")
+            print("\n!! pyirsdk is not installed. Run:  pip install pyirsdk")
+            print("!! Starting in demo mode instead.\n")
             SOURCE = DemoSource()
     waiting_printed = False
     while True:
@@ -2595,10 +2594,7 @@ def main():
     server = QuietServer(("0.0.0.0", args.port), Handler)
     ip = local_ip()
     print("=" * 60)
-    import importlib.util
-    no_sdk = not args.demo and importlib.util.find_spec("irsdk") is None    # falls back to the demo race (see telemetry_loop)
-    print(" VSPEED Broadcast Overlay v%s  (%s)" % (APP["version"], "DEMO mode" if args.demo else
-                                                    "DEMO mode: pyirsdk missing, see above" if no_sdk else "iRacing mode"))
+    print(" VSPEED Broadcast Overlay v%s  (%s mode)" % (APP["version"], "DEMO" if args.demo else "iRacing"))
     print("  Overlay      :  http://localhost:%d/overlay  (browser input in your broadcasting software)" % args.port)
     print("  Control panel:  http://localhost:%d/control" % args.port)
     print("  Standings only: http://localhost:%d/standings  (also /analysis and /team)" % args.port)

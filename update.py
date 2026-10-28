@@ -159,21 +159,6 @@ def _write_files(new_files, old_files):
     return changed
 
 
-def pip_install(args, label="Python packages"):
-    """pip install, with a fallback for a Python that's newer than PyYAML's ready-made installs (a user on Python 3.15,
-    Oct 2026: there was no PyYAML wheel for it yet, so pip tried to build it and needed Microsoft's C++ compiler; pyirsdk
-    needs PyYAML, so the overlay fell back to the demo). PyYAML can be installed as plain Python instead (the compiled
-    part is only a speed-up), which needs no compiler. Returns True if pip reported success."""
-    cmd = [sys.executable, "-m", "pip", "install"] + list(args)
-    if subprocess.call(cmd) == 0:
-        return True
-    print()
-    print("%s didn't install. Retrying with PyYAML's plain-Python version (no C++ compiler needed)..." % label)
-    env = dict(os.environ, PYYAML_FORCE_LIBYAML="0")      # PyYAML's own switch: skip its compiled part
-    subprocess.call([sys.executable, "-m", "pip", "install", "--no-cache-dir", "pyyaml"], env=env)
-    return subprocess.call(cmd, env=env) == 0
-
-
 def _requirements(before):
     req = os.path.join(ROOT, "requirements.txt")
     try:
@@ -184,7 +169,7 @@ def _requirements(before):
     if now == before:
         return
     print("Installing Python packages for this version...")
-    pip_install(["-r", req])
+    subprocess.call([sys.executable, "-m", "pip", "install", "-r", req])
 
 
 def install(info):
