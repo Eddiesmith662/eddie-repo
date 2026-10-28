@@ -5,6 +5,7 @@ count; real Talladega race, Oct 24: the leaders stayed out and only P12 back pit
 that moment is the "in" order. Every car that comes in while the cycle is open is tracked to pit exit; the
 "out" order is the order they leave pit road. Gained / lost is counted among the cars that pitted (cars that
 stayed out don't count, they're listed separately). The box time comes from the pit stop timer.
+Only lead-lap cars are on it: a car a lap or more down when it comes onto pit road is ignored.
 
 The cycle closes once nobody new has come in for ENTRY_GAP seconds and everyone who pitted is back out
 (or has been on pit road for STUCK seconds: repairs, parked). Then it's READY in the control panel, and goes
@@ -47,7 +48,7 @@ def _publish(**kw):
 
 def _start(live, t, manual, before=None):
     global _cap
-    order = [c for c in (live.get("cars") or [])]
+    order = [c for c in (live.get("cars") or []) if (c.get("lapsDown") or 0) < 1]   # running order of the lead-lap cars
     _cap = {"before": before or STATE.get("status", "idle"), "t0": t, "lap": live.get("lap"), "caution": live.get("flag") == "caution", "manual": manual,
             "inPos": {c["idx"]: i for i, c in enumerate(order)},          # running order when the cycle began
             "cars": {}, "lastEntry": t}
@@ -79,7 +80,9 @@ def update(live, log=None):
     _prev_flag = flag
     cars = live.get("cars") or []
     pos = {c["idx"]: i for i, c in enumerate(cars)}
-    entering = [c for c in cars if c.get("pit") and not _prev_pit.get(c["idx"], True)]
+    # lead-lap cars only: anyone a lap or more down when they come onto pit road is left off the graphic entirely
+    # (not shown, not counted towards a pit cycle, not in anyone's spots gained / lost)
+    entering = [c for c in cars if c.get("pit") and not _prev_pit.get(c["idx"], True) and (c.get("lapsDown") or 0) < 1]
 
     if _manual:
         _manual = False
@@ -156,7 +159,7 @@ def _finish(cars, t, log):
     deepest = max((cap["inPos"].get(i, 0) for i in shown), default=-1)
     names = {c["idx"]: c for c in cars}
     stayed = [names[i] for i, p in sorted(cap["inPos"].items(), key=lambda kv: kv[1])
-              if p <= deepest and i not in cap["cars"] and i in names]
+              if p <= deepest and i not in cap["cars"] and i in names and (names[i].get("lapsDown") or 0) < 1]
     _publish(status="ready", list=rows, live=[], listLap=cap["lap"], listCaution=cap["caution"], stayed=[{"num": c.get("num"), "name": c.get("name")} for c in stayed],
              count=len(pitted), readyAt=time.time())
     if log:
