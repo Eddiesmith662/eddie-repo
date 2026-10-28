@@ -23,6 +23,19 @@
   .pill { background: rgba(0,0,0,.35); padding: 4px 10px; border-radius: 4px; white-space: nowrap; }
   .pill.air { background: var(--red); }
   .pill.ver { color: var(--dim); }
+  /* series picker (series profiles) */
+  .pill.series { display: inline-flex; align-items: center; gap: 6px; padding: 2px 4px 2px 10px; }
+  nav .pill.series { margin-left: auto; align-self: center; flex: 0 0 auto; }
+  nav .pill.series + .navlink { margin-left: 8px; }
+  .pill.series .sl { font-size: 11px; letter-spacing: 1px; text-transform: uppercase; color: var(--dim); }
+  .pill.series select { width: auto; max-width: 220px; padding: 3px 6px; font-size: 14px; background: #1b1b1c; }
+  .pill.series > button, nav .pill.series > button { padding: 3px 9px; margin: 0; font-size: 14px; background: transparent; border: 1px solid #555; border-radius: 4px; color: #ddd; letter-spacing: 0; text-transform: none; }
+  .smenu { position: fixed; z-index: 60; background: #1d1d1e; border: 1px solid #4a4a4b; border-radius: 6px; padding: 4px;
+           min-width: 240px; box-shadow: 0 8px 30px rgba(0,0,0,.6); display: flex; flex-direction: column; white-space: normal; }
+  .smenu[hidden] { display: none; }
+  .smenu button { text-align: left; border: 0; background: transparent; padding: 8px 10px; border-radius: 4px; font-size: 14px; }
+  .smenu button:hover { background: var(--red); }
+  .smenu .hd { font-size: 11px; color: var(--dim); letter-spacing: 1px; text-transform: uppercase; padding: 8px 10px 2px; }
   .dg { display: grid; grid-template-columns: max-content 1fr; gap: 6px 16px; font-size: 14px; }
   .dg dt { color: var(--dim); text-transform: uppercase; font-size: 12px; letter-spacing: 1px; padding-top: 2px; }
   .dg dd { margin: 0; overflow-wrap: anywhere; }
@@ -373,8 +386,11 @@
     <button data-tab="standings">Standings<span class="live" id="liveStand"></span></button>
     <button data-tab="layout">Layout</button>
     <button data-tab="setup">Setup</button>
+    <span class="pill series" title="Series: switching changes the standings, bracket, live points settings, ticker header, league logo and Next broadcast text">
+      <span class="sl">Series</span><select id="seriesSel"></select><button id="seriesMenuBtn" title="New, rename or delete a series">⋯</button></span>
     <button id="camWin" class="navlink">Open live timing ↗</button>
   </nav>
+  <div class="smenu" id="seriesMenu" hidden></div>
 </header>
 
 <!-- ================= PRERACE ================= -->
@@ -1783,12 +1799,68 @@ function render() {
   }
 }
 
+/* ---------- series profiles: one set of standings, bracket, points and branding per series ---------- */
+let SERIES = { active: null, list: [] }, seriesKey = '';
+function seriesUpdate(sr) {
+  if (!sr) return;
+  const changed = SERIES.active && sr.active !== SERIES.active;
+  SERIES = sr;
+  const key = JSON.stringify(sr);
+  if (key !== seriesKey) {
+    seriesKey = key;
+    const sel = $('seriesSel');
+    sel.innerHTML = sr.list.map(p => `<option value="${esc(p.id)}" ${p.id === sr.active ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
+    sel.value = sr.active || '';
+  }
+  if (changed) { filled = false; sFilled = false; lpFilled = false; }   // another series is loaded: refill the text boxes from it
+}
+async function seriesCmd(body) {
+  const r = await post('/api/profile', body);
+  toast(r.msg || (r.ok ? 'Done' : 'Could not do that'));
+  return r.ok;
+}
+$('seriesSel').onchange = async () => {
+  const sel = $('seriesSel'), id = sel.value, to = (SERIES.list.find(p => p.id === id) || {}).name || id;
+  let onAir = [];
+  try { onAir = (await (await fetch('/api/profiles')).json()).onAir || []; } catch (e) {}
+  if (onAir.length && !confirm(`On air now: ${onAir.join(', ')}.\n\nSwitch to ${to} anyway? The standings, live points, ticker header and league logo change straight away.`)) {
+    sel.value = SERIES.active || ''; return;
+  }
+  if (!(await seriesCmd({ cmd: 'switch', id }))) sel.value = SERIES.active || '';
+};
+$('seriesMenuBtn').onclick = e => {
+  e.stopPropagation();
+  const m = $('seriesMenu'), cur = SERIES.list.find(p => p.id === SERIES.active) || {};
+  const others = SERIES.list.filter(p => p.id !== SERIES.active);
+  m.innerHTML = `<button data-sm="copy">New series (a copy of ${esc(cur.name || 'this one')})…</button><button data-sm="blank">New empty series…</button>` +
+    `<button data-sm="rename">Rename ${esc(cur.name || 'this series')}…</button>` +
+    (others.length ? '<div class="hd">Delete</div>' + others.map(p => `<button data-sm="delete" data-id="${esc(p.id)}">Delete ${esc(p.name)}…</button>`).join('') : '');
+  m.hidden = !m.hidden;
+  const r = $('seriesMenuBtn').getBoundingClientRect();     // under the ⋯ button (the tab row would clip a dropdown inside it)
+  m.style.top = (r.bottom + 6) + 'px'; m.style.right = Math.max(8, innerWidth - r.right) + 'px';
+};
+document.addEventListener('click', e => { if (!$('seriesMenu').hidden && !e.target.closest('#seriesMenu') && e.target.id !== 'seriesMenuBtn') $('seriesMenu').hidden = true; });
+$('seriesMenu').onclick = async e => {
+  const b = e.target.closest('[data-sm]'); if (!b) return;
+  $('seriesMenu').hidden = true;
+  const cur = SERIES.list.find(p => p.id === SERIES.active) || {};
+  if (b.dataset.sm === 'copy' || b.dataset.sm === 'blank') {
+    const name = prompt(b.dataset.sm === 'copy' ? `Name for the new series (it starts as a copy of ${cur.name})` : 'Name for the new series (it starts empty: pull its standings and set its points)');
+    if (name && name.trim()) await seriesCmd({ cmd: 'new', name, blank: b.dataset.sm === 'blank' });
+  } else if (b.dataset.sm === 'rename') {
+    const name = prompt('New name for ' + cur.name, cur.name);
+    if (name && name.trim() && name !== cur.name) await seriesCmd({ cmd: 'rename', id: SERIES.active, name });
+  } else if (b.dataset.sm === 'delete') {
+    const p = SERIES.list.find(x => x.id === b.dataset.id) || {};
+    if (confirm(`Delete ${p.name}? Its standings, bracket and points settings are removed. This can't be undone.`)) await seriesCmd({ cmd: 'delete', id: p.id });
+  }
+};
 function connect() {
   const es = new EventSource('/events');
   es.onmessage = e => { const d = JSON.parse(e.data);
     const v = d.app && d.app.version;          // the program was updated: load the new page
     if (v) { if (window.__pageVer == null) window.__pageVer = v; else if (v !== window.__pageVer) return location.reload(); }
-    S = d.settings; PR = d.pitrace || PR; L = d.live; SD = d.standings; APP = d.app || APP; PEN = d.penalties || PEN; render(); if (SOLO && d.incidentsVer !== INC.ver) incFetch(); };
+    seriesUpdate(d.series); S = d.settings; PR = d.pitrace || PR; L = d.live; SD = d.standings; APP = d.app || APP; PEN = d.penalties || PEN; render(); if (SOLO && d.incidentsVer !== INC.ver) incFetch(); };
   es.onerror = () => { es.close(); $('conn').textContent = 'Server offline'; $('dot').className = 'dot'; setTimeout(connect, 2000); };
 }
 connect();

@@ -36,6 +36,7 @@ import diag
 import incidents
 import pitrace
 import livepoints
+import profiles
 
 ROOT = datafiles.ROOT
 STATIC = os.path.join(ROOT, "static")
@@ -167,7 +168,10 @@ class State:
     def snapshot(self):
         return json.dumps({"settings": self.settings, "live": self.live, "standings": standings.summary(), "app": APP,
                            "penalties": {"list": PEN["list"], "hide": PEN["hide"], "reasons": PEN_REASONS, "now": time.time()},
-                           "incidentsVer": incidents.STATE["ver"], "pitrace": pitrace.snapshot()})
+                           "incidentsVer": incidents.STATE["ver"], "pitrace": pitrace.snapshot(), "series": profiles.summary()})
+
+    def defaults(self):
+        return copy.deepcopy(DEFAULT_SETTINGS)
 
     def notify(self):
         with self.lock:
@@ -1652,6 +1656,8 @@ class Handler(BaseHTTPRequestHandler):
         # Standings graphic (same page and URLs as the old Standings Control program)
         if path in ("/standings", "/graphic", "/analysis", "/team", "/standings-graphic.html"):
             return self.send_file(os.path.join(STATIC, "standings-graphic.html"))
+        if path == "/api/profiles":
+            return self.send_json(dict(profiles.summary(), onAir=[n for n in on_air_now() if n not in ("VSPEED logo", "League logo")]))
         if path == "/state":
             d = json.loads(standings.state_json())
             d["appVersion"] = APP["version"]          # the page reloads itself when the program was updated
@@ -1823,6 +1829,12 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     ok = SOURCE.camera_group(int(data["group"]))
             return self.send_json({"ok": bool(ok)})
+        if path == "/api/profile":
+            ok, msg = profiles.command(data)
+            if ok:
+                diag.log("Series: %s" % (msg or data.get("cmd")))
+            STATE.notify()
+            return self.send_json({"ok": ok, "msg": msg})
         if path == "/api/standings":
             cmd = str(data.pop("cmd", ""))
             try:
@@ -2572,6 +2584,10 @@ def main():
     diag.setup(APP["version"], ("DEMO QUALIFYING" if args.qual else "DEMO") if args.demo else "iRacing")
 
     standings.init()
+    try:
+        profiles.init(STATE)          # series profiles: the first time, the current setup becomes the first series
+    except Exception as e:
+        diag.error("Series profiles could not start: %r" % (e,), e)
     standings.autopull(on_done=STATE.notify)
     threading.Thread(target=update_watch, daemon=True).start()
     threading.Thread(target=telemetry_loop, args=(args.demo, args.multiclass, args.qual), daemon=True).start()

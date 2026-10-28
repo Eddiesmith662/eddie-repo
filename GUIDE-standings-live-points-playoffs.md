@@ -4,7 +4,7 @@ Pull the standings from Xtreme Scoring before every race, and everything else fo
 
 ## One-time setup
 
-Do these once per series; they're saved and survive updates.
+Do these once per series: pick the series first in the Series picker (top right of the control panel). They're saved with that series and survive updates.
 
 1. **Standings tab → Standings data:** paste the series' **Xtreme Scoring widget link** and press **Pull standings now**. The table fills in below.
 2. **Standings tab → Title & logo:** set the title text and the logo shown on the standings graphic.
@@ -14,6 +14,8 @@ Do these once per series; they're saved and survive updates.
 No Xtreme link? **The CSV file picker** on the Standings tab takes a file with the columns Pos, #, Driver, Pts and Wins (**Example CSV** gives a ready-made one).
 
 ## Every race night
+
+First, check the **Series** picker (top right of the control panel) shows tonight's series.
 
 - [ ] **Before the green flag, pull the standings** (Standings tab → **Pull standings now**). Pull *before* Xtreme posts tonight's race, or tonight's points get counted twice.
 - [ ] **Glance at the Live points box** on the Race tab. Plain text = every driver was found in the standings. **Yellow "Not in standings: …"** = check who it names (next sections).
@@ -98,12 +100,18 @@ Ties on points use Xtreme's order, which applies the league's tiebreaker. During
 
 ## Other series during the week
 
-The overlay keeps one set of standings, one bracket, one points table and one playoff switch, so each series picks up whatever the last one left. When you change series:
+Each series you broadcast is saved separately. Pick it in the **Series** picker, top right of the control panel, next to Open live timing.
 
-1. **Standings tab:** paste that series' Xtreme widget link and **Pull standings now**.
-2. **Standings tab, above the bracket:** set Live points to **Regular season** unless that series is in its playoffs too. Switching back later doesn't touch the bracket, so the playoff series' bracket is still there.
-3. **Setup tab:** if the series scores differently, change the points table and bonuses (and change them back afterwards).
-4. **Race tab:** set **Line after** to that series' cutoff.
+**What switches with the series:** the standings (Xtreme link, the pulled table and any hand edits), the standings graphic's title, logo and playoff cutoff, the playoff bracket (with its 🏆 marks), the live points table, bonuses, line, places and playoff mode, the ticker header, the league logo, and the Next broadcast text and logo.
+
+**What every series shares:** race info, the broadcast team and the sponsor images.
+
+| To | Do this |
+| --- | --- |
+| Change series | Pick it in the Series picker. If a graphic is on air, it asks first. Whatever you changed for the series you're leaving is kept |
+| Add a series | **⋯ → New series (a copy of …)** to start from the current one, or **New empty series** to start clean (then pull its standings and set its points) |
+| Rename one | **⋯ → Rename** |
+| Delete one | **⋯ → Delete …** (only series that aren't loaded) |
 
 Multi-class series: live points scores overall finishing position and ignores classes, so don't use it there.
 
@@ -117,7 +125,7 @@ Multi-class series: live points scores overall finishing position and ignores cl
 | Round of 12 shows regular-season totals | Xtreme hadn't applied the playoff reset when you pulled | Pull again once Xtreme shows the reset |
 | Live points still shows the previous round | The bracket wasn't advanced | Advance the drivers with **→** on the Standings tab |
 | A round winner isn't shown IN | 🏆 not ticked | Tick 🏆 on them in the bracket |
-| Live points shows the wrong series' drivers | Playoff mode left on, or the other series' standings still loaded | Set **Regular season** and pull this series' standings |
+| Live points shows the wrong series' drivers | The wrong series is picked | Set **Regular season** only if this series isn't in its playoffs; otherwise pick tonight's series in the Series picker |
 | Show does nothing and a message pops up | Nothing to show yet (not a race session, or no standings loaded) | Read the message: it says what's missing |
 
 Stage points and penalties the league hands out after a race aren't in live points: they appear once they're in Xtreme and you pull again.
