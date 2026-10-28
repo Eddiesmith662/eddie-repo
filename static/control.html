@@ -193,9 +193,11 @@
   #paRow { grid-template-columns: 72px 1fr; }
   #paRow .thumb { width: 72px; height: 40px; }
   #paRow .bt { grid-column: 1 / -1; } #paRow .bt button { flex: 1; min-width: 0; }
-  .lprow { display: flex; align-items: center; gap: 5px; flex: 0 0 auto !important; }
-  .lprow input { width: 52px; padding: 8px 6px; text-align: center; }
-  .lprow .s { font-size: 12px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; white-space: nowrap; }
+  .lpset { display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between; }
+  .lprow { display: flex; align-items: center; gap: 4px; flex: 0 0 auto !important; }
+  .lprow input { width: 44px; padding: 7px 2px; text-align: center; -moz-appearance: textfield; }
+  .lprow input::-webkit-outer-spin-button, .lprow input::-webkit-inner-spin-button { -webkit-appearance: none; margin: 0; }
+  .lprow .s { font-size: 11px; color: var(--dim); text-transform: uppercase; letter-spacing: .3px; white-space: nowrap; }
   .lptable { display: grid; grid-template-columns: repeat(auto-fill, minmax(54px, 1fr)); gap: 6px; }
   .lptable label { margin: 0 0 2px; font-size: 11px; text-align: center; }
   .lptable input { padding: 6px 4px; text-align: center; }
@@ -466,9 +468,12 @@
 
   <section id="lpSec">
     <h2><span class="t">Live points</span><span class="pill" id="lpAir">HIDDEN</span></h2>
-    <p class="hint" id="lpInfo" style="margin:0 0 10px">The championship if the race ended now.</p>
-    <div class="row" style="margin:0"><button class="vis" data-vis="lpAir" data-vrole="show" id="lpShow">Show</button><button class="vis" data-vis="lpAir" data-vrole="hide" id="lpHide">Hide</button>
-      <span class="lprow" title="The red cutoff line goes under this many drivers (12 = after 12th)"><span class="s">Line after</span><input type="number" id="lpCut" min="1" max="60"></span></div>
+    <p class="hint" id="lpInfo" style="margin:0 0 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">The championship if the race ended now.</p>
+    <div class="row"><button class="vis" data-vis="lpAir" data-vrole="show" id="lpShow">Show</button><button class="vis" data-vis="lpAir" data-vrole="hide" id="lpHide">Hide</button></div>
+    <div class="lpset">
+      <span class="lprow" title="Which places in the championship to show, e.g. 3 to 16 = 3rd to 16th (up to 15 drivers)"><span class="s">Places</span><input type="number" id="lpFrom" min="1" max="60"><span class="s">–</span><input type="number" id="lpTo" min="1" max="74"></span>
+      <span class="lprow" title="The red cutoff line goes under this place in the championship (12 = between 12th and 13th)"><span class="s">Line after</span><input type="number" id="lpCut" min="1" max="60"></span>
+    </div>
     <p class="hint tip">Standings points (Standings tab: pull or load them before the race) plus the points each driver would score for where they're running now, plus bonuses (led a lap, most laps led, pole). Drivers with a win, and the race leader, are locked in at the top; the rest of the spots up to the cutoff go on points, like the playoff standings. It sits over the ticker like Race off pit road (showing one hides the other). The points table and bonuses are on the Setup tab.</p>
   </section>
 
@@ -676,8 +681,7 @@
     <h2><span class="t">Live points scoring</span></h2>
     <label>Points for each finishing place</label>
     <div class="lptable" id="lpTable"></div>
-    <div class="grid2" style="grid-template-columns:repeat(4,minmax(0,1fr))">
-      <div><label>Rows on the graphic</label><input type="number" id="lpRows" min="5" max="15"></div>
+    <div class="grid2" style="grid-template-columns:repeat(3,minmax(0,1fr))">
       <div><label>Led a lap (bonus)</label><input type="number" step="any" id="lpLed"></div>
       <div><label>Most laps led (bonus)</label><input type="number" step="any" id="lpMost"></div>
       <div><label>Pole (bonus)</label><input type="number" step="any" id="lpPole"></div>
@@ -1207,7 +1211,17 @@ $('lpShow').onclick = () => {
 };
 $('lpHide').onclick = () => set({ show: { livepoints: false } });
 $('lpCut').onchange = () => set({ livePoints: { cutoff: Math.max(1, Math.min(60, +$('lpCut').value || 12)) } });
-$('lpRows').onchange = () => set({ livePoints: { rows: Math.max(5, Math.min(15, +$('lpRows').value || 15)) } });
+// places shown: from..to, at most 15 drivers (a wider range keeps the first 15 from "from")
+function lpRange(changed) {
+  let a = Math.max(1, Math.min(60, Math.round(+$('lpFrom').value || 1))), b = Math.round(+$('lpTo').value || a + 14);
+  if (changed === 'from' && b < a) b = a;            // typed a "from" past the "to": move the "to" along
+  if (changed === 'to' && b < a) a = b;
+  b = Math.max(a, Math.min(a + 14, b));
+  $('lpFrom').value = a; $('lpTo').value = b;
+  set({ livePoints: { from: a, to: b } });
+}
+$('lpFrom').onchange = () => lpRange('from');
+$('lpTo').onchange = () => lpRange('to');
 $('lpTable').innerHTML = Array.from({ length: 60 }, (_, i) => `<div><label>P${String(i + 1).padStart(2, '0')}</label><input type="number" step="any" data-lp="${i}"></div>`).join('');
 function lpFill(table, b) {
   document.querySelectorAll('[data-lp]').forEach(x => { x.value = table[+x.dataset.lp] ?? 0; });
@@ -1223,13 +1237,17 @@ function livePointsRender() {
   const P = (L && L.livePoints) || {}, lp = S.livePoints || {};
   air('lpAir', !!(S.show && S.show.livepoints) && !!P.ok);
   if (document.activeElement !== $('lpCut')) $('lpCut').value = lp.cutoff ?? 12;
-  if (document.activeElement !== $('lpRows')) $('lpRows').value = lp.rows ?? 15;
+  if (document.activeElement !== $('lpFrom')) $('lpFrom').value = lp.from ?? 1;
+  if (document.activeElement !== $('lpTo')) $('lpTo').value = lp.to ?? 15;
   if (!lpFilled && lp.table) { lpFilled = true; lpFill(lp.table, lp); }
   if (!P.ok) { $('lpInfo').textContent = P.why || 'The championship if the race ended now.'; return; }
   const rows = P.rows || [], last = rows[P.lineAfter], next = rows[P.lineAfter + 1];
   const missing = (P.cars || 0) - (P.matched || 0);
-  $('lpInfo').textContent = (last ? `Line after ${P.lineAfter + 1}: last in #${last.num} ${last.name}` + (next ? ` (${last.cut === 'IN' ? 'locked in' : last.cut} on #${next.num})` : '') : 'No cutoff line') +
+  const full = (last ? `Line after ${P.lineAfter + 1}: last in #${last.num} ${last.name}` + (next ? ` (${last.cut === 'IN' ? 'locked in' : last.cut} on #${next.num})` : '') : 'No cutoff line') +
     (P.locked ? ` · ${P.locked} locked in` : '') + (missing > 0 ? ` · ${missing} driver${missing === 1 ? '' : 's'} not in the standings (start from 0)` : '');
+  // one short line (the panel fits half a screen); the whole thing on hover
+  $('lpInfo').textContent = (last ? `Last in: #${last.num} ${last.name}${last.cut && last.cut !== 'IN' ? ' (' + last.cut + ')' : ''}` : 'No cutoff line') + (missing > 0 ? ` · ${missing} not in standings` : '');
+  $('lpInfo').title = full;
 }
 function pitraceRender() {
   const st = PR.status || 'idle', n = (PR.list || []).length;

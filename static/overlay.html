@@ -259,6 +259,8 @@
   #livepts .r:nth-child(odd) { background: #151515; }
   #livepts .r.qual { background: #053e03; }                     /* above the cutoff: one solid green, like the playoff standings */
   #livepts .r.cutafter::after { content: ""; position: absolute; left: 0; right: 0; bottom: -2px; height: 4px; background: var(--red); z-index: 2; }
+  #livepts .r.cutafter:last-child::after { bottom: 0; }          /* the cutoff is the last place shown: line along the bottom edge */
+  #livepts .r.cutbefore::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 4px; background: var(--red); z-index: 2; }   /* the cutoff is just above the first place shown */
   #livepts .r.away .c3 { color: #9a9a9a; }                     /* in the standings but not in this race */
   #livepts .c1 { width: 38px; text-align: center; }
   #livepts .r .c1 { background: #080808; height: 100%; display: flex; align-items: center; justify-content: center; }
@@ -1057,8 +1059,10 @@ function renderNext() {
 
 /* ---------- live points: the championship if the race ended now (worked out by the server, livepoints.py) ---------- */
 function renderLivePoints() {
-  const P = (L && L.livePoints) || {}, n = Math.max(1, Math.min(15, +((S.livePoints || {}).rows) || 15));
-  let rows = (P.rows || []).slice(0, n), lineAfter = P.lineAfter;
+  // the places to show, from the Race tab (e.g. 3 to 16 = 3rd to 16th), at most 15 rows
+  const P = (L && L.livePoints) || {}, lp = S.livePoints || {}, from = Math.max(1, Math.round(+lp.from || 1));
+  const to = Math.max(from, Math.min(from + 14, Math.round(+lp.to || (from + 14))));
+  let rows = (P.rows || []).slice(from - 1, to), lineAfter = P.lineAfter != null && P.lineAfter >= 0 ? P.lineAfter - (from - 1) : -1;
   const sample = LAYOUT_MODE && !rows.length;
   if (sample) {
     rows = ['R. Carter', 'J. Morrison', 'T. Brooks', 'C. Hensley', 'A. Reed', 'M. Pike', 'D. Hart', 'C. Whitaker', 'B. Cole', 'L. Fisher', 'E. Sutton', 'K. Barrett', 'N. Delgado', 'G. Lowe', 'H. Vance']
@@ -1070,7 +1074,7 @@ function renderLivePoints() {
   if (!on) return;
   $('lpSub').textContent = sample ? 'LAP 47' : (L.sessionState >= 5 ? 'FINAL' : L.lap ? 'LAP ' + L.lap : '');
   const html = `<div class="sh"><span class="c1"></span><span class="c2">#</span><span class="c3">DRIVER</span><span class="c4">PTS</span><span class="c5">TO CUT</span></div>` +
-    rows.map((r, i) => `<div class="r ${r.status !== 'out' ? 'qual' : ''} ${i === lineAfter && i < rows.length - 1 ? 'cutafter' : ''} ${r.racing ? '' : 'away'}">` +
+    rows.map((r, i) => `<div class="r ${r.status !== 'out' ? 'qual' : ''} ${i === lineAfter ? 'cutafter' : ''} ${i === 0 && lineAfter === -1 && P.lineAfter != null && P.lineAfter >= 0 ? 'cutbefore' : ''} ${r.racing ? '' : 'away'}">` +
       `<span class="c1">${r.pos}</span><span class="c2">${esc(r.num)}</span><span class="c3">${esc(tickerName(r.name))}</span><span class="c4">${esc(r.pts)}</span>` +
       (r.status === 'lock' ? '<span class="c5 lock"><span>IN</span></span>' : `<span class="c5 ${/^-/.test(r.cut) ? 'neg' : ''}">${esc(r.cut)}</span>`) + '</div>').join('');
   if ($('lpBody').innerHTML !== html) $('lpBody').innerHTML = html;

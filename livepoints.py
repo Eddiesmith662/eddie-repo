@@ -16,7 +16,8 @@ import re
 
 # VSPEED's points table: P1 46, P2 42, P3 41, then one point less per place to P43 = 1, 0 after that
 DEFAULT_TABLE = [46] + [44 - p for p in range(2, 44)] + [0] * 17      # 60 places
-DEFAULTS = {"cutoff": 12, "rows": 15, "table": DEFAULT_TABLE, "bonusLed": 1, "bonusMost": 1, "bonusPole": 1}
+# from / to = the places shown on the graphic (e.g. 3 and 16 = 3rd to 16th), at most MAX_ROWS of them
+DEFAULTS = {"cutoff": 12, "from": 1, "to": 15, "table": DEFAULT_TABLE, "bonusLed": 1, "bonusMost": 1, "bonusPole": 1}
 MAX_ROWS = 15
 
 
