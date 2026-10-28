@@ -31,7 +31,7 @@ The **control panel** (Prerace, Race, Standings, Layout and Setup tabs; race inf
 
 ## Setup (Windows broadcast PC)
 
-1. Install Python 3.10 or newer from python.org. Tick **"Add Python to PATH"** during install.
+1. Install Python from python.org: **3.13 is the safest choice** (3.10 to 3.14 work too). Tick **"Add Python to PATH"** during install. A brand-new Python (3.15 when it first came out) can be ahead of the packages the iRacing connection needs: the overlay then retries with a plain-Python PyYAML, and if that still fails it says so and runs the demo race; installing 3.13 fixes it.
 2. Put this folder anywhere, for example `C:\VSPEED\vspeed-overlay`.
 3. Double-click **`start.bat`**. The first run installs `pyirsdk` automatically and creates the `data` folder.
 4. Put your league/series logo for the top right into `data\logos` (transparent PNG, e.g. `league_logo.png`). Add more logos with any name and pick them on the Prerace tab.

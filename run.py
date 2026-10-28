@@ -32,7 +32,20 @@ def main():
         if "--demo" in args:      # the fake race doesn't need it
             return subprocess.call([sys.executable, os.path.join(ROOT, "server.py")] + args)
         print("Installing pyirsdk (the iRacing connection)...")
-        subprocess.call([sys.executable, "-m", "pip", "install", "pyirsdk"])
+        try:
+            import update
+            update.pip_install(["pyirsdk"], "pyirsdk (the iRacing connection)")
+        except Exception as e:
+            print("Could not run pip: %s" % e)
+        # pip says it worked, but check the overlay can really load it (a fresh process sees the new install)
+        if subprocess.call([sys.executable, "-c", "import irsdk"], stderr=subprocess.DEVNULL) != 0:
+            v = "%d.%d" % sys.version_info[:2]
+            print()
+            print("!! The iRacing connection (pyirsdk) couldn't be installed for Python %s." % v)
+            print("!! A brand-new Python sometimes arrives before every package has caught up.")
+            print("!! Fix: install Python 3.13 from python.org (tick \"Add Python to PATH\"), then run start.bat again.")
+            print("!! Starting the demo race in the meantime.")
+            print()
     # the server runs as its own process so a just-installed update is what starts
     return subprocess.call([sys.executable, os.path.join(ROOT, "server.py")] + args)
 
