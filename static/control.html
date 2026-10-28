@@ -760,8 +760,10 @@ const TILES = [
   ['tower', 'Ticker', 'timing tower'], ['lowerthird', 'Driver info', 'camera car'],
   ['board', 'Results', 'live order'], ['movers', 'Biggest movers', 'top 5 gained'], ['@grid', 'Grid', 'row by row'],
   ['@standings', 'Standings', 'points / bracket'], ['@info', 'Race info', 'analysis box'], ['@team', 'Broadcast team', 'lower third'], ['@track', 'Track graphic', 'from Drive'],
+  ['nextrace', 'Next broadcast', 'text on Prerace tab'],
 ];
-const BASE = { logo: true, league: true, tower: true, lowerthird: true, flags: true, board: false, movers: false, pitrace: false };
+// "Show base package" turns these on / off; "Hide all" turns every one of them off
+const BASE = { logo: true, league: true, tower: true, lowerthird: true, flags: true, board: false, movers: false, pitrace: false, nextrace: false, livepoints: false };
 const A_EXAMPLE = { title: 'RACE ANALYSIS', lines: ['RACE LENGTH: 100 LAPS', 'PITROAD SPEED: 50MPH', 'TIRE SETS AVAILABLE: 4', '2 GWC ATTEMPTS', '100% FUEL | PREMIER SETUP'] };
 const T_EXAMPLE = { title: 'BROADCASTING TEAM', people: [['Sam Rivera', 'Lead Commentary'], ['Jordan Lee', 'Co-Commentary'], ['Casey Hart', 'Producer']] };
 
