@@ -508,7 +508,7 @@ def action(path, data, page=""):
 def client_error(data):
     STATS["clientErrors"] += 1
     page = str(data.get("page", "?"))[:40]
-    msg = str(data.get("msg", ""))[:500]
+    msg = str(data.get("msg", ""))[:1500]   # the results board check sends a long one
     where = "%s:%s" % (str(data.get("src", ""))[-80:], data.get("line", ""))
     STATS["lastError"] = {"t": time.time(), "msg": "[%s page] %s" % (page, msg)[:300]}
     log("Browser error on the %s page: %s (%s)" % (page, msg, where), "ERROR")

@@ -471,6 +471,43 @@ const lineIn  = [{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }];
 const lineOut = [{ transform: 'scaleX(1)' }, { transform: 'scaleX(0)' }];
 const q = (id, sel) => $(id).querySelector(sel);
 
+// Results board check (see IN.board): log what hid the rows, with the browser version, then put them back
+function boardLog(msg) { try { navigator.sendBeacon('/api/clientlog', JSON.stringify({ page: 'overlay', msg })); } catch (e) {} }
+function boardHidden() {
+  const b = $('board'), c = $('bCols'), cs = getComputedStyle(c), r = c.getBoundingClientRect();
+  const rows = c.querySelectorAll('.r').length;
+  return !rows || b.classList.contains('off') || cs.visibility === 'hidden' || cs.display === 'none' || +cs.opacity < 0.1 || r.height < 5 || /100%/.test(cs.clipPath);
+}
+function boardCheck(again) {
+  if (!(VIS.board && VIS.board.on) || !boardHidden()) {
+    if (again) boardLog('Results board: rows put back on screen (fixed itself)');
+    return;
+  }
+  if (again) { boardLog('Results board: rows still hidden after the fix'); return; }
+  const b = $('board'), c = $('bCols'), h = WIDGETS.board && WIDGETS.board.holder;
+  const desc = (el, name) => {
+    if (!el) return name + ' -';
+    const s = getComputedStyle(el), r = el.getBoundingClientRect();
+    return `${name}[class "${el.className}" vis ${s.visibility} disp ${s.display} op ${s.opacity} clip ${s.clipPath} ` +
+           `h ${Math.round(r.height)} y ${Math.round(r.top)}${el.getAttribute('style') ? ' style "' + el.getAttribute('style') + '"' : ''}]`;
+  };
+  const anims = b.getAnimations({ subtree: true }).map(a => {
+    const t = a.effect && a.effect.target;
+    return `${t ? (t.id || t.className || t.tagName) : '?'}${a.effect && a.effect.pseudoElement ? a.effect.pseudoElement : ''}:${a.playState}`;
+  });
+  const ua = (navigator.userAgent.match(/(Chrome|Firefox|Edg|Safari)\/[\d.]+/g) || [navigator.userAgent]).join(' ');
+  boardLog(`Results board up with its rows hidden: ${c.querySelectorAll('.r').length} rows, cars ${L && L.cars ? L.cars.length : '?'}; ` +
+           `${desc(h, 'holder')} ${desc(b, 'board')} ${desc(c, 'rows')} ${desc(c.querySelector('.r'), 'row1')}; ` +
+           `anims ${anims.length ? anims.join(', ') : 'none'}; browser ${ua}`);
+  // put them back: no 'off', no leftover animation, rows visible and unclipped
+  b.classList.remove('off');
+  c.getAnimations().forEach(a => a.cancel());
+  if (!c.querySelector('.r')) renderBoard();
+  // !important: a leftover animation the browser doesn't list (seen in testing) still beats a plain inline style
+  [['visibility', 'visible'], ['opacity', '1'], ['clip-path', 'none']].forEach(([k, v]) => c.style.setProperty(k, v, 'important'));
+  setTimeout(() => boardCheck(true), 1000);
+}
+
 // each returns how long its animation lasts (ms)
 const IN = {
   sponsor(el) {
@@ -561,13 +598,11 @@ const IN = {
   },
   board(el) {
     const h = q('board', '.h');
-    // the results board once came up with only its title bar (Oct 25, couldn't reproduce): if that happens again,
-    // say so in the log (Save diagnostics) with what it had to show
-    setTimeout(() => {
-      const rows = document.querySelectorAll('#bCols .r').length, cs = getComputedStyle($('bCols'));
-      if (VIS.board && VIS.board.on && (!rows || cs.visibility === 'hidden' || +cs.opacity < 0.1))
-        try { navigator.sendBeacon('/api/clientlog', JSON.stringify({ page: 'overlay', msg: `Results board up with ${rows} rows (cars ${L && L.cars ? L.cars.length : '?'}, opacity ${cs.opacity}, clip ${cs.clipPath}, anims ${$('bCols').getAnimations().length})` })); } catch (e) {}
-    }, 2500);
+    // the results board has come up with only its title bar (Oct 25, and twice on Oct 30 in practice, rows there but
+    // hidden; couldn't reproduce in a current browser). 2.5 s in: if the rows are hidden, log what was hiding them
+    // (Save diagnostics), then put them back on screen.
+    $('bCols').style.cssText = '';   // the last fix, if any
+    clearTimeout(boardCheck.t); boardCheck.t = setTimeout(() => boardCheck(), 2500);
     anim(h, wipeIn, { duration: 600 });
     anim(h, lineIn, { duration: 750, delay: 400, pseudoElement: '::after' });
     anim($('bCols'), dropIn, { duration: 750, delay: 450, easing: 'cubic-bezier(.3,.6,.3,1)' });
@@ -941,6 +976,8 @@ function renderLowerQual(car) {
 /* ---------- board ---------- */
 function renderBoard() {
   const on = S.show.board && L.connected && L.cars.length;
+  // the board check's fix shows the rows with inline styles: drop them once the board is going off (they'd override 'off')
+  if (!on && $('bCols').style.visibility) $('bCols').style.cssText = '';
   show('board', on);
   if (!on) return;
   const mode = 'results';
