@@ -37,6 +37,7 @@ import incidents
 import pitrace
 import livepoints
 import profiles
+import raceresults
 
 ROOT = datafiles.ROOT
 STATIC = os.path.join(ROOT, "static")
@@ -723,6 +724,8 @@ class IRacingSource:
                 "classes": sorted({c["cls"] for c in cars if c["cls"]}),
                 "t": time.time(),
             }
+            if is_race and state >= 5 and not replaying:     # save this race's results (data/results/<series>/)
+                raceresults.update(live, sess, self.info, sess_num, log=diag.log)
             return live
         finally:
             ir.unfreeze_var_buffer_latest()

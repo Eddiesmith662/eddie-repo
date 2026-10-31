@@ -63,6 +63,8 @@ The **control panel** (Prerace, Race, Standings, Layout and Setup tabs; race inf
 
 **Several series?** The **Series** picker at the top right of the control panel keeps each series' standings, playoff bracket, live points settings, ticker header, league logo and Next broadcast text separately; pick a series and they all switch together (it asks first if a graphic is on air). **⋯** next to it adds, renames or deletes a series. Race info, the broadcast team and sponsors are shared. Series are saved in `data\profiles`, so updates never touch them; the first time, whatever is set up becomes the first series.
 
+**Race results** are saved automatically for every race the overlay is connected to, as a CSV file (opens in Excel or Google Sheets) in `data\results\<series>\`, named by date and track (e.g. `2026-10-30 Atlanta Motor Speedway.csv`), sorted into the series picked in the Series picker. Each file has position, car number, driver, start, laps, laps led, gap, fastest lap, incidents and status (Running or why they're out). A first copy is written a minute after the checkered flag and replaced when iRacing makes the results official.
+
 **Standings, live points and the playoffs:** see [GUIDE-standings-live-points-playoffs.md](GUIDE-standings-live-points-playoffs.md) for setup, the race-night checklist, the playoff bracket and the round-by-round playoff routine.
 
 **No iRacing handy?** Double-click **`start-demo.bat`** to run a fake 24-car race so you can test the look in your broadcasting software. To race your own drivers in the demo instead (handy for testing live points against your real standings), put a `demo-field.csv` in the `data` folder with one driver per line as `car number,name` (a `#,Driver` header line is fine); the file's order is the starting grid. Delete it to go back to the made-up field.
@@ -141,12 +143,14 @@ data/                YOUR files, never touched by updates (created on first run)
   backup/              the last few versions, for restore-previous.bat
   logs/                log files and the black box (Diagnostics)
   diagnostics/         saved diagnostics zips
+  results/             every race's results as a CSV, one folder per series
 server.py            bridge: reads iRacing, serves the pages (port 8765, change with --port)
 standings.py         standings, bracket, race info and team (ported from Standings Control)
 run.py               starts everything: update check, then the server
 update.py            the updater
 incidents.py         the incident log in live timing
 pitrace.py           race off pit road
+raceresults.py       saves each race's results (data/results)
 net.py               secure connections to GitHub and Xtreme Scoring (falls back to Windows' own certificate check)
 datafiles.py         where the data folder lives (moves an older install's files into it)
 diag.py              logging, black box and diagnostics
