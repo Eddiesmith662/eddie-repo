@@ -32,7 +32,10 @@ def main():
         if "--demo" in args:      # the fake race doesn't need it
             return subprocess.call([sys.executable, os.path.join(ROOT, "server.py")] + args)
         print("Installing pyirsdk (the iRacing connection)...")
-        subprocess.call([sys.executable, "-m", "pip", "install", "pyirsdk"])
+        import importlib.util
+        if importlib.util.find_spec("pip") is None:      # a Python without pip: add it first
+            subprocess.call([sys.executable, "-m", "ensurepip", "--upgrade"])
+        subprocess.call([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "pyirsdk"])
     # the server runs as its own process so a just-installed update is what starts
     return subprocess.call([sys.executable, os.path.join(ROOT, "server.py")] + args)
 

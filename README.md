@@ -31,19 +31,14 @@ The **control panel** (Prerace, Race, Standings, Layout and Setup tabs; race inf
 
 ## Setup (Windows broadcast PC)
 
-1. Install **Python 3.13** from python.org:
-   - Go to python.org → Downloads → Windows, find the latest **Python 3.13** release (3.13.x) and download its **Windows installer (64-bit)**.
-   - **Don't download the Python install manager (Python launcher)** or the newest Python. They install the latest version (3.15), which the iRacing connection can't be installed on yet: the overlay then only runs its demo race.
-   - Run the installer and tick **"Add Python to PATH"** on the first screen.
-   - Already have Python 3.15? Uninstall it first (Settings → Apps → Installed apps), otherwise the overlay keeps using it.
-2. Put this folder anywhere, for example `C:\VSPEED\vspeed-overlay`.
-3. Double-click **`start.bat`**. The first run installs `pyirsdk` automatically and creates the `data` folder.
-4. Put your league/series logo for the top right into `data\logos` (transparent PNG, e.g. `league_logo.png`). Add more logos with any name and pick them on the Prerace tab.
-5. In your broadcasting software, add a **web browser (browser source) input**
+1. Put this folder anywhere, for example `C:\VSPEED\vspeed-overlay`. **You don't need to install Python:** the overlay brings its own.
+2. Double-click **`start.bat`**. The first time, it downloads the overlay's own Python 3.13 (about 30 MB, one time only, into `%LOCALAPPDATA%\VSPEED`, so OneDrive doesn't sync it and it doesn't matter which Python, if any, is already on the PC), then installs `pyirsdk` and creates the `data` folder. After that it starts straight away. If that download isn't possible, it uses an installed Python 3.13 instead. To remove the overlay's Python, delete `%LOCALAPPDATA%\VSPEED`.
+3. Put your league/series logo for the top right into `data\logos` (transparent PNG, e.g. `league_logo.png`). Add more logos with any name and pick them on the Prerace tab.
+4. In your broadcasting software, add a **web browser (browser source) input**
    - URL: `http://localhost:8765/overlay`
    - Size: 1920 × 1080
    - Put it on a layer above your iRacing capture. The page is transparent.
-6. Open the control panel at `http://localhost:8765/control`. The console window also prints a link for your phone.
+5. Open the control panel at `http://localhost:8765/control`. The console window also prints a link for your phone.
 
 **Moving things around:** the control panel's **Layout** tab shows a preview of the screen with every graphic on it. Drag any graphic to move it and use the sliders to resize it. It updates live in your broadcasting software as you go and is saved for next time. While standings, race info or the team box are on air, any live graphic they overlap steps aside on its own.
 
@@ -132,6 +127,7 @@ The overlay updates itself from GitHub. Each time you start it, it checks for a 
 
 ```
 start.bat            run against iRacing (checks for updates first)
+python-setup.bat     finds the Python to run on: the overlay's own 3.13, downloaded the first time
 start-demo.bat       run the fake race
 start-demo-qualifying.bat  run a fake qualifying session
 restore-previous.bat go back to the version before the last update

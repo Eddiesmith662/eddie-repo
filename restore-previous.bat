@@ -6,4 +6,5 @@ echo Your settings, standings, sponsors and logos are not affected.
 echo.
 choice /c YN /m "Go back to the previous version"
 if errorlevel 2 exit /b
-python update.py --rollback & pause & exit /b
+call python-setup.bat || (pause & exit /b 1)
+"%PY%" %PYARGS% update.py --rollback & pause & exit /b
