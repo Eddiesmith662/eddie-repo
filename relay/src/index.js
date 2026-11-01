@@ -126,14 +126,14 @@ export class Channel {
     this.ctx = ctx;
     this.viewers = new Set();       // { writer, token }
     this.token = null;              // the current view code
-    this.last = null;               // the latest update, as the text sent to pages
+    this.data = null;               // the latest update's data, as JSON text
     this.at = 0;                    // when it came in
     this.savedAt = 0;
     this.alarmOn = false;
     this.ready = ctx.blockConcurrencyWhile(async () => {
-      const s = await ctx.storage.get(["token", "last", "at"]);
+      const s = await ctx.storage.get(["token", "data", "at"]);
       this.token = s.get("token") || null;
-      this.last = s.get("last") || null;
+      this.data = s.get("data") || null;
       this.at = s.get("at") || 0;
     });
   }
@@ -157,10 +157,10 @@ export class Channel {
       await this.ctx.storage.put("token", token);
     }
     const now = Date.now();
-    this.last = JSON.stringify({ at: now, data: msg.data || {} });
+    this.data = JSON.stringify(msg.data || {});
     this.at = now;
-    this.send("data: " + this.last + "\n\n");
-    if (now - this.savedAt > SAVE_MS) { this.savedAt = now; await this.ctx.storage.put({ last: this.last, at: now }); }
+    this.send(this.message());
+    if (now - this.savedAt > SAVE_MS) { this.savedAt = now; await this.ctx.storage.put({ data: this.data, at: now }); }
     if (!this.alarmOn) { this.alarmOn = true; await this.ctx.storage.setAlarm(now + PING_MS); }
     return json({ ok: true, viewers: this.viewers.size });
   }
@@ -173,13 +173,18 @@ export class Channel {
     }
     if (Date.now() - this.at > IDLE_CLOSE_MS) {
       // no show on right now: the last update (if any), then close; the page checks back once a minute
-      return new Response((this.last ? "data: " + this.last + "\n\n" : "") + "event: idle\ndata: {}\n\n", { headers: head });
+      return new Response((this.data ? this.message() : "") + "event: idle\ndata: {}\n\n", { headers: head });
     }
     const { readable, writable } = new TransformStream();
     const v = { writer: writable.getWriter(), token };
     this.viewers.add(v);
-    this.write(v, "retry: 3000\n" + (this.last ? "data: " + this.last + "\n\n" : ": waiting\n\n"));
+    this.write(v, "retry: 3000\n" + (this.data ? this.message() : "event: ping\ndata: {}\n\n"));
     return new Response(readable, { headers: head });
+  }
+
+  // the update as sent to pages, with its age, so a page that connects later knows how old it is
+  message() {
+    return 'data: {"age":' + Math.max(0, Date.now() - this.at) + ',"data":' + this.data + "}\n\n";
   }
 
   write(v, text) {
@@ -201,11 +206,11 @@ export class Channel {
     const now = Date.now();
     if (now - this.at > IDLE_CLOSE_MS) {
       for (const v of [...this.viewers]) this.drop(v, "event: idle\ndata: {}\n\n");
-      if (this.last) await this.ctx.storage.put({ last: this.last, at: this.at });
+      if (this.data) await this.ctx.storage.put({ data: this.data, at: this.at });
       this.alarmOn = false;
       return;                                                         // no new alarm: the show sleeps until the next update
     }
-    this.send(": ping\n\n");
+    this.send("event: ping\ndata: {}\n\n");          // pages count these too: a silent stream means reconnect
     await this.ctx.storage.setAlarm(now + PING_MS);
   }
 }

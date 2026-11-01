@@ -156,6 +156,7 @@
 const $ = id => document.getElementById(id);
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 let D = null, gotAt = 0, notesKey = null, es = null, retryT = null, state = 'connecting';
+let heardAt = 0;   // last time the stream said anything (an update or the relay's 25 s ping)
 
 function ago(ms) {
   const s = Math.max(0, Math.round(ms / 1000));
@@ -167,13 +168,16 @@ function connect() {
   clearTimeout(retryT);
   if (es) es.close();
   es = new EventSource(location.pathname.replace(/\/+$/, '') + '/events');
+  heardAt = Date.now();
   es.onopen = () => { if (state !== 'idle') state = 'open'; tick(); };
   es.onmessage = e => {
-    try { D = JSON.parse(e.data).data || {}; } catch (er) { return; }
-    gotAt = Date.now();
+    let m; try { m = JSON.parse(e.data); D = m.data || {}; } catch (er) { return; }
+    gotAt = Date.now() - (+m.age || 0);          // an update sent before this page connected keeps its real age
+    heardAt = Date.now();
     state = 'open'; banner(''); render(); tick();
   };
   es.onerror = () => { if (state === 'open') state = 'reconnecting'; tick(); };   // the browser retries by itself
+  es.addEventListener('ping', () => { heardAt = Date.now(); });
   // the producer made a new link: this one won't work again
   es.addEventListener('replaced', () => { es.close(); state = 'replaced'; banner('<b>This link has been replaced.</b> Ask your producer for the new announcer link.'); tick(); });
   // nothing sent on this link yet, or the show has finished: check back once a minute
@@ -183,6 +187,8 @@ function connect() {
 
 // connection status in the top right; red when the numbers might be stale
 function tick() {
+  // a stream that has gone silent (no update or ping for 40 s, e.g. after the relay was updated) is reconnected
+  if ((state === 'open' || state === 'reconnecting') && Date.now() - heardAt > 40e3) connect();
   const c = $('conn'), t = $('connTxt'), age = gotAt ? Date.now() - gotAt : 0;
   let cls = 'bad', txt = 'Connecting…';
   if (state === 'replaced') txt = 'Link replaced';
