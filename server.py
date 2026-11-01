@@ -223,6 +223,36 @@ def _try(ir, key):
         return None
 
 
+SKIES = {0: "Clear", 1: "Partly cloudy", 2: "Mostly cloudy", 3: "Overcast"}
+WETNESS = {1: "Dry", 2: "Mostly dry", 3: "Very lightly wet", 4: "Lightly wet", 5: "Moderately wet", 6: "Very wet", 7: "Extremely wet"}
+COMPASS = ["N", "NE", "E", "SE", "S", "SW", "W", "NW"]
+DEMO_WEATHER = {"airC": 24.5, "trackC": 38.2, "skies": "Partly cloudy", "windMph": 7, "windDir": "SW", "humidity": 55, "fog": 0,
+                "rain": 0, "wetness": "Dry", "declaredWet": False}
+
+
+def read_weather(ir):
+    """The track's weather from iRacing's live data (for the announcer page). Values a SDK version lacks are left out."""
+    num = lambda k: (lambda v: float(v) if isinstance(v, (int, float)) else None)(_try(ir, k))
+    air, track = num("AirTemp"), num("TrackTempCrew")
+    if track is None:
+        track = num("TrackTemp")
+    if air is None and track is None:
+        return None
+    wind, wdir = num("WindVel"), num("WindDir")
+    hum, fog, rain, wet = num("RelativeHumidity"), num("FogLevel"), num("Precipitation"), _try(ir, "TrackWetness")
+    sky = _try(ir, "Skies")
+    return {
+        "airC": round(air, 1) if air is not None else None, "trackC": round(track, 1) if track is not None else None,
+        "skies": SKIES.get(sky, "") if isinstance(sky, int) else "",
+        "windMph": round(wind * 2.23694) if wind is not None else None,          # m/s -> mph
+        "windDir": COMPASS[int(round(math.degrees(wdir) / 45.0)) % 8] if wdir is not None else "",
+        "humidity": round(hum * 100) if hum is not None else None, "fog": round(fog * 100) if fog is not None else None,
+        "rain": round(rain * 100) if rain is not None else None,
+        "wetness": WETNESS.get(wet, "") if isinstance(wet, int) else "",
+        "declaredWet": bool(_try(ir, "WeatherDeclaredWet")),
+    }
+
+
 def race_flags(store, is_race, state, bits, leader_prog, total, gwc_limit=None):
     """The track flag, plus the white flag, checkered flag and overtime worked out ourselves.
 
@@ -710,6 +740,7 @@ class IRacingSource:
                 "overtime": rf["overtime"],
                 "otAttempts": rf["otAttempts"], "otLimit": rf["otLimit"],
                 "timeRemain": fmt_clock(ir["SessionTimeRemain"]),
+                "weather": read_weather(ir),
                 "sessTime": round(now_s, 2), "sessNum": sess_num, "trackM": self.info.get("trackM", 0),
                 # iRacing only sets the green bit around the start; while racing with no other flag it's green.
                 # White and checkered are worked out from the leader's lap (see race_flags)
@@ -1301,7 +1332,7 @@ class DemoSource:
             "connected": True, "source": "demo", "track": "Demo Speedway",
             "sessionName": "RACE", "sessionType": "race", "isRace": True,
             "sessionState": self.state, "lap": min(lap_now, self.total), "totalLaps": self.total,
-            "timeRemain": "", "flag": flag, "isReplay": self.__dict__.get("rp", {}).get("replay", False),
+            "weather": DEMO_WEATHER, "timeRemain": "", "flag": flag, "isReplay": self.__dict__.get("rp", {}).get("replay", False),
             "sessTime": round(now - self.t0, 2), "sessNum": 0, "trackM": 2414.0,
             "oneToGreen": caution and self.caution_until - now < self.base * 1.6,   # demo: the last caution lap, like iRacing
             "replaySpeed": self.__dict__.get("rp", {}).get("speed", 1), "replaySlow": self.__dict__.get("rp", {}).get("slow", False),
@@ -1428,7 +1459,7 @@ class DemoQualSource(DemoSource):
         return {
             "connected": True, "source": "demo", "track": "Demo Speedway",
             "sessionName": "QUALIFY", "sessionType": "lone qualify", "isRace": False,
-            "sessionState": 4, "lap": 0, "totalLaps": 0, "timeRemain": fmt_clock(left), "flag": "green",
+            "sessionState": 4, "lap": 0, "totalLaps": 0, "weather": DEMO_WEATHER, "timeRemain": fmt_clock(left), "flag": "green",
             "isReplay": False, "replaySpeed": 1, "replaySlow": False, "uiHidden": False, "camLap": 1,
             "camCarIdx": self.cam, "camGroup": self.camGroup,
             "camGroups": [{"num": 9, "name": "TV1"}, {"num": 10, "name": "TV2"}, {"num": 3, "name": "Cockpit"}],

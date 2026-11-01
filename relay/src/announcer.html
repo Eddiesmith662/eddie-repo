@@ -38,8 +38,14 @@
   .banner { display: none; margin: 12px 16px 0; padding: 12px 14px; border-radius: 6px; background: #2a1c22; border: 1px solid #5a2433; }
   .banner.on { display: block; }
 
-  /* layout */
+  /* layout: notes, on screen and weather across the top; running order and the side panels below */
+  .top { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1.3fr) minmax(0, 1.3fr); gap: 14px; padding: 14px 16px 0; align-items: stretch; }
   .wrap { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 14px; padding: 14px 16px 30px; align-items: start; }
+  /* weather */
+  .wx { display: grid; grid-template-columns: auto 1fr; gap: 4px 12px; align-items: baseline; }
+  .wx .k { font-size: 12px; color: var(--dim); letter-spacing: .8px; text-transform: uppercase; }
+  .wx .v { font-size: 16px; font-weight: 700; } .wx .v small { color: var(--dim); font-weight: 600; font-size: 13px; margin-left: 4px; }
+  .wx .wet { color: var(--blue); }
   .side { display: grid; gap: 14px; }
   section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
   section > h2 { margin: 0; padding: 9px 12px; font-size: 12px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--dim);
@@ -102,9 +108,10 @@
   .mini tr.notracing td { color: var(--faint); }
 
   @media (max-width: 1000px) {
+    .top { grid-template-columns: 1fr; padding: 10px 10px 0; gap: 10px; }
     .wrap { grid-template-columns: 1fr; padding: 10px; gap: 10px; }
     .side { display: contents; }
-    #notes { order: 1; } #screen { order: 2; } #order { order: 3; } #incidents { order: 4; } #points { order: 5; } #standings { order: 6; }
+    #order { order: 1; } #incidents { order: 2; } #points { order: 3; } #standings { order: 4; }
     header { padding: 8px 10px; gap: 10px; } .lap { font-size: 22px; }
     td.d .nm { max-width: 120px; }
     .oncam .lg, .tag .lg { display: none; } .tag .sh { display: inline; }
@@ -129,6 +136,14 @@
 </header>
 <div class="banner" id="banner"></div>
 
+<div class="top">
+  <section id="notes"><h2>Producer notes <span class="r" id="notesAge"></span></h2><div class="txt" id="notesTxt"></div></section>
+  <section id="screen"><h2>On screen now</h2><div class="pad">
+    <div class="cam"><span class="lbl">Camera</span><span id="cam">—</span></div>
+    <div class="gfx" id="gfx"></div></div></section>
+  <section id="weather"><h2>Weather <span class="r" id="wxWet"></span></h2><div class="pad wx" id="wx"><span class="ld">No weather data yet</span></div></section>
+</div>
+
 <div class="wrap">
   <section id="order">
     <h2>Running order <span class="r" id="orderNote"></span></h2>
@@ -140,10 +155,6 @@
   </section>
 
   <div class="side">
-    <section id="notes"><h2>Producer notes <span class="r" id="notesAge"></span></h2><div class="txt" id="notesTxt"></div></section>
-    <section id="screen"><h2>On screen now</h2><div class="pad">
-      <div class="cam"><span class="lbl">Camera</span><span id="cam">—</span></div>
-      <div class="gfx" id="gfx"></div></div></section>
     <section id="incidents"><h2>Incidents <span class="r" id="incCount"></span></h2><ul class="inc" id="inc"></ul></section>
     <section id="points" hidden><h2><b id="lpTitle">Live points</b> <span class="r">if the race ended now</span></h2>
       <table class="mini"><tbody id="lp"></tbody></table></section>
@@ -262,6 +273,21 @@ function render() {
   $('cam').innerHTML = cam ? '#' + esc(cam.n) + ' ' + esc(cam.d) + (cam.p ? ' <span class="ld">P' + esc(cam.p) + '</span>' : '') : '<span class="ld">—</span>';
   const air = d.air || [];
   $('gfx').innerHTML = air.length ? air.map(a => '<span class="chip">' + esc(a) + '</span>').join('') : '<span class="none">No graphics up besides the ticker and logos</span>';
+
+  // weather: temperatures in °F with °C, wind, sky, and rain / track wetness when there is any
+  const w = d.wx;
+  const tf = c => c == null ? '—' : Math.round(c * 9 / 5 + 32) + '°F<small>' + Math.round(c) + '°C</small>';
+  if (w) {
+    const rows = [['Air', tf(w.airC)], ['Track', tf(w.trackC)],
+      ['Wind', w.windMph == null ? '—' : esc(w.windMph) + ' mph' + (w.windDir ? ' <small>' + esc(w.windDir) + '</small>' : '')],
+      ['Sky', esc(w.skies || '—')]];
+    if (w.humidity != null) rows.push(['Humidity', esc(w.humidity) + '%']);
+    if (w.rain) rows.push(['Rain', '<span class="wet">' + esc(w.rain) + '%</span>']);
+    if (w.wetness && w.wetness !== 'Dry') rows.push(['Surface', '<span class="wet">' + esc(w.wetness) + '</span>']);
+    if (w.fog) rows.push(['Fog', esc(w.fog) + '%']);
+    $('wx').innerHTML = rows.map(r => '<span class="k">' + r[0] + '</span><span class="v">' + r[1] + '</span>').join('');
+  } else $('wx').innerHTML = '<span class="ld">No weather data yet</span>';
+  $('wxWet').innerHTML = w && w.declaredWet ? '<span style="color:var(--blue);font-weight:700">DECLARED WET</span>' : '';
 
   // incidents, newest first
   const inc = d.inc || [];

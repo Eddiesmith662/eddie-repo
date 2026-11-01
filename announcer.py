@@ -129,6 +129,7 @@ def build(live, settings, on_air):
                  "time": live.get("timeRemain") or "", "cautions": cautions, "replay": bool(live.get("isReplay")),
                  "live": bool(live.get("connected"))},
         "cam": cam, "air": [n for n in on_air() if n not in ("VSPEED logo", "League logo", "Ticker")],
+        "wx": live.get("weather"),
         "cars": cars, "inc": inc, "lp": lp, "st": st,
         "notes": {"text": (a.get("notes") or "")[:600], "t": a.get("notesAt") or 0},
     }
