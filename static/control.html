@@ -596,7 +596,7 @@
       <button id="spHideAll" class="vis" data-vis="spAir" data-vrole="hide">Hide sponsor</button>
     </div>
     <input type="file" id="spFile" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" hidden>
-    <p class="hint tip">Click a picture to load a new one (1920 × 1080 PNG, transparent background). One sponsor on air at a time; Show on another swaps it in.</p>
+    <p class="hint tip">Click a picture to load a new one (1920 × 1080 PNG, transparent background). One sponsor on air at a time: its button turns red and says Hide (press it to take it off); Show on another swaps it in.</p>
   </section>
 
 </main>
@@ -1142,7 +1142,7 @@ const SPONSORS = [['green', 'Green Flag'], ['restart', 'Restart'], ['white', 'Wh
 const SP_SHORT = { read1: 'Read 1', read2: 'Read 2', read3: 'Read 3' };
 $('spRows').innerHTML = SPONSORS.map(([k, n]) => `<div class="spcard" data-sp="${k}"><div class="thumb" data-do="load" title="Click to load an image">no image</div>
   <div class="nm" title="${n}">${SP_SHORT[k] || n}</div>
-  <div class="bt"><button class="vis" data-vis="sp-${k}" data-vrole="show" data-do="show">Show</button><button class="vis" data-vis="sp-${k}" data-vrole="hide" data-do="hide">Hide</button></div></div>`).join('');
+  <div class="bt"><button class="vis" data-vis="sp-${k}" data-vrole="show" data-do="toggle" title="Show this sponsor, or hide it while it's on air (red = on air)">Show</button></div></div>`).join('');
 // (i) buttons for the folded help text on the Race tab
 document.querySelectorAll('main[data-tab="race"] section').forEach(sec => {
   const tip = sec.querySelector('p.hint.tip'), h = sec.querySelector('h2'); if (!tip || !h) return;
@@ -1183,11 +1183,17 @@ $('spRows').onclick = e => {
   const b = e.target.closest('[data-do]'), row = e.target.closest('.spcard'); if (!b || !row) return;
   const k = row.dataset.sp, sp = S.sponsor || {};
   if (b.dataset.do === 'load') { spSlot = k; $('spFile').value = ''; $('spFile').click(); }
-  else if (b.dataset.do === 'show') {
+  else if (spLive(sp) && sp.active === k) set({ sponsor: { active: '' } });   // one button: on air → hide
+  else {                                                                       // hidden → show (swaps out another sponsor)
     if (!(sp.files || {})[k]) return toast('Load an image for this sponsor first');
     set({ sponsor: { active: k, t: Date.now() }, show: { lowerthird: false } });   // driver info goes off and stays off until its tile is pressed again
-  } else if (sp.active === k) set({ sponsor: { active: '' } });
+  }
 };
+// on air now: picked, has an image, and its auto-hide time (if any) hasn't run out
+function spLive(sp) {
+  const files = sp.files || {};
+  return !!sp.active && !!files[sp.active] && !(+sp.hold > 0 && Date.now() - (sp.t || 0) > sp.hold * 1000);
+}
 $('spFile').onchange = async () => {
   const f = $('spFile').files[0]; if (!f || !spSlot) return;
   toast('Loading ' + f.name + '…');
@@ -1200,12 +1206,14 @@ $('spHideAll').onclick = () => set({ sponsor: { active: '' } });
 $('spHold').onchange = () => set({ sponsor: { hold: Math.max(0, +$('spHold').value || 0) } });
 function sponsorRender() {
   const sp = S.sponsor || {}, files = sp.files || {};
-  const live = !!sp.active && !!files[sp.active] && !(+sp.hold > 0 && Date.now() - (sp.t || 0) > sp.hold * 1000);
+  const live = spLive(sp);
   air('spAir', live);
   document.querySelectorAll('.spcard[data-sp]').forEach(row => {
     const k = row.dataset.sp, f = files[k] || '', th = row.querySelector('.thumb');
     row.classList.toggle('on', live && sp.active === k);
     vis('sp-' + k, live && sp.active === k);
+    const tb = row.querySelector('[data-do="toggle"]'), label = live && sp.active === k ? 'Hide' : 'Show';
+    if (tb.textContent !== label) tb.textContent = label;
     const bg = f ? `url("/sponsor/${f}")` : '';
     if (th.dataset.bg !== bg) { th.dataset.bg = bg; th.style.backgroundImage = bg; th.textContent = f ? '' : 'no image'; }
     let nm = ''; try { nm = localStorage.getItem('vsSpName_' + k) || ''; } catch (e) {}
