@@ -592,8 +592,6 @@
     <div class="spgrid" id="spRows"></div>
     <div class="sptools">
       <span class="s">Auto-hide</span><input type="number" id="spHold" min="0" max="600" title="0 = stays up until you press Hide"><span class="s">s</span>
-      <span class="grow"></span>
-      <button id="spHideAll" class="vis" data-vis="spAir" data-vrole="hide">Hide sponsor</button>
     </div>
     <input type="file" id="spFile" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" hidden>
     <p class="hint tip">Click a picture to load a new one (1920 × 1080 PNG, transparent background). One sponsor on air at a time: its button turns red and says Hide (press it to take it off); Show on another swaps it in.</p>
@@ -1202,7 +1200,6 @@ $('spFile').onchange = async () => {
     if (r.ok) { try { localStorage.setItem('vsSpName_' + spSlot, f.name); } catch (e) {} toast('Image loaded'); } else toast(r.error || 'Could not load the image');
   } catch (e) { toast('Server not reachable'); }
 };
-$('spHideAll').onclick = () => set({ sponsor: { active: '' } });
 $('spHold').onchange = () => set({ sponsor: { hold: Math.max(0, +$('spHold').value || 0) } });
 function sponsorRender() {
   const sp = S.sponsor || {}, files = sp.files || {};
