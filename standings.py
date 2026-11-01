@@ -569,25 +569,21 @@ def init():
     log("Standings files: %s" % CONFIG_DIR)
 
 
-def autopull(on_done=None):
-    """Pull once on startup, unless there is no link or the standings were edited by hand."""
-    url = (load_config().get("xtreme") or "").strip()
-    if not url:
+def startup_note():
+    """What the Standings tab's log says at start. Standings are only pulled when Pull standings now is pressed
+    (some series use Xtreme Scoring and some don't); the saved copy loads on start."""
+    if not (load_config().get("xtreme") or "").strip():
         log("Paste your Xtreme Scoring widget link, then press Pull standings now.")
-    elif data_snapshot()["edited_at"]:
-        log("Keeping your hand-edited standings. Press Pull standings now to replace them.")
+    elif data_snapshot()["rows"]:
+        log("Showing the saved standings. Press Pull standings now to get the latest.")
     else:
-        def run():
-            do_pull(url, auto=True)
-            if on_done:
-                on_done()
-        threading.Thread(target=run, daemon=True).start()
+        log("Press Pull standings now to get the standings.")
 
 
-def do_pull(url, auto=False):
+def do_pull(url):
     global PULL_ERR, PULLING
     PULLING = True
-    log("Pulling standings from Xtreme Scoring%s..." % (" (on launch)" if auto else ""))
+    log("Pulling standings from Xtreme Scoring...")
     try:
         n = pull_xtreme(url)
         PULL_ERR = ""

@@ -64,7 +64,7 @@ The **control panel** (Prerace, Race, Standings, Layout and Setup tabs; race inf
 
 **Pole Award:** in the Race tab's Grid section, press **Load badge…** once and pick the sponsor's Pole Award image (it's kept in `data\sponsors`). Bring up the Grid on Row 1, then press **Show** next to the badge: the pole sitter's tab turns to POLE, their half lights up red with a VSPEED blue frame, and the badge takes their car's spot with POLE AWARD WINNER under it. **Next row** (or Previous row, Show from row 1, Hide) takes it away; **Hide** next to the badge takes it down early. In automatic mode the Grid waits on Row 1 while the award is up.
 
-**Standings:** open the Standings tab in the control panel, paste your Xtreme Scoring widget link and press **Pull standings now**. It also pulls by itself every time the overlay starts.
+**Standings:** open the Standings tab in the control panel, paste your Xtreme Scoring widget link and press **Pull standings now**. It only pulls when you press it (before each race); the last copy is saved with the series. Series that don't use Xtreme Scoring can load a CSV instead.
 
 **Moving over from Standings Control:** close the old program first, since both use port 8765. To keep your saved title, logo, bracket and team/race-info text, copy `config.json`, `standings.json`, `bracket.json` and your `logo.*` file from the old program's folder into this folder's `data\standings` folder (create it if it isn't there yet). Old browser inputs for `/analysis` and `/team` keep working; the standings graphic itself is now at `/standings` (or just use the single `/overlay` input).
 

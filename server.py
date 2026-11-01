@@ -2675,11 +2675,11 @@ def main():
     diag.setup(APP["version"], ("DEMO QUALIFYING" if args.qual else "DEMO") if args.demo else "iRacing")
 
     standings.init()
+    standings.startup_note()       # standings are pulled only when Pull standings now is pressed
     try:
         profiles.init(STATE)          # series profiles: the first time, the current setup becomes the first series
     except Exception as e:
         diag.error("Series profiles could not start: %r" % (e,), e)
-    standings.autopull(on_done=STATE.notify)
     threading.Thread(target=update_watch, daemon=True).start()
     announcer.start(STATE, on_air_now, diag.log)    # the announcer page feed (does nothing until it's set up)
     threading.Thread(target=telemetry_loop, args=(args.demo, args.multiclass, args.qual), daemon=True).start()
