@@ -1,6 +1,6 @@
 # VSPEED Standings, Live Points & Playoffs Guide
 
-Pull the standings from Xtreme Scoring before every race, and everything else follows from them. This guide covers the standings graphic, live points, the playoff bracket and playoff-round live points, for overlay version 1.5.24 and later.
+Pull the standings from Xtreme Scoring before every race, and everything else follows from them. The overlay only pulls when you press **Pull standings now**; the last standings are saved with each series and load when the overlay starts. This guide covers the standings graphic, live points, excluding drivers, the playoff bracket and playoff-round live points, for overlay version 1.5.30 and later.
 
 ## One-time setup
 
@@ -10,6 +10,7 @@ Do these once per series: pick the series first in the Series picker (top right 
 2. **Standings tab → Title & logo:** set the title text and the logo shown on the standings graphic.
 3. **Setup tab → Live points scoring:** check the points for each finishing place. **VSPEED default** fills in 46, 42, 41, then one less per place down to 1 point for 43rd. Press **Save points**.
 4. **Same box, bonuses:** points for **Led a lap**, **Most laps led** and **Pole** (1 each by default). Most laps led goes to everyone tied for the most, on top of the led-a-lap point.
+5. **Drivers who can't make the playoffs** (e.g. not enough starts): press **⊘** next to them in the Standings tab's table. See *Excluding a driver* below.
 
 No Xtreme link? **The CSV file picker** on the Standings tab takes a file with the columns Pos, #, Driver, Pts and Wins (**Example CSV** gives a ready-made one).
 
@@ -18,6 +19,7 @@ No Xtreme link? **The CSV file picker** on the Standings tab takes a file with t
 First, check the **Series** picker (top right of the control panel) shows tonight's series.
 
 - [ ] **Before the green flag, pull the standings** (Standings tab → **Pull standings now**). Pull *before* Xtreme posts tonight's race, or tonight's points get counted twice.
+- [ ] **Anyone not eligible?** ⊘ them on the Standings tab (exclusions stay through every pull, so only new ones need doing).
 - [ ] **Glance at the Live points box** on the Race tab. Plain text = every driver was found in the standings. **Yellow "Not in standings: …"** = check who it names (next sections).
 - [ ] **Playoffs only:** make sure Live points is set to **Playoffs** and the bracket is on the right round.
 - [ ] **During the race:** Show / Hide live points from the Race tab as you need it.
@@ -34,9 +36,19 @@ The championship table from the pulled standings, run from the Standings tab (or
 | **View: Standings / Playoff bracket** | Switches between the points table and the bracket (with an animation if it's on air) |
 | **Playoff cutoff** | Turns on the green "in" block and red cutline: drivers with a win (Wins column) are LOCKED IN, the rest of the spots go on points, and the gap column becomes TO CUTOFF |
 | **Edit by hand** | Fix a name, number or points in the table; **Save edits** keeps them until the next pull |
-| **⊘ / Include** | ⊘ next to a driver leaves them out of the standings graphic, live points and **Load top 12** (e.g. not eligible for the playoffs); everyone below moves up and positions are renumbered. Kept for this series through every pull; **Include** puts them back |
+| **⊘ / Include** | Leaves a driver out, or puts them back (see *Excluding a driver*) |
 
 The standings graphic's playoff cutoff is its own setting: changing it doesn't move the live points line, and the other way round.
+
+## Excluding a driver
+
+For a driver who can't take a playoff spot, for example someone who hasn't started enough regular-season races: press **⊘** next to them in the Standings tab's table.
+
+- **Standings graphic:** they're left out. Everyone below moves up a place, positions are renumbered (drivers level on points still share one) and the gaps are worked out again.
+- **Live points:** they're not listed and never take a spot above the line, so the next eligible driver moves up. Their car is still recognised in the race, so they don't show up as "Not in standings".
+- **Load top 12** skips them, and so does the announcer page's standings.
+- **On the Standings tab** they stay in the table, greyed out and crossed through, with an **Include** button to put them back.
+- **It sticks:** the exclusion is kept by name for this series through every pull and restart until you press Include.
 
 ## Live points (Race tab)
 
@@ -90,7 +102,7 @@ Switch it on once, on the Standings tab above the bracket: **Live points (Race t
 
 | Race | Round | Before the race | After the race |
 | --- | --- | --- | --- |
-| Last regular-season race | — | Normal race night | Once Xtreme has the final regular-season standings: pull, **Load top 12**, switch Live points to **Playoffs** |
+| Last regular-season race | — | Normal race night | Once Xtreme has the final regular-season standings: pull, **⊘** anyone not eligible, **Load top 12**, switch Live points to **Playoffs** |
 | 1 | Round of 12, race 1 | Pull standings (everyone level after the reset) | If a playoff driver won: 🏆 on them |
 | 2 | Round of 12, race 2 | Pull standings (now includes race 1) | Advance the 8 who made it with **→** (round winners first, then the best on points, as Xtreme shows) |
 | 3 | Round of 8, race 1 | Pull standings (reset again) | If a playoff driver won: 🏆 on them |
@@ -103,9 +115,11 @@ Ties on points use Xtreme's order, which applies the league's tiebreaker. During
 
 Each series you broadcast is saved separately. Pick it in the **Series** picker, top right of the control panel, next to Open live timing.
 
-**What switches with the series:** the standings (Xtreme link, the pulled table and any hand edits), the standings graphic's title, logo and playoff cutoff, the playoff bracket (with its 🏆 marks), the live points table, bonuses, line, places and playoff mode, the ticker header, the league logo, and the Next broadcast text and logo.
+**What switches with the series:** the standings (Xtreme link, the pulled table, any hand edits and excluded drivers), the standings graphic's title, logo and playoff cutoff, the playoff bracket (with its 🏆 marks), the live points table, bonuses, line, places and playoff mode, the ticker header, the league logo, and the Next broadcast text and logo.
 
-**What every series shares:** race info, the broadcast team and the sponsor images.
+**What every series shares:** race info, the broadcast team, the sponsor images, the layout and the announcer page.
+
+**Race results** are saved into the folder of the series picked when each race finishes (`data\results\<series>\`), so check the picker before the checkered flag.
 
 | To | Do this |
 | --- | --- |
@@ -127,6 +141,8 @@ Multi-class series: live points scores overall finishing position and ignores cl
 | Live points still shows the previous round | The bracket wasn't advanced | Advance the drivers with **→** on the Standings tab |
 | A round winner isn't shown IN | 🏆 not ticked | Tick 🏆 on them in the bracket |
 | Live points shows the wrong series' drivers | The wrong series is picked | Set **Regular season** only if this series isn't in its playoffs; otherwise pick tonight's series in the Series picker |
+| The standings are last week's | They're only pulled when you press the button | Standings tab → **Pull standings now** (before the race) |
+| A driver who isn't eligible is in the top 12 or above the line | Not excluded | **⊘** next to them on the Standings tab |
 | Show does nothing and a message pops up | Nothing to show yet (not a race session, or no standings loaded) | Read the message: it says what's missing |
 
 Stage points and penalties the league hands out after a race aren't in live points: they appear once they're in Xtreme and you pull again.

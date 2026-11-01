@@ -1,178 +1,256 @@
 # VSPEED Broadcast Overlay
 
-A custom iRacing overlay for broadcasting software, built to the VSPEED Brand Style Guide V1.
+Live iRacing graphics for vMix or OBS, run from a control panel in your browser: the ticker, driver info, grid,
+standings, live points, podium, sponsors and more, built to the VSPEED Brand Style Guide.
+
+**Contents:** [Quick start](#quick-start) · [Race night](#race-night) · [The control panel](#the-control-panel) ·
+[The graphics](#the-graphics) · [Standings, live points and playoffs](#standings-live-points-and-playoffs) ·
+[Several series](#several-series) · [Race results](#race-results) · [Announcer page](#announcer-page) ·
+[Live timing window](#live-timing-window) · [Updates](#updates) · [When something goes wrong](#when-something-goes-wrong) ·
+[Files](#files)
+
+---
 
 ## Quick start
 
-1. **Download** the latest release from the Releases page and unzip it anywhere (e.g. your Desktop).
-2. **Double-click `start.bat`.** The first time, it sets itself up (about a minute, needs internet). No Python install needed. Keep the window open while you broadcast.
-3. **Open the control panel** at `http://localhost:8765/control`. A new setup opens on a **Getting started** checklist (Prerace tab) that ticks itself as you go:
-   - add the overlay to vMix or OBS: a **Web Browser** input, `http://localhost:8765/overlay`, 1920 × 1080, above iRacing
-   - pick your league logo (put it in `data\logos` first) and type the ticker header
-   - load your standings from Xtreme Scoring (if your league uses them)
-4. **Start iRacing.** The overlay connects by itself. No iRacing handy? `start-demo.bat` runs a fake race to try everything.
+1. **Download** the latest release (Releases on the right of the GitHub page → the newest version → *Source code (zip)*)
+   and unzip it anywhere, e.g. your Desktop.
+2. **Double-click `start.bat`.** The first time it sets itself up, which takes about a minute and needs internet.
+   You don't need to install Python. Keep the black window open while you broadcast.
+3. **Open the control panel:** `http://localhost:8765/control` in your browser. A new setup opens on a
+   **Getting started** checklist that ticks itself as you go:
+   - add the overlay to vMix or OBS (below)
+   - put your league logo in the overlay's `data\logos` folder and pick it
+   - type the ticker header (your league or race name)
+   - load your standings, if your league uses them
+4. **Add the overlay to vMix or OBS:** a **Web Browser** input with `http://localhost:8765/overlay`, size
+   **1920 × 1080**, on a layer above your iRacing capture. The page is see-through.
+5. **Start iRacing.** The overlay connects by itself.
 
-Updates install themselves when you start it. Everything you set up lives in the `data` folder, which updates never touch. The rest of this page is the full reference.
+No iRacing handy? **`start-demo.bat`** runs a pretend race so you can try every graphic.
 
-## What's included
+---
 
-| Graphic | Where | Notes |
+## Race night
+
+Before the green flag:
+
+- [ ] **Start the overlay** (`start.bat`). If it offers an update, press **Y**.
+- [ ] **Series picker** (top right of the control panel) shows tonight's series.
+- [ ] **Standings tab → Pull standings now**, before the race. Pull before Xtreme Scoring posts tonight's race,
+      or tonight's points get counted twice.
+- [ ] **Prerace tab:** race info, broadcast team, Next broadcast text and tonight's track graphic.
+- [ ] **Open live timing ↗** (top right) on a second screen for camera changes and replays.
+- [ ] **Announcer page:** send your announcers the link (Race tab → **Copy announcer link**).
+- [ ] **Show base package** (Race tab → Graphics) puts the logos, ticker and driver info up.
+
+After the race: **Podium** (Race tab), then **Save diagnostics** (Setup tab) if anything looked wrong, and send the
+zip to Claude. The race results save themselves.
+
+---
+
+## The control panel
+
+`http://localhost:8765/control`. It works from a phone or tablet on the same network too: the black window shows
+the address to use.
+
+| Tab | What's on it |
+|---|---|
+| **Prerace** | Getting started checklist, race info, broadcast team, Next broadcast, broadcast text (ticker header and league logo), track graphic, Results board title |
+| **Race** | Graphics tiles, Race off pit road, Podium, Live points, ticker and driver info settings, cameras, incident log, Grid and Pole Award, Sponsors, Announcer page link and notes |
+| **Standings** | Standings graphic on/off, title and logo, Xtreme Scoring link or CSV, the standings table (edit, exclude), playoff bracket |
+| **Layout** | Drag any graphic to move it, sliders to resize it. Changes show in vMix straight away and are saved |
+| **Setup** | Live points scoring (points per place, bonuses), the overlay links for vMix, car renders, announcer page setup, diagnostics |
+
+At the top: the version, the **Series** picker, **Open live timing ↗** and **Producer codes ↗** (for the announcer page).
+
+**Show and Hide:** most graphics have Show and Hide buttons, and the lit one tells you what's on air. Sponsors have
+a single button that turns red while that sponsor is up. **Hide all** (Race tab) clears everything; **Show base
+package** brings back the logos, ticker and driver info.
+
+---
+
+## The graphics
+
+| Graphic | Where | What it shows |
 |---|---|---|
-| VSPEED logo | Top left | 92% grey plate with red accent, slanted or straight: right-click (or press and hold) the VSPEED logo tile to pick |
-| League logo + LIVE / REPLAY tag | Top right | Tag switches to REPLAY automatically when iRacing plays back |
-| Ticker (timing tower) | Left | Live running order, interval or gap to leader, multi-class color stripe, highlights the camera car. On pit road the gap column changes to a blue PIT, times the stop in the box (PIT 6.2) and then shows the final stop time for a few seconds before the gap comes back. If a stop reaches 50 seconds the car is treated as parked and the gap comes back until its next pit visit |
-| Driver info | Bottom | Follows whichever car the iRacing camera is on. In multi-class races the line under the name takes the class color and grows into a small class label |
-| Flag banners | Top center | Switched off for now; the ticker shows flags instead (flag square, flag wipes and the CAUTION / WHITE FLAG / CHECKERED band) |
-| Results board | Center | Live running order with gaps, from iRacing |
-| **Penalty box** | Top center | When a driver gets a black flag they appear in the live timing window's Penalties list; press **Show** there to put the box up for 8 seconds: car number, driver, position, and the reason if you pick one (Speeding / Passing under yellow) |
-| **Biggest movers** | Bottom right | Top 5 drivers by positions gained since the start (start, now, gained); within each class in multi-class races. Turn it on with the Biggest movers tile; it steps aside while race info is up |
-| **Live points** | On the ticker | The championship if the race ended now: standings points (Standings tab, pulled or loaded before the race) plus the points each driver would score for where they're running, plus bonuses for leading a lap, most laps led and pole. Up to 15 drivers, rising up over the ticker like Race off pit road (showing one hides the other); pick which places on the Race tab, e.g. **Places 3 – 16** shows 3rd to 16th. Drivers with a win in the standings and the race leader are locked in (IN) at the top; the rest of the spots go on points, with a red cutoff line (after 12th by default, set on the Race tab) and each driver's points to the cutline. Drivers are matched to the standings by name, then car number; anyone not in the standings starts from 0. A driver excluded with ⊘ on the Standings tab (e.g. not eligible for the playoffs) is left out of live points, the standings graphic and Load top 12. **Playoffs:** on the Standings tab's Playoff bracket, switch Live points to **Playoffs: use this bracket**. It then lists only the drivers in the current round (the latest bracket round with drivers in it) with its own cutline (8 go through from the Round of 12, 4 from the Round of 8); regular-season wins don't count, and a driver is locked in by a win in this round (mark it with 🏆 in the bracket; a win doesn't carry into the next round) or by leading the race. The Championship 4 shows the four in running order, with the leader as CHAMP. Pull the standings before each playoff race so Xtreme Scoring's reset points are in. The points table and bonuses are on the Setup tab (VSPEED default: 46, 42, 41 … down to 1 point for 43rd) |
-| **Race off pit road** | On the ticker | Rises up from the bottom of the ticker, same width, over the lower rows (it shows there even if the ticker is off). After a pit cycle under caution: the top 10 in the order they came off pit road, spots gained or lost among the cars that pitted, and each stop's box time (fastest in purple, PENALTY if they got a black flag), with the cars that stayed out underneath. It's live: cars appear as they reach the pit lane exit (header LAP 47 · LIVE), each with spots gained or lost against the order they came down pit road, and STAYED OUT is added when the cycle is over. Only lead-lap cars are on it: anyone a lap or more down when they come onto pit road is left off. It captures itself when cars pit under caution (at least 3 lead-lap cars for it to count); the Race tab shows CAPTURING, then READY. Press **Show** any time from the first car out; it stays up until **Hide**. When a new caution comes out, the last pit cycle is cleared, so the graphic starts empty and fills in fresh as cars come off pit road (if it was left on air it disappears and comes back with the first car out). **Capture now** starts one by hand, e.g. for green-flag stops |
-| **Podium** | Full screen | After the race, the top 3 one at a time on VSPEED's Race Winner / 2nd Place / 3rd Place artwork, with the driver's name, where they started, laps led and fastest lap (from iRacing's results). Race tab → Podium: Winner, 2nd place, 3rd place, Hide; press another place to switch. The ticker and driver info step aside while it's up; the VSPEED logo stays in its usual top-left spot |
-| **Grid** | Bottom | Starting grid from qualifying, one row (two cars) at a time: position tabs, ROW n, car render, car name, driver, qualifying time and number |
-| **Standings** | Center | Championship points from Xtreme Scoring (top 20, two columns), playoff cutoff line, playoff bracket |
-| **Race info** | Bottom right | The race analysis box (title + 5 lines) |
-| **Broadcast team** | Bottom center | Up to 3 people with roles |
-| **Track graphic** | Anywhere | A ready-made track graphic (PNG / JPG / WebM) from a Google Drive folder, wiped in and out |
-| **Next broadcast** | Bottom centre | "Next broadcast" box with a logo, the event, date and time, all typed on the Prerace tab |
-| **Sponsors** | Full screen | Six sponsor slots on the Race tab (Green Flag, Restart, White Flag, Sponsor Read 1–3): load an image for each, then Show / Hide. One on air at a time, optional auto-hide |
+| **VSPEED logo** | Top left | Right-click its tile to switch between slanted and straight |
+| **League logo + LIVE tag** | Top right | The tag switches to REPLAY by itself during iRacing replays |
+| **Ticker** | Left | Running order with interval or gap to the leader, the lap and laps to go, flags, pit stops, meatball flags |
+| **Driver info** | Bottom | The car the iRacing camera is on: last and best lap, gap; in qualifying, the gap to pole |
+| **Results board** | Center | Full running order with gaps |
+| **Biggest movers** | Bottom right | Top 5 positions gained since the start |
+| **Race off pit road** | Over the ticker | The order cars came off pit road under caution, spots gained or lost, stop times |
+| **Live points** | Over the ticker | The championship if the race ended now, with the playoff cutline ([guide](GUIDE-standings-live-points-playoffs.md)) |
+| **Penalty box** | Top center | A black-flagged driver with a reason, shown from the live timing window |
+| **Grid** | Bottom | The starting grid, a row at a time, with car renders in each driver's paint; Pole Award badge |
+| **Podium** | Full screen | Winner, 2nd and 3rd on the VSPEED artwork: start position, laps led, fastest lap |
+| **Standings** | Center | Championship points, playoff cutline, playoff bracket |
+| **Race info** | Bottom right | Title and 5 lines (race length, pit speed …) |
+| **Broadcast team** | Bottom center | Up to 3 names with roles |
+| **Track graphic** | Anywhere | A ready-made image or video from a folder (e.g. Google Drive) |
+| **Next broadcast** | Bottom center | Event, date and time, with a logo |
+| **Sponsors** | Full screen | Six slots: Green Flag, Restart, White Flag, Sponsor Read 1–3 |
 
-Standings, race info and broadcast team are your existing standings graphic (same look and animations), now run by this server instead of the separate Standings Control program. They live in the main overlay, and while one is on screen the live graphics it would cover step aside on their own.
+When standings, race info or the broadcast team are on screen, any live graphic underneath steps aside by itself.
 
-The **control panel** (Prerace, Race, Standings, Layout and Setup tabs; race info, broadcast team, next broadcast, broadcast text, the track graphic and the results board title are on the Prerace tab) toggles every graphic, edits all text, and switches the iRacing camera to any car with one tap. It works from a phone or tablet on the same network.
+### Notes on some of them
 
-## Setup (Windows broadcast PC)
+- **Ticker:** *Interval* or *To leader* gaps, how many rows, and how many stay fixed at the top while the rest page
+  through (Race tab → Ticker & driver info). Lapped cars show −1 LAP, −2 LAPS. Pit stops show a blue PIT with the
+  stop time. Caution, white and checkered flags flash the rows and leave a band under the lap line; ONE TO GREEN and
+  PACE LAP show when iRacing sends them. Laps to go count down like TV (10 TO GO … FINAL LAP), and late cautions show
+  OVERTIME · ATTEMPT 1 OF 2. Multi-class races group by class, IMSA style.
+- **Driver info:** *Always on*, or *8s on camera cut* to show it only after each camera change. Showing a sponsor
+  turns it off until you press its tile again.
+- **Race off pit road:** captures itself when 3 or more lead-lap cars pit under caution (CAPTURING, then READY).
+  Press **Show** any time from the first car out. **Capture now** starts one by hand, e.g. for green-flag stops.
+- **Grid:** **Show** starts at row 1. Next row is *Automatic* (every few seconds) or *Manual*. For the **Pole Award**,
+  load the badge once (**Load…**), show the grid on row 1, then press **Show** next to the badge.
+- **Podium:** after the race, press **Winner**, **2nd place**, **3rd place**, then **Hide**.
+- **Sponsors:** click a slot's picture to load an image (1920 × 1080 PNG with a transparent background). Optional
+  auto-hide after a number of seconds.
+- **Track graphic:** Prerace tab → **Browse…** to pick the folder, then pick tonight's track and **Show track**.
+  For a Google Drive folder, right-click it in File Explorer → *Available offline* so nothing downloads at the
+  moment you press Show.
+- **Penalty box:** black-flagged drivers appear in the live timing window's Penalties list. Pick a reason
+  (Speeding / Passing under yellow) if you want one, then press **Show**.
+- **Results board** and **finish gaps:** after the checkered, gaps lock as each car crosses the line and are
+  replaced by iRacing's official results (−1 LAP, DNF) once they come in.
 
-1. Put this folder anywhere, for example `C:\VSPEED\vspeed-overlay`. **You don't need to install Python:** the overlay brings its own.
-2. Double-click **`start.bat`**. The first time, it downloads the overlay's own Python 3.13 (about 30 MB, one time only, into `%LOCALAPPDATA%\VSPEED`, so OneDrive doesn't sync it and it doesn't matter which Python, if any, is already on the PC), then installs `pyirsdk` and creates the `data` folder. After that it starts straight away. If that download isn't possible, it uses an installed Python 3.13 instead. To remove the overlay's Python, delete `%LOCALAPPDATA%\VSPEED`.
-3. Put your league/series logo for the top right into `data\logos` (transparent PNG, e.g. `league_logo.png`). Add more logos with any name and pick them on the Prerace tab.
-4. In your broadcasting software, add a **web browser (browser source) input**
-   - URL: `http://localhost:8765/overlay`
-   - Size: 1920 × 1080
-   - Put it on a layer above your iRacing capture. The page is transparent.
-5. Open the control panel at `http://localhost:8765/control`. The console window also prints a link for your phone.
+---
 
-**Moving things around:** the control panel's **Layout** tab shows a preview of the screen with every graphic on it. Drag any graphic to move it and use the sliders to resize it. It updates live in your broadcasting software as you go and is saved for next time. While standings, race info or the team box are on air, any live graphic they overlap steps aside on its own.
+## Standings, live points and playoffs
 
-**Next broadcast:** on the **Prerace** tab, type the title, event, date and time (changes go straight to the graphic, even while it's on screen) and pick a logo: any image in `data\logos`, or press **Load…** to pick one on the PC (it's copied into `data\logos`). Leave the date or time empty and the divider between them goes away; pick "No logo" and the text moves over.
+All on the **Standings** tab. The full walkthrough, including a race-by-race playoff routine, is in
+**[GUIDE-standings-live-points-playoffs.md](GUIDE-standings-live-points-playoffs.md)**.
 
-**Track graphic:** in the **Prerace** tab's Track graphic section, press **Browse…** and pick the folder with your track graphics in the Windows folder window (from a phone or another PC, Browse shows an in-page folder list instead) (any folder on the PC, including a Google Drive for desktop folder), or paste its path and press Save. Pick tonight's track from the list, then use **Show track** / **Hide** or the Track graphic tile. Tip: right-click the folder in File Explorer and choose **Offline access → Available offline**, so nothing has to download at the moment you hit Show.
+- **Getting the standings:** paste your Xtreme Scoring widget link and press **Pull standings now**, or load a CSV
+  (columns Pos, #, Driver, Pts, Wins; **Example CSV** gives one to copy). It only pulls when you press the button;
+  the last copy is saved with the series.
+- **Edit by hand** fixes a name, number or points.
+- **⊘ Exclude** leaves a driver out of the standings graphic, live points and the bracket (e.g. not eligible for the
+  playoffs). Everyone below moves up. **Include** puts them back.
+- **Live points** (Race tab): standings points + what each driver would score for where they're running now +
+  bonuses (led a lap, most laps led, pole). Points per place and bonuses are on the Setup tab.
+- **Playoffs:** fill the bracket with **Load top 12**, advance drivers with **→**, mark round wins with 🏆, and switch
+  live points to **Playoffs: use this bracket**.
 
-**Grid:** on the Race tab, press **Show from row 1** (or the Grid tile). Set *Next row* to **Automatic** (steps every *Seconds per row*) or **Manual** (only moves when you press **Next row**). After the last row it hides or starts over. **Previous / Next row** work in both modes. Car renders come from iRacing: the overlay asks iRacing's local service for each car with its paint scheme and the custom paint in your iRacing paint folder (Documents\iRacing\paint by default). The render setup is saved; the test and paint tools live in the **Setup** tab under *Car renders*.
+---
 
-**Sponsors:** in the Race tab's Sponsors section, press **Load image…** on a slot and pick the sponsor's picture. Sponsors play full screen, exactly as the image is, so make them 1920 × 1080 PNGs with a transparent background (smaller images are centered). It's saved in the `data\sponsors` folder and stays loaded for next time. Each slot has one button: **Show** puts it on air and the button turns red and says **Hide**; press it again to take it off. Show on another slot swaps it in. Set *Hide by itself after* if you want it to drop off on its own. Showing a sponsor also turns the driver info off; it stays off afterwards until you turn it back on with the Driver info tile.
+## Several series
 
-**Pole Award:** in the Race tab's Grid section, press **Load badge…** once and pick the sponsor's Pole Award image (it's kept in `data\sponsors`). Bring up the Grid on Row 1, then press **Show** next to the badge: the pole sitter's tab turns to POLE, their half lights up red with a VSPEED blue frame, and the badge takes their car's spot with POLE AWARD WINNER under it. **Next row** (or Previous row, Show from row 1, Hide) takes it away; **Hide** next to the badge takes it down early. In automatic mode the Grid waits on Row 1 while the award is up.
+The **Series** picker (top right) keeps each series separate. Picking one switches all of these at once:
 
-**Standings:** open the Standings tab in the control panel, paste your Xtreme Scoring widget link and press **Pull standings now**. It only pulls when you press it (before each race); the last copy is saved with the series. Series that don't use Xtreme Scoring can load a CSV instead.
+- the standings (Xtreme link, the table, hand edits, excluded drivers), the standings title, logo and cutoff
+- the playoff bracket
+- live points settings (points table, bonuses, line, places, playoff mode)
+- the ticker header, the league logo and the Next broadcast text
 
-**Moving over from Standings Control:** close the old program first, since both use port 8765. To keep your saved title, logo, bracket and team/race-info text, copy `config.json`, `standings.json`, `bracket.json` and your `logo.*` file from the old program's folder into this folder's `data\standings` folder (create it if it isn't there yet). Old browser inputs for `/analysis` and `/team` keep working; the standings graphic itself is now at `/standings` (or just use the single `/overlay` input).
+Shared by every series: race info, the broadcast team, sponsors, the layout and the announcer page.
+**⋯** next to the picker adds (a copy, or an empty one), renames or deletes a series.
 
-**Several series?** The **Series** picker at the top right of the control panel keeps each series' standings, playoff bracket, live points settings, ticker header, league logo and Next broadcast text separately; pick a series and they all switch together (it asks first if a graphic is on air). **⋯** next to it adds, renames or deletes a series. Race info, the broadcast team and sponsors are shared. Series are saved in `data\profiles`, so updates never touch them; the first time, whatever is set up becomes the first series.
+---
 
-**Race results** are saved automatically for every race the overlay is connected to, as a CSV file (opens in Excel or Google Sheets) in `data\results\<series>\`, named by date and track (e.g. `2026-10-30 Atlanta Motor Speedway.csv`), sorted into the series picked in the Series picker. Each file has position, car number, driver, start, laps, laps led, gap, fastest lap, incidents and status (Running or why they're out). A first copy is written a minute after the checkered flag and replaced when iRacing makes the results official.
+## Race results
 
-**Announcer page:** remote announcers can follow the race on a live page in any browser: the running order with gaps and intervals, the lap and flag, what's on screen, incidents, live points, standings and notes you type on the Race tab. The overlay sends it a small update twice a second through the VSPEED relay (a Cloudflare Worker; setup in [relay/README.md](relay/README.md)). Paste the show's producer code on the **Setup** tab (Announcer page) and send your announcers the link it gives you. Nothing on their page can change anything on your PC.
+Every race the overlay is connected to is saved as a spreadsheet (CSV, opens in Excel or Google Sheets) in
+`data\results\<series>\`, named by date and track, e.g. `2026-10-30 Atlanta Motor Speedway.csv`.
 
-**Standings, live points and the playoffs:** see [GUIDE-standings-live-points-playoffs.md](GUIDE-standings-live-points-playoffs.md) for setup, the race-night checklist, the playoff bracket and the round-by-round playoff routine.
+Each file has position, car number, driver, start, laps, laps led, gap, fastest lap, incidents and status
+(Running, or why they're out). A first copy is saved a minute after the checkered flag and replaced when iRacing makes
+the results official. It goes into the folder of the series picked when the race ends.
 
-**No iRacing handy?** Double-click **`start-demo.bat`** to run a fake 24-car race so you can test the look in your broadcasting software. To race your own drivers in the demo instead (handy for testing live points against your real standings), put a `demo-field.csv` in the `data` folder with one driver per line as `car number,name` (a `#,Driver` header line is fine); the file's order is the starting grid. Delete it to go back to the made-up field.
+---
 
-To check the layout in a normal browser over a sample background, open `http://localhost:8765/overlay?preview`.
+## Announcer page
 
-## Fonts
+A live page for remote announcers: they open a link in any browser (computer, tablet or phone) and see what's on
+screen, your notes, the weather, the running order, incidents, live points and standings, updated twice a second.
+Nothing on their page can change anything on your PC.
 
-The overlay uses **Bahnschrift** (SemiBold for headers, Light for sub-text; the brand guide spells it "Bahnscrift"), which comes with Windows 10/11, so your broadcasting software picks it up automatically. It falls back to Arial per the brand guide.
+1. **Setup tab → Announcer page:** paste the show's **producer code** and press **Save**. Codes are made by the
+   relay's owner (**Producer codes ↗** at the top; it needs the relay password). One code per show.
+2. **Copy the announcer link** (Setup tab, or **Copy announcer link** on the Race tab) and send it to your announcers.
+3. **Notes** (Race tab) go out as you type, e.g. "Sponsor read after the restart".
 
-## Race night tips
+If a link gets passed around, **New link** (Setup tab) makes a fresh one and the old one stops working straight away.
+Running the relay itself (Cloudflare): see [relay/README.md](relay/README.md).
 
-- **Live timing window:** press **Open live timing ↗** at the right of the panel's top tab bar (or go to `http://localhost:8765/timing`) and park it on a second monitor.
-  - Columns: position, number, driver, positions gained (▲) or lost (▼) since the start, gap to the leader (lapped cars show -1 LAP, -2 LAPS… in orange), current speed in mph, last lap, best lap (the fastest lap of the race in purple, a driver's personal best on their last lap in green) and how many pit stops they've made (only stops in their pit box count, not drive-throughs) and their last pit stop time, which stays until their next stop. Both start over each session. On a phone the lap and pit columns are hidden to fit.
-  - Click a driver to put the camera on them; **right-click** (or press and hold on a tablet) to pick which camera to cut to.
-  - The **Cameras** list on the left switches camera group for the current driver (it spreads into 2–3 columns when a track has lots of cameras).
-  - Replay controls underneath: ⏮ Start, rewind / fast-forward (press again to go faster), play, pause, **Live**, speeds ×0.25–×4, **Sim UI** (show/hide iRacing's own UI), **◀ LAP ▶** (jump to the start of the previous / next lap of the car on camera), **↻ REPLAY** (jump back the set number of seconds and play) and **◀ On Track / On Track ▶** (camera to the car behind / ahead on track).
-- **Replays:** the tag flips to REPLAY on its own. Still run the VSPEED Instant Replay stinger in your broadcasting software before and after, per the guide. The **Live** button in the live timing window sends iRacing back to the live point.
-- **Caution, white and checkered flags:** when iRacing throws one of these, the ticker's rows flash solid in the flag (yellow, white, or a checkered pattern) for about 2 seconds, then the running order fades back in, and a matching CAUTION / WHITE FLAG / CHECKERED band stays under the lap line while that flag is out. When iRacing gives the field the one-to-green signal, the CAUTION band changes to **ONE TO GREEN** until the green flag. During the pace laps before the start, the ticker shows a yellow **PACE LAP** band (no flag flash) until the green. iRacing doesn't send the white and checkered flags while you're spectating, so in a race the overlay works them out itself: white when the leader starts the final lap, checkered when the race finishes.
-- **Laps to go:** the ticker's lap line counts down like TV (**10 TO GO** … **2 TO GO**, **FINAL LAP** on the white flag lap, **FINISHED** after the checkered). If a late caution sends the race past its scheduled distance it shows **OVERTIME · ATTEMPT 1 OF 2** (the attempt running or coming up, and iRacing's limit for the race); after the restart the leader runs one green lap, and the next lap is the **FINAL LAP** with the white flag.
-- **Meatball flag:** when iRacing gives a driver the meatball (repair) flag, their row on the ticker gets a pulsing orange outline and a meatball flag (black flag, orange disc) pops out to the right for 10 seconds.
-- **Penalties:** when a driver gets a black flag, a **Penalties** list appears at the top of the live timing window, and a black flag shows next to their name. Nothing goes on screen by itself: pick **Speeding** or **Passing under yellow** if you want a reason on it (press again to clear), then press **Show** to put that driver's penalty box up for 8 seconds. Press Show on several and they play one after the other; **Hide box** takes it down and cancels the rest. Each driver stays in the Penalties list for 30 seconds, then drops off (the black flag next to their name stays until they serve). iRacing doesn't say what a penalty was for, so the reason only shows if you pick one.
-- **Finish results:** after the checkered, each car's gap to the winner is locked in as it crosses the line, then replaced by iRacing's official results as they come in (official gaps, **-1 LAP** etc., and **DNF** for drivers who dropped out). The ticker and the Results board both use them.
-- **Incident log:** the right-hand column of the live timing window lists incidents as they happen, newest first: lap, race clock, type, driver and what happened. **Types ▾** picks which of the 15 types are listed (off-track, spin / crash, car contact, wall contact, multi-car, stopped, mechanical, slow, retired / DNF, caution, meatball / damage, penalty, warning, disqualified, pit stop); each viewer's choice is remembered. Double-click an incident to replay it from that many seconds before it happened (set the rewind seconds next to Types), with the camera on that car. The list starts over when the session changes (e.g. qualifying to the race). Entries marked **iRacing** come from iRacing itself (track surface, incident points, flags, results, pit stops); **predicted** ones are worked out from speeds and positions, because iRacing doesn't say what happened (spins, contact, wall hits, multi-car, stopped, slow, mechanical), so treat them as a best guess. iRacing's incident points (+1x / +2x / +4x) appear when iRacing shares them: spectating a league session you're an admin of, they come through; otherwise iRacing keeps them at 0 during races (seen in qualifying only). **Clear** empties the list.
-- **Qualifying:** in qualifying sessions the ticker orders drivers by best lap (pole time on P1, gaps to pole below, — for no time yet), and cars on a flying lap get a green wash. The driver info for the car on camera gets a box on the right: on a flying lap it shows the live gap **TO POLE** (green = faster than pole, yellow = slower) and the position that pace would give them; when the lap ends it shows the **lap time** and their position for a few seconds (red if it beat their best). It's hidden on out laps, in the pits, and once a lap falls 2 seconds off pole pace. Next to Last and Best, the driver info also shows **Time to beat**: the current pole time. To try it without iRacing: double-click `start-demo-qualifying.bat`.
-- **Lapped cars:** the ticker shows -1 LAP, -2 LAPS… for any car that's a lap or more down, in both Interval and To leader mode.
-- **Driver info mode:** "Always on" or "8s on camera cut" if you want it to pop in only after each switch.
-- **Multi-class:** with two or more classes the ticker groups by class, IMSA style: a header bar in each class color, fastest class first, class positions and gaps within the class. Set the rows for the two classes on the Race tab: the two boxes are labeled with the classes in the current session (fastest first, default 5 and 15); extra cars page through at the bottom of their group. Switch to *One combined list* if you prefer, or pick a single class to show only that class. To try it without iRacing: `python server.py --demo --multiclass`.
-- Settings and text are saved to `data\settings.json`, so they survive restarts and updates.
+---
 
-## Diagnostics
+## Live timing window
 
-The overlay keeps a log so problems can be tracked down afterwards. Everything stays on this PC:
+**Open live timing ↗** (top right of the control panel), best on a second screen.
 
-- **Log file** (`data\logs\vspeed-<date>.log`, last 7 days): startup, iRacing connecting and disconnecting, session changes, flags, pit stops, black flags and meatballs, qualifying laps, what was pressed in the control panel, errors (including errors in the overlay page inside your broadcasting software), and updates.
-- **Black box** (`data\logs\blackbox.jsonl`): the last 3 hours of the raw values read from iRacing, one snapshot a second. The black box from the run before (`blackbox-previous.jsonl`, e.g. before the overlay restarted for an update) is kept and goes in the zip too. It can be switched off on the Setup tab.
-- **iRacing's results** (`data\logs\results.jsonl`): iRacing's own results list (positions, laps, times, incidents, reason out) each time iRacing changes it, the last 300 versions. Switched on and off with the black box.
-- **Usage** (`data\logs\usage.json`): how many times each button was pressed (Grid: show, Camera: pick a driver, Replay: back, …), from which page (control panel or live timing), and how many seconds each graphic was on air, for this run and all runs added together. Handy for tidying up the control panel later.
-- **Setup tab → Diagnostics** shows the connection, update rate, whether iRacing is sending per-car flags (needed for the penalty list and meatball tags), and the last error.
-- **Save diagnostics** bundles the logs, the black box and your settings into one zip (it downloads and is also kept in `data\diagnostics`). Send that zip to Claude when something looks wrong.
+- **Click a driver** to put the camera on them; **right-click** (or press and hold on a tablet) to pick the camera.
+- **Columns ▾** picks what's shown: position, number, driver, positions gained, gap, interval (red within half a
+  second), speed, last and best lap, pit stops, last stop time, laps since the last stop.
+- **Cameras** on the left switch camera group.
+- **Replay controls:** start, rewind, play, pause, fast-forward, **Live**, speeds, **◀ LAP ▶**, **↻ REPLAY** (jump
+  back and play), **On Track ◀ ▶** (car behind / ahead), **Sim UI** (iRacing's own screen controls).
+- **Incident log** (right): spins, contact, cautions, penalties and more as they happen. Double-click one to replay
+  it. **Types ▾** picks which kinds are listed. *iRacing* entries come from iRacing; *predicted* ones are the overlay's
+  best guess from speeds and positions.
+- **Penalties:** see the Penalty box above.
+
+---
 
 ## Updates
 
-The overlay updates itself from GitHub. Each time you start it, it checks for a newer version (a second or two; if there's no internet it just starts):
+The overlay checks GitHub each time it starts. If there's a new version, the black window shows what's new and asks
+**Install it now? [Y/N]**. With no answer it starts the version you have after 30 seconds. It never updates
+during a broadcast; the control panel says when one is waiting. After an update, the pages in vMix reload themselves.
 
-- If there is one, the console window shows what's new and asks **Install it now? [Y/N]**. Press **Y** to update, or **N** to start the version you have. With no answer it starts the current version after 30 seconds, so it never waits forever.
-- It only ever updates at startup, never while a broadcast is running. If an update comes out while the overlay is already running, the control panel shows *Update ready · restart the overlay to install*.
-- After an update, the overlay, control panel, live timing and standings pages reload themselves within a second, so the browser inputs in your broadcasting software run the new version without being refreshed by hand.
-- Your own files are never touched by an update: everything in the `data` folder (settings, layout, standings, sponsors, logos) stays as it is.
-- The version you're on is shown at the top of the control panel and in the console window.
+Everything you set up lives in the `data` folder, which updates never touch.
 
-**"CERTIFICATE_VERIFY_FAILED" when checking for updates?** Python couldn't verify GitHub's certificate on that PC (Windows hadn't downloaded the root certificate yet). From v1.5.7 the overlay fixes this itself: it retries using Windows' own certificate check, installing the small `truststore` package the first time. On an older version, update that PC once by hand (download the latest release's zip and copy its files over the folder; your `data` folder isn't in the zip).
+- **Something wrong after an update?** `restore-previous.bat` goes back to the version before.
+- **Moving to a new PC:** copy the whole folder (or install fresh and copy just the `data` folder).
+- **Python:** the overlay brings its own Python 3.13, set up the first time into `%LOCALAPPDATA%\VSPEED`. It doesn't
+  matter which Python, if any, is installed on the PC. Delete that folder to remove it.
 
-**Something wrong after an update?** Double-click **`restore-previous.bat`** to go back to the version you had before. The last few versions are kept in `data\backup`. It will offer the newer version again next start; press N to stay on the older one.
+---
 
-**Moving to a new PC:** copy the whole folder, or install fresh and copy just the `data` folder over.
+## When something goes wrong
 
-## Known limits (first version)
+- **Save diagnostics** (Setup tab) bundles the logs, the last 3 hours of iRacing data and your settings into one zip
+  (also kept in `data\diagnostics`). Send it to Claude. Everything stays on your PC unless you share it.
+- **Nothing on screen in vMix:** check the input is `http://localhost:8765/overlay` at 1920 × 1080 and the black
+  window is still open. The Getting started checklist ticks *overlay added* once vMix has opened it.
+- **"Waiting for iRacing":** iRacing has to run on the same PC as the overlay. vMix can be on another PC: use
+  `http://<this PC's address>:8765/overlay` (the black window shows the address).
+- **Standings look a race behind or ahead:** pull before the race (Standings tab → Pull standings now).
+- **The black window says Python wasn't found:** check the internet connection and run `start.bat` again; the first
+  start downloads the overlay's own Python.
+- **Gaps** are worked out from track position, accurate to a few tenths, and settle after the first lap.
 
-- Gaps are estimated from track position and the leader's last lap time, the same approach most overlay tools use. They're accurate to a few tenths and settle after the first lap.
-- iRacing must be running on the same PC as this server, since the SDK only works locally. Your broadcasting software can be on another PC: use `http://<this-pc-ip>:8765/overlay`.
-- Built and tested against the iRacing data format without a live session. Expect some tuning after the first real race; send notes on anything that looks off.
+---
 
 ## Files
 
+For whoever looks after the overlay.
+
 ```
-start.bat            run against iRacing (checks for updates first)
-python-setup.bat     finds the Python to run on: the overlay's own 3.13, downloaded the first time
-start-demo.bat       run the fake race
-start-demo-qualifying.bat  run a fake qualifying session
-restore-previous.bat go back to the version before the last update
-data/                YOUR files, never touched by updates (created on first run):
-  settings.json        panel settings and layout
-  standings/           saved standings data, bracket, team and race info, standings logo
-  sponsors/            sponsor images loaded from the Race tab
-  logos/               league logos for the top right
-  backup/              the last few versions, for restore-previous.bat
-  logs/                log files and the black box (Diagnostics)
-  diagnostics/         saved diagnostics zips
-  results/             every race's results as a CSV, one folder per series
-server.py            bridge: reads iRacing, serves the pages (port 8765, change with --port)
-standings.py         standings, bracket, race info and team (ported from Standings Control)
-run.py               starts everything: update check, then the server
-update.py            the updater
-incidents.py         the incident log in live timing
-pitrace.py           race off pit road
-raceresults.py       saves each race's results (data/results)
-announcer.py         sends the announcer page its updates
-relay/               the announcer relay (Cloudflare Worker) and the announcer page
-net.py               secure connections to GitHub and Xtreme Scoring (falls back to Windows' own certificate check)
-datafiles.py         where the data folder lives (moves an older install's files into it)
-diag.py              logging, black box and diagnostics
-VERSION              the version number
-static/overlay.html  the broadcast overlay
-static/control.html  the control panel
-static/standings-graphic.html  the standings / race info / team graphic
-static/assets/       built-in images (VSPEED logo, preview background)
+start.bat                  run against iRacing (checks for updates first)
+start-demo.bat             a pretend race; start-demo-qualifying.bat a pretend qualifying session
+restore-previous.bat       go back to the version before the last update
+python-setup.bat           sets up the overlay's own Python the first time
+data\                      YOUR files, never touched by updates:
+  settings.json              control panel settings and layout
+  profiles\                  each series' standings, bracket, live points and branding
+  standings\                 the current series' standings, bracket, logo, race info and team
+  results\                   race results, one folder per series
+  logos\  sponsors\          league logos; sponsor and Pole Award images
+  demo-field.csv             optional: your own drivers for the demo (car number,name per line)
+  logs\  diagnostics\        logs, the black box and saved diagnostics
+  backup\                    the last few versions, for restore-previous.bat
+server.py                  reads iRacing and serves every page (port 8765)
+standings.py  livepoints.py  profiles.py  pitrace.py  incidents.py  raceresults.py  announcer.py
+update.py  run.py  net.py  datafiles.py  diag.py
+static\                    the overlay, control panel and standings graphic pages
+relay\                     the announcer relay (Cloudflare Worker) and the announcer page
 ```
 
-## License
+The overlay uses the **Bahnschrift** font, which comes with Windows 10 and 11.
 
 © 2026 VSPEED. All rights reserved. Not for redistribution. See `LICENSE`.
