@@ -35,7 +35,7 @@ def main():
         import importlib.util
         if importlib.util.find_spec("pip") is None:      # a Python without pip: add it first
             subprocess.call([sys.executable, "-m", "ensurepip", "--upgrade"])
-        subprocess.call([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "pyirsdk"])
+        subprocess.call([sys.executable, "-m", "pip", "install", "--disable-pip-version-check", "--no-warn-script-location", "pyirsdk"])
     # the server runs as its own process so a just-installed update is what starts
     return subprocess.call([sys.executable, os.path.join(ROOT, "server.py")] + args)
 
