@@ -66,6 +66,7 @@ DEFAULT_SETTINGS = {
     # live points: points per finishing place (P1 first), bonuses, cutoff line position and rows on the graphic
     "livePoints": copy.deepcopy(livepoints.DEFAULTS),
     # next broadcast box: text typed on the Prerace tab; logo = an image in data\logos ("" = none)
+    "checklist": {"overlay": False},      # the setup checklist: has the overlay page ever been open in the broadcasting software
     "nextRace": {"title": "NEXT BROADCAST", "event": "RACE 2 - TEXAS", "date": "JAN 19TH", "time": "8:00 PM ET", "logo": ""},
     "raceName": "VSPEED RACING LEAGUE",
     "leagueLogo": "league_logo.png",
@@ -1871,6 +1872,16 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Connection", "keep-alive")
         self.end_headers()
         last = -1
+        # the overlay page in the broadcasting software says so (?p=overlay): the setup checklist ticks "overlay added"
+        overlay = "p=overlay" in (urlparse(self.path).query or "")
+        if overlay:
+            with STATE.lock:
+                APP["overlays"] = APP.get("overlays", 0) + 1
+                seen = (STATE.settings.get("checklist") or {}).get("overlay")
+            if seen:
+                STATE.notify()
+            else:
+                STATE.update_settings({"checklist": {"overlay": True}})   # remembered, so it stays ticked after a restart
         try:
             while True:
                 with STATE.lock:
@@ -1888,6 +1899,11 @@ class Handler(BaseHTTPRequestHandler):
                 self.wfile.flush()
         except (BrokenPipeError, ConnectionResetError, ConnectionAbortedError, OSError):
             return
+        finally:
+            if overlay:
+                with STATE.lock:
+                    APP["overlays"] = max(0, APP.get("overlays", 1) - 1)
+                STATE.notify()
 
 
 # --------------------------------------------------------------------------

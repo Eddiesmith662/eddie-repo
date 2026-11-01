@@ -1652,7 +1652,8 @@ function render() {
 setInterval(render, 1000); // keeps time-based things (on-cut lower third, ducking) moving
 
 function connect() {
-  const es = new EventSource('/events');
+  // ?p=overlay: the broadcast copy (not the Layout tab's preview or ?preview), so the setup checklist can tick it
+  const es = new EventSource('/events' + (LAYOUT_MODE || /[?&]preview/.test(location.search) ? '' : '?p=overlay'));
   es.onmessage = e => { const d = JSON.parse(e.data); if (newVersion(d)) return; RAW = d.settings; L = d.live; SD = d.standings; PEN = d.penalties; PR = d.pitrace || PR; render(); };
   es.onerror = () => { es.close(); setTimeout(connect, 2000); };
 }

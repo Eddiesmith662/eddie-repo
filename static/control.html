@@ -52,6 +52,15 @@
   main.on { display: grid; }
   section { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 14px; min-width: 0; }
   section.wide { grid-column: 1 / -1; }
+  #gsSec h2 { display: flex; align-items: center; } #gsSec h2 .grow { flex: 1; }
+  .gs { display: grid; gap: 6px; }
+  #gsHide, #gsShow { padding: 4px 10px; font-size: 12px; }
+  .gs .it { display: grid; grid-template-columns: 22px 1fr; gap: 2px 8px; align-items: start; padding: 6px 8px; border-radius: 4px; background: rgba(0,0,0,.2); }
+  .gs .ck { width: 18px; height: 18px; border-radius: 50%; border: 2px solid #666; margin-top: 1px; display: flex; align-items: center; justify-content: center; font-size: 12px; font-weight: 700; }
+  .gs .it.done .ck { background: #2e9d4e; border-color: #2e9d4e; color: #fff; }
+  .gs .it.done .tt { color: var(--dim); }
+  .gs .tt { font-weight: 600; } .gs .ds { grid-column: 2; color: var(--dim); font-size: 12px; line-height: 1.4; }
+  .gs .ds .url { margin-top: 4px; max-width: 460px; }
   h2 { margin: 0 0 12px; font-size: 14px; letter-spacing: 1.5px; text-transform: uppercase; color: #fff; display: flex; align-items: center; gap: 8px; }
   h2::before { content: ""; width: 4px; height: 16px; background: var(--red); display: inline-block; flex: 0 0 auto; }
   h2 span.t { flex: 1; }
@@ -395,6 +404,11 @@
 
 <!-- ================= PRERACE ================= -->
 <main data-tab="prerace">
+  <section class="wide" id="gsSec" hidden>
+    <h2><span class="t">Getting started</span><span class="grow"></span><button id="gsHide" class="small" title="Hide this checklist (Setup tab brings it back)">Hide</button></h2>
+    <div class="gs" id="gsList"></div>
+    <p class="hint">Ticks itself as things get set up, and goes away once they're done. No iRacing handy? <b>start-demo.bat</b> runs a fake race to try everything with.</p>
+  </section>
   <section>
     <h2><span class="t">Race info</span><span class="pill" id="aAir">HIDDEN</span></h2>
     <div class="row"><button class="vis" data-vis="aAir" data-vrole="show" data-a="analysisShow">Show</button><button class="vis" data-vis="aAir" data-vrole="hide" data-a="analysisHide">Hide</button><button data-a="analysisReplay">Replay</button></div>
@@ -710,7 +724,7 @@
     <p class="hint">Used by Live points on the Race tab. Places with 0 score nothing. Most laps led goes to everyone tied for the most, on top of the led-a-lap bonus.</p>
   </section>
   <section class="wide">
-    <h2><span class="t">Broadcasting software inputs (web browser input, 1920 × 1080)</span></h2>
+    <h2><span class="t">Broadcasting software inputs (web browser input, 1920 × 1080)</span><span class="grow" style="flex:1"></span><button id="gsShow" class="small" title="Show the Getting started checklist on the Prerace tab again">Getting started checklist</button></h2>
     <label>Everything in one input (recommended)</label>
     <div class="url"><input readonly id="u1"><button data-copy="u1">Copy</button></div>
     <p class="hint">Live race graphics, standings, bracket, race info and broadcast team, all on one transparent layer.</p>
@@ -823,7 +837,7 @@ function showTab(t) {
   if (!SOLO) try { localStorage.setItem('vsTab', t); } catch (e) {}
 }
 $('nav').onclick = e => { const b = e.target.closest('button'); if (b && b.dataset.tab) showTab(b.dataset.tab); };
-let startTab = 'race'; try { startTab = localStorage.getItem('vsTab') || 'race'; } catch (e) {}
+let startTab = 'race', firstVisit = false; try { startTab = localStorage.getItem('vsTab') || 'race'; firstVisit = !localStorage.getItem('vsTab'); } catch (e) {}
 if (!document.querySelector(`nav button[data-tab="${startTab}"]`)) startTab = 'race';
 showTab(SOLO ? 'race' : startTab);
 
@@ -1630,6 +1644,47 @@ $('u1').value = o + '/overlay'; $('u2').value = o + '/standings'; $('u3').value 
 document.querySelectorAll('[data-copy]').forEach(b => b.onclick = () => { const i = $(b.dataset.copy); i.select(); try { navigator.clipboard.writeText(i.value); } catch (e) { document.execCommand('copy'); } toast('Copied'); });
 $('resetBtn').onclick = async () => { if (confirm('Reset live race settings and text to default?')) { await post('/api/reset', {}); filled = false; toast('Reset'); } };
 
+/* ---------- Getting started checklist (Prerace tab) ---------- */
+let LOGO_FILES = null;
+const GS_KEY = 'vsSetupHidden';
+function gsHidden() { try { return localStorage.getItem(GS_KEY) === '1'; } catch (e) { return false; } }
+function gsSetHidden(h) { try { h ? localStorage.setItem(GS_KEY, '1') : localStorage.removeItem(GS_KEY); } catch (e) {} gsRender(); }
+$('gsHide').onclick = () => gsSetHidden(true);
+$('gsShow').onclick = () => { gsSetHidden(false); showTab('prerace'); };
+function gsItems() {
+  const rows = (SD && SD.rows) || [];
+  const logo = !!(S.leagueLogo && LOGO_FILES && LOGO_FILES.includes(S.leagueLogo));
+  return [
+    { done: !!(S.checklist && S.checklist.overlay), t: 'Add the overlay to your broadcasting software',
+      d: `In vMix (or OBS), add a <b>Web Browser</b> input with this link, size <b>1920 × 1080</b>, on a layer above iRacing.` +
+         `<div class="url"><input readonly id="gsUrl" value="${esc($('u1').value)}"><button data-gscopy>Copy</button></div>` +
+         ' Ticks itself once the overlay page has opened.' },
+    { done: logo, t: 'Pick your league logo',
+      d: 'Put your logo (transparent PNG) in the overlay\'s <b>data\\logos</b> folder, then pick it under <b>Broadcast text → League logo</b> on this tab.' },
+    { done: !!(S.raceName || '').trim(), t: 'Type the ticker header',
+      d: 'Your league or race name, under <b>Broadcast text → Race name</b> on this tab. It reads: <b>' + esc(S.raceName || '(empty)') + '</b>' },
+    { done: rows.length > 0, t: 'Load your standings (if your league uses them)',
+      d: '<b>Standings</b> tab: paste your Xtreme Scoring widget link and press <b>Pull standings now</b>, or load a CSV.' },
+    { done: L.connected && L.source === 'iracing', t: 'Start iRacing',
+      d: L.source === 'demo' ? 'This is the demo race (start-demo.bat). Use <b>start.bat</b> for the real thing.' : 'The overlay connects by itself once you join or watch a session.' },
+  ];
+}
+function gsRender() {
+  if (!S || !L || SOLO) return;
+  const items = gsItems();
+  // done once the one-time setup is: overlay added, logo picked, header typed (standings and iRacing don't count)
+  const setupDone = items[0].done && items[1].done && items[2].done;
+  const show = !gsHidden() && !setupDone;
+  $('gsSec').hidden = !show;
+  if (firstVisit) { firstVisit = false; if (show) showTab('prerace'); }   // a brand-new setup opens on the checklist
+  if (!show) return;
+  const key = JSON.stringify(items.map(i => [i.done, i.d]));
+  if ($('gsList')._k === key) return;
+  if (document.activeElement && document.activeElement.id === 'gsUrl') return;
+  $('gsList')._k = key;
+  $('gsList').innerHTML = items.map(i => `<div class="it ${i.done ? 'done' : ''}"><span class="ck">${i.done ? '✓' : ''}</span><span class="tt">${i.t}</span><div class="ds">${i.d}</div></div>`).join('');
+}
+$('gsList').onclick = e => { if (e.target.closest('[data-gscopy]')) { const i = $('gsUrl'); i.select(); try { navigator.clipboard.writeText(i.value); } catch (er) { document.execCommand('copy'); } toast('Copied'); } };
 async function loadLogos() {
   try {
     const a = await (await fetch('/api/assets')).json();
@@ -1639,6 +1694,7 @@ async function loadLogos() {
       if (cur && !opts.includes(cur)) opts.unshift(cur);
       sel.innerHTML = `<option value="">No logo</option>` + opts.map(f => `<option value="${esc(f)}" ${f === cur ? 'selected' : ''}>${esc(f)}</option>`).join('');
     }
+    LOGO_FILES = a.logos || [];
     const sel = $('leagueLogo'), cur = S ? S.leagueLogo : '';
     const opts = a.logos.filter(f => !f.startsWith('vspeed_') && f !== 'preview_bg.jpg');
     if (cur && !opts.includes(cur)) opts.unshift(cur);
@@ -1732,6 +1788,7 @@ let carsKey = '';
 function render() {
   if (!S || !L) return;
   fillInputs();
+  gsRender();
   const st = SD ? SD.state : {};
   const virt = { '@standings': st.visible, '@info': st.analysis && st.analysis.visible, '@team': st.team && st.team.visible, '@track': trackOnAir(), '@grid': !!(S.gridw && S.gridw.visible) };
   document.querySelectorAll('.tile').forEach(t => t.classList.toggle('on', t.dataset.k in virt ? !!virt[t.dataset.k] : !!S.show[t.dataset.k]));

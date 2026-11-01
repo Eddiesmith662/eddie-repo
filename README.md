@@ -2,6 +2,18 @@
 
 A custom iRacing overlay for broadcasting software, built to the VSPEED Brand Style Guide V1.
 
+## Quick start
+
+1. **Download** the latest release from the Releases page and unzip it anywhere (e.g. your Desktop).
+2. **Double-click `start.bat`.** The first time, it sets itself up (about a minute, needs internet). No Python install needed. Keep the window open while you broadcast.
+3. **Open the control panel** at `http://localhost:8765/control`. A new setup opens on a **Getting started** checklist (Prerace tab) that ticks itself as you go:
+   - add the overlay to vMix or OBS: a **Web Browser** input, `http://localhost:8765/overlay`, 1920 × 1080, above iRacing
+   - pick your league logo (put it in `data\logos` first) and type the ticker header
+   - load your standings from Xtreme Scoring (if your league uses them)
+4. **Start iRacing.** The overlay connects by itself. No iRacing handy? `start-demo.bat` runs a fake race to try everything.
+
+Updates install themselves when you start it. Everything you set up lives in the `data` folder, which updates never touch. The rest of this page is the full reference.
+
 ## What's included
 
 | Graphic | Where | Notes |
