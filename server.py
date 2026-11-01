@@ -38,6 +38,7 @@ import pitrace
 import livepoints
 import profiles
 import raceresults
+import announcer
 
 ROOT = datafiles.ROOT
 STATIC = os.path.join(ROOT, "static")
@@ -66,6 +67,7 @@ DEFAULT_SETTINGS = {
     # live points: points per finishing place (P1 first), bonuses, cutoff line position and rows on the graphic
     "livePoints": copy.deepcopy(livepoints.DEFAULTS),
     # next broadcast box: text typed on the Prerace tab; logo = an image in data\logos ("" = none)
+    "announcer": dict(announcer.DEFAULTS),   # the announcer page feed (Setup tab): producer code, on/off, view code, notes
     "checklist": {"overlay": False},      # the setup checklist: has the overlay page ever been open in the broadcasting software
     "nextRace": {"title": "NEXT BROADCAST", "event": "RACE 2 - TEXAS", "date": "JAN 19TH", "time": "8:00 PM ET", "logo": ""},
     "raceName": "VSPEED RACING LEAGUE",
@@ -170,7 +172,8 @@ class State:
     def snapshot(self):
         return json.dumps({"settings": self.settings, "live": self.live, "standings": standings.summary(), "app": APP,
                            "penalties": {"list": PEN["list"], "hide": PEN["hide"], "reasons": PEN_REASONS, "now": time.time()},
-                           "incidentsVer": incidents.STATE["ver"], "pitrace": pitrace.snapshot(), "series": profiles.summary()})
+                           "incidentsVer": incidents.STATE["ver"], "pitrace": pitrace.snapshot(), "series": profiles.summary(),
+                           "announcer": announcer.status()})
 
     def defaults(self):
         return copy.deepcopy(DEFAULT_SETTINGS)
@@ -1487,6 +1490,40 @@ def penalty_command(data):
     return {"ok": True}
 
 
+def announcer_command(d):
+    """Announcer page feed, from the control panel: code / on / off / newlink / notes."""
+    cmd = str(d.get("cmd") or "")
+    with STATE.lock:
+        cur = dict(announcer.DEFAULTS, **(STATE.settings.get("announcer") or {}))
+    if cmd == "code":
+        code = str(d.get("code") or "").strip()
+        if code and not announcer.parse_code(code):
+            return False, "That isn't a producer code. It looks like https://…/k/show-name.…"
+        patch = {"code": code}
+        if code and not cur.get("token"):
+            patch["token"] = announcer.new_token()
+        if code and code != cur.get("code"):
+            patch["on"] = True                         # pasting a code switches it on
+        STATE.update_settings({"announcer": patch})
+        diag.log("Announcer feed: producer code %s" % ("set (%s)" % announcer.parse_code(code)[1] if code else "removed"))
+        return True, "Saved" if code else "Removed"
+    if cmd in ("on", "off"):
+        patch = {"on": cmd == "on"}
+        if cmd == "on" and not cur.get("token"):
+            patch["token"] = announcer.new_token()
+        STATE.update_settings({"announcer": patch})
+        diag.log("Announcer feed: %s" % cmd)
+        return True, ""
+    if cmd == "newlink":
+        STATE.update_settings({"announcer": {"token": announcer.new_token()}})
+        diag.log("Announcer feed: new announcer link (the old one stops working)")
+        return True, "New link made: the old one no longer works"
+    if cmd == "notes":
+        STATE.update_settings({"announcer": {"notes": str(d.get("text") or "")[:600], "notesAt": round(time.time())}})
+        return True, ""
+    return False, "Unknown command"
+
+
 def on_air_now():
     """Names of the graphics on screen right now, for the usage stats in the diagnostics."""
     st = STATE.settings
@@ -1834,6 +1871,9 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     ok = SOURCE.camera_group(int(data["group"]))
             return self.send_json({"ok": bool(ok)})
+        if path == "/api/announcer":
+            ok, msg = announcer_command(data)
+            return self.send_json({"ok": ok, "msg": msg})
         if path == "/api/profile":
             ok, msg = profiles.command(data)
             if ok:
@@ -2610,6 +2650,7 @@ def main():
         diag.error("Series profiles could not start: %r" % (e,), e)
     standings.autopull(on_done=STATE.notify)
     threading.Thread(target=update_watch, daemon=True).start()
+    announcer.start(STATE, on_air_now, diag.log)    # the announcer page feed (does nothing until it's set up)
     threading.Thread(target=telemetry_loop, args=(args.demo, args.multiclass, args.qual), daemon=True).start()
     server = QuietServer(("0.0.0.0", args.port), Handler)
     ip = local_ip()

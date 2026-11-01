@@ -72,6 +72,8 @@ The **control panel** (Prerace, Race, Standings, Layout and Setup tabs; race inf
 
 **Race results** are saved automatically for every race the overlay is connected to, as a CSV file (opens in Excel or Google Sheets) in `data\results\<series>\`, named by date and track (e.g. `2026-10-30 Atlanta Motor Speedway.csv`), sorted into the series picked in the Series picker. Each file has position, car number, driver, start, laps, laps led, gap, fastest lap, incidents and status (Running or why they're out). A first copy is written a minute after the checkered flag and replaced when iRacing makes the results official.
 
+**Announcer page:** remote announcers can follow the race on a live page in any browser: the running order with gaps and intervals, the lap and flag, what's on screen, incidents, live points, standings and notes you type on the Race tab. The overlay sends it a small update every second through the VSPEED relay (a Cloudflare Worker; setup in [relay/README.md](relay/README.md)). Paste the show's producer code on the **Setup** tab (Announcer page) and send your announcers the link it gives you. Nothing on their page can change anything on your PC.
+
 **Standings, live points and the playoffs:** see [GUIDE-standings-live-points-playoffs.md](GUIDE-standings-live-points-playoffs.md) for setup, the race-night checklist, the playoff bracket and the round-by-round playoff routine.
 
 **No iRacing handy?** Double-click **`start-demo.bat`** to run a fake 24-car race so you can test the look in your broadcasting software. To race your own drivers in the demo instead (handy for testing live points against your real standings), put a `demo-field.csv` in the `data` folder with one driver per line as `car number,name` (a `#,Driver` header line is fine); the file's order is the starting grid. Delete it to go back to the made-up field.
@@ -159,6 +161,8 @@ update.py            the updater
 incidents.py         the incident log in live timing
 pitrace.py           race off pit road
 raceresults.py       saves each race's results (data/results)
+announcer.py         sends the announcer page its updates
+relay/               the announcer relay (Cloudflare Worker) and the announcer page
 net.py               secure connections to GitHub and Xtreme Scoring (falls back to Windows' own certificate check)
 datafiles.py         where the data folder lives (moves an older install's files into it)
 diag.py              logging, black box and diagnostics

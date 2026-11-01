@@ -1,0 +1,282 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="robots" content="noindex, nofollow">
+<title>Announcer · Live</title>
+<style>
+  :root {
+    --bg: #0f0f11; --panel: #19191c; --panel2: #202024; --line: #2c2c31; --text: #f1f1f3; --dim: #9a9aa2; --faint: #6c6c74;
+    --red: #FF0D40; --green: #2fbf5b; --yellow: #ffd23f; --orange: #ff8a1f; --blue: #3aa0ff; --purple: #b46cff;
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html, body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.35 system-ui, "Segoe UI", Roboto, Arial, sans-serif; }
+  body { min-height: 100vh; }
+  .num { font-variant-numeric: tabular-nums; }
+
+  /* top bar */
+  header { position: sticky; top: 0; z-index: 5; display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding: 10px 16px;
+           background: #141417; border-bottom: 3px solid var(--red); }
+  .who { min-width: 0; }
+  .who .series { font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: var(--dim); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .who .track { font-size: 18px; font-weight: 700; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .lap { font-size: 26px; font-weight: 800; letter-spacing: .5px; white-space: nowrap; }
+  .lap small { font-size: 15px; font-weight: 600; color: var(--dim); margin-left: 8px; }
+  .chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 4px; font-weight: 700; font-size: 13px;
+          letter-spacing: .6px; text-transform: uppercase; background: var(--panel2); white-space: nowrap; }
+  .flag-green { background: #1f7a3c; } .flag-caution, .flag-pace { background: var(--yellow); color: #111; }
+  .flag-white { background: #f4f4f4; color: #111; } .flag-checkered { background: repeating-conic-gradient(#111 0 25%, #eee 0 50%) 0 0/12px 12px; color: #fff; text-shadow: 0 0 3px #000, 0 0 3px #000; }
+  .flag-red { background: #c4122f; } .flag-none { background: var(--panel2); color: var(--dim); }
+  .grow { flex: 1; }
+  .conn { display: flex; align-items: center; gap: 7px; font-size: 13px; color: var(--dim); white-space: nowrap; }
+  .conn i { width: 10px; height: 10px; border-radius: 50%; background: #555; }
+  .conn.ok i { background: var(--green); box-shadow: 0 0 8px var(--green); } .conn.slow i { background: var(--yellow); } .conn.bad i { background: var(--red); }
+  .conn.bad { color: #ff8da3; }
+
+  .banner { display: none; margin: 12px 16px 0; padding: 12px 14px; border-radius: 6px; background: #2a1c22; border: 1px solid #5a2433; }
+  .banner.on { display: block; }
+
+  /* layout */
+  .wrap { display: grid; grid-template-columns: minmax(0, 1fr) 380px; gap: 14px; padding: 14px 16px 30px; align-items: start; }
+  .side { display: grid; gap: 14px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; min-width: 0; }
+  section > h2 { margin: 0; padding: 9px 12px; font-size: 12px; letter-spacing: 1.2px; text-transform: uppercase; color: var(--dim);
+                 border-bottom: 1px solid var(--line); display: flex; align-items: center; gap: 8px; }
+  section > h2 b { color: var(--text); font-weight: 700; }
+  section > h2 .r { margin-left: auto; text-transform: none; letter-spacing: 0; color: var(--faint); font-size: 12px; }
+  .pad { padding: 10px 12px; }
+  .empty { color: var(--faint); padding: 10px 12px; font-size: 13px; }
+
+  /* notes from the producer */
+  #notes { border-color: #5a4a12; }
+  #notes .txt { white-space: pre-wrap; font-size: 18px; line-height: 1.4; font-weight: 600; padding: 12px; min-height: 22px; }
+  #notes.flash { animation: flash 2.4s ease-out; }
+  @keyframes flash { 0%, 30% { background: #4a3d0c; border-color: var(--yellow); } 100% { background: var(--panel); } }
+
+  /* on screen now */
+  .cam { display: flex; align-items: baseline; gap: 8px; font-size: 17px; font-weight: 700; }
+  .cam .lbl { font-size: 12px; color: var(--dim); font-weight: 600; letter-spacing: .8px; text-transform: uppercase; }
+  .gfx { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+  .gfx .chip { background: var(--red); color: #fff; font-size: 12px; }
+  .gfx .none { color: var(--faint); font-size: 13px; }
+
+  /* running order */
+  .tbl { overflow-x: auto; }
+  table { width: 100%; border-collapse: collapse; }
+  th { position: sticky; top: 0; background: var(--panel2); color: var(--dim); font-size: 11px; letter-spacing: .8px; text-transform: uppercase;
+       font-weight: 600; text-align: right; padding: 7px 8px; white-space: nowrap; }
+  td { padding: 6px 8px; text-align: right; white-space: nowrap; border-top: 1px solid #232327; }
+  th.l, td.l { text-align: left; } th.c, td.c { text-align: center; }
+  tbody tr:nth-child(even) td { background: #1c1c20; }
+  td.p { font-weight: 800; text-align: center; width: 36px; }
+  td.n { color: var(--dim); font-weight: 700; }
+  td.d { font-weight: 600; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+  tr.camcar td { background: #3a1420 !important; }
+  tr.camcar td.d::after { content: "  ● ON CAMERA"; color: var(--red); font-size: 11px; font-weight: 800; letter-spacing: .5px; }
+  tr.out td { color: var(--faint); }
+  .close { color: #ff5c7c; font-weight: 700; }
+  .ld { color: var(--dim); }
+  .ob { color: var(--purple); font-weight: 700; } .pb { color: var(--green); }
+  .up { color: var(--green); } .dn { color: #ff6b6b; }
+  .tag { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px; font-weight: 800; letter-spacing: .5px; margin-left: 4px; }
+  .tag.pit { background: var(--blue); color: #fff; } .tag.bf { background: #000; color: #fff; border: 1px solid #777; }
+  .tag.mb { background: var(--orange); color: #111; } .tag.out { background: #444; color: #ccc; }
+
+  /* incidents */
+  .inc { list-style: none; margin: 0; padding: 0; max-height: 330px; overflow: auto; }
+  .inc li { padding: 7px 12px; border-top: 1px solid #232327; font-size: 14px; }
+  .inc li:first-child { border-top: 0; }
+  .inc .k { font-weight: 700; } .inc .t { color: var(--faint); font-size: 12px; margin-right: 6px; }
+  .inc .caution { color: var(--yellow); } .inc .penalty, .inc .dq { color: #ff6b6b; } .inc .warning { color: var(--orange); }
+  .inc .d { color: var(--dim); }
+
+  /* points + standings */
+  .mini td { padding: 5px 8px; font-size: 14px; }
+  .mini tr.line td { border-bottom: 2px solid var(--red); }
+  .mini tr.in td.p { color: var(--green); } .mini td.cut.neg { color: #ff6b6b; } .mini td.cut.lock { color: var(--green); font-weight: 800; }
+  .mini tr.notracing td { color: var(--faint); }
+
+  @media (max-width: 1000px) {
+    .wrap { grid-template-columns: 1fr; padding: 10px; gap: 10px; }
+    .side { display: contents; }
+    #notes { order: 1; } #screen { order: 2; } #order { order: 3; } #incidents { order: 4; } #points { order: 5; } #standings { order: 6; }
+    header { padding: 8px 10px; gap: 10px; } .lap { font-size: 22px; }
+    td.d { max-width: 150px; }
+    tr.camcar td.d::after { content: " ●"; }
+    .narrow-hide { display: none; }
+    /* keep position, number and driver in view while the rest scrolls sideways */
+    #order th:nth-child(-n+3), #order td:nth-child(-n+3) { position: sticky; z-index: 1; background: var(--panel); }
+    #order th:nth-child(1), #order td:nth-child(1) { left: 0; } #order th:nth-child(2), #order td:nth-child(2) { left: 36px; }
+    #order th:nth-child(3), #order td:nth-child(3) { left: 80px; }
+    #order th:nth-child(-n+3) { background: var(--panel2); }
+  }
+</style>
+</head>
+<body>
+<header>
+  <div class="who"><div class="series" id="series">Announcer page</div><div class="track" id="track">Connecting…</div></div>
+  <div class="lap num" id="lap"></div>
+  <span class="chip flag-none" id="flag">—</span>
+  <span class="chip" id="cautions" hidden></span>
+  <span class="chip" id="replay" hidden style="background:var(--blue)">REPLAY ON SCREEN</span>
+  <span class="grow"></span>
+  <span class="conn" id="conn"><i></i><span id="connTxt">Connecting…</span></span>
+</header>
+<div class="banner" id="banner"></div>
+
+<div class="wrap">
+  <section id="order">
+    <h2>Running order <span class="r" id="orderNote"></span></h2>
+    <div class="tbl"><table><thead><tr>
+      <th class="c">Pos</th><th>#</th><th class="l">Driver</th><th>Gap</th><th>Int</th><th class="c">+/-</th><th>Led</th>
+      <th>Last</th><th>Best</th><th>Pits</th><th>Since pit</th><th class="l"></th>
+    </tr></thead><tbody id="cars"></tbody></table></div>
+    <div class="empty" id="carsEmpty">Waiting for the producer's feed…</div>
+  </section>
+
+  <div class="side">
+    <section id="notes"><h2>Producer notes <span class="r" id="notesAge"></span></h2><div class="txt" id="notesTxt"></div></section>
+    <section id="screen"><h2>On screen now</h2><div class="pad">
+      <div class="cam"><span class="lbl">Camera</span><span id="cam">—</span></div>
+      <div class="gfx" id="gfx"></div></div></section>
+    <section id="incidents"><h2>Incidents <span class="r" id="incCount"></span></h2><ul class="inc" id="inc"></ul></section>
+    <section id="points" hidden><h2><b id="lpTitle">Live points</b> <span class="r">if the race ended now</span></h2>
+      <table class="mini"><tbody id="lp"></tbody></table></section>
+    <section id="standings" hidden><h2><b id="stTitle">Standings</b> <span class="r">before tonight</span></h2>
+      <table class="mini"><tbody id="st"></tbody></table></section>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+let D = null, gotAt = 0, notesKey = null, es = null, retryT = null, state = 'connecting';
+
+function ago(ms) {
+  const s = Math.max(0, Math.round(ms / 1000));
+  return s < 60 ? s + 's' : s < 3600 ? Math.floor(s / 60) + 'm' : Math.floor(s / 3600) + 'h';
+}
+function banner(text) { $('banner').innerHTML = text || ''; $('banner').classList.toggle('on', !!text); }
+
+function connect() {
+  clearTimeout(retryT);
+  if (es) es.close();
+  es = new EventSource(location.pathname.replace(/\/+$/, '') + '/events');
+  es.onopen = () => { if (state !== 'idle') state = 'open'; tick(); };
+  es.onmessage = e => {
+    try { D = JSON.parse(e.data).data || {}; } catch (er) { return; }
+    gotAt = Date.now();
+    state = 'open'; banner(''); render(); tick();
+  };
+  es.onerror = () => { if (state === 'open') state = 'reconnecting'; tick(); };   // the browser retries by itself
+  // the producer made a new link: this one won't work again
+  es.addEventListener('replaced', () => { es.close(); state = 'replaced'; banner('<b>This link has been replaced.</b> Ask your producer for the new announcer link.'); tick(); });
+  // nothing sent on this link yet, or the show has finished: check back once a minute
+  es.addEventListener('nochannel', () => { es.close(); state = 'waiting'; banner('Waiting for the producer to start the feed. This page connects by itself once they do.'); tick(); retryT = setTimeout(connect, 60e3); });
+  es.addEventListener('idle', () => { es.close(); state = 'idle'; banner('The show isn\'t live right now' + (D ? ' (showing the last update)' : '') + '. This page picks it up again by itself.'); tick(); retryT = setTimeout(connect, 60e3); });
+}
+
+// connection status in the top right; red when the numbers might be stale
+function tick() {
+  const c = $('conn'), t = $('connTxt'), age = gotAt ? Date.now() - gotAt : 0;
+  let cls = 'bad', txt = 'Connecting…';
+  if (state === 'replaced') txt = 'Link replaced';
+  else if (state === 'waiting') { cls = 'slow'; txt = 'Waiting for the producer'; }
+  else if (state === 'idle') { cls = 'slow'; txt = 'Not live' + (gotAt ? ' · last update ' + ago(age) + ' ago' : ''); }
+  else if (gotAt) {
+    if (age < 15e3) { cls = 'ok'; txt = 'Live · updated ' + ago(age) + ' ago'; }
+    else if (age < 60e3) { cls = 'slow'; txt = 'Updated ' + ago(age) + ' ago'; }
+    else txt = 'No updates for ' + ago(age) + ' · numbers may be stale';
+  } else if (state === 'reconnecting') txt = 'Reconnecting…';
+  c.className = 'conn ' + cls; t.textContent = txt;
+  if (D && D.notes && D.notes.t) $('notesAge').textContent = 'updated ' + ago(Date.now() - D.notes.t * 1000) + ' ago';
+}
+setInterval(tick, 1000);
+
+const FLAG = { green: 'Green', caution: 'Caution', pace: 'Pace laps', white: 'White flag', checkered: 'Checkered', red: 'Red flag' };
+function render() {
+  const d = D || {}, s = d.sess || {};
+  $('series').textContent = d.series || 'Announcer page';
+  $('track').textContent = [d.track, s.name].filter(Boolean).join(' · ') || '—';
+  document.title = (d.series ? d.series + ' · ' : '') + 'Announcer';
+
+  // lap counter: LAP 45 / 100 · 55 TO GO (overtime and timed sessions too)
+  let lap = '';
+  if (s.race && s.total > 0) {
+    const fin = s.final || s.total, togo = Math.max(0, fin - Math.max(1, s.lap || 0) + 1);
+    lap = 'LAP ' + Math.max(0, s.lap || 0) + ' / ' + s.total;
+    if (s.state >= 5) lap += '<small>FINISHED</small>';
+    else if (s.ot) lap += '<small>OVERTIME</small>';
+    else if (s.state === 4) lap += '<small>' + togo + ' TO GO</small>';
+  } else if (s.time) lap = esc(s.time) + '<small>REMAINING</small>';
+  $('lap').innerHTML = lap;
+  const f = s.flag || 'none', fl = $('flag');
+  fl.className = 'chip flag-' + (FLAG[f] ? f : 'none');
+  fl.textContent = f === 'caution' && s.otg ? 'One to green' : (FLAG[f] || (s.live === false ? 'iRacing not connected' : (s.name || '—')));
+  $('cautions').hidden = !s.race; $('cautions').textContent = (s.cautions || 0) + ' caution' + (s.cautions === 1 ? '' : 's');
+  $('replay').hidden = !s.replay;
+
+  // running order
+  const cars = d.cars || [];
+  $('carsEmpty').style.display = cars.length ? 'none' : '';
+  $('orderNote').textContent = s.race ? '' : (s.name ? 'times are best laps' : '');
+  $('cars').innerHTML = cars.map(c => {
+    const gn = c.gn == null ? '<span class="ld">–</span>' : c.gn > 0 ? '<span class="up">▲' + c.gn + '</span>' : c.gn < 0 ? '<span class="dn">▼' + (-c.gn) + '</span>' : '<span class="ld">–</span>';
+    const tags = (c.pit ? '<span class="tag pit">PIT</span>' : '') + (c.bf ? '<span class="tag bf">BLACK FLAG</span>' : '') +
+                 (c.mb ? '<span class="tag mb">REPAIRS</span>' : '') + (c.out ? '<span class="tag out">' + esc(c.out) + '</span>' : '');
+    return '<tr class="' + (c.cam ? 'camcar ' : '') + (c.out ? 'out' : '') + '">' +
+      '<td class="p num">' + esc(c.p) + '</td><td class="n num">' + esc(c.n) + '</td><td class="d l">' + esc(c.d) + '</td>' +
+      '<td class="num ' + (c.ld ? 'ld' : '') + '">' + esc(c.g === 'LEADER' ? 'Leader' : c.g) + '</td>' +
+      '<td class="num ' + (c.ic ? 'close' : '') + '">' + esc(c.iv) + '</td><td class="c">' + gn + '</td>' +
+      '<td class="num">' + (c.led ? esc(c.led) : '') + '</td>' +
+      '<td class="num ' + (c.lc || '') + '">' + esc(c.l) + '</td><td class="num ' + (c.ob ? 'ob' : '') + '">' + esc(c.b) + '</td>' +
+      '<td class="num">' + (c.st ? esc(c.st) + (c.lp != null ? ' <span class="ld">(' + esc(c.lp) + 's)</span>' : '') : '') + '</td>' +
+      '<td class="num">' + (c.sp != null && c.st ? esc(c.sp) : '') + '</td><td class="l">' + tags + '</td></tr>';
+  }).join('');
+
+  // producer notes: flash when they change
+  const n = d.notes || {}, nk = (n.text || '') + '|' + (n.t || 0);
+  $('notesTxt').textContent = n.text || '';
+  $('notesTxt').style.color = n.text ? '' : 'var(--faint)';
+  if (!n.text) $('notesTxt').textContent = 'No notes from the producer.';
+  if (notesKey !== null && nk !== notesKey && n.text) { const el = $('notes'); el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash'); }
+  notesKey = nk;
+
+  // on screen now
+  const cam = d.cam;
+  $('cam').innerHTML = cam ? '#' + esc(cam.n) + ' ' + esc(cam.d) + (cam.p ? ' <span class="ld">P' + esc(cam.p) + '</span>' : '') : '<span class="ld">—</span>';
+  const air = d.air || [];
+  $('gfx').innerHTML = air.length ? air.map(a => '<span class="chip">' + esc(a) + '</span>').join('') : '<span class="none">No graphics up besides the ticker and logos</span>';
+
+  // incidents, newest first
+  const inc = d.inc || [];
+  $('incCount').textContent = inc.length ? 'latest ' + inc.length : '';
+  $('inc').innerHTML = inc.length ? inc.map(e => '<li><span class="t num">' + (e.lap != null ? 'L' + esc(e.lap) : '') + '</span>' +
+      '<span class="k ' + esc(e.k) + '">' + esc(e.type) + '</span>' + (e.num ? ' · <b>#' + esc(e.num) + '</b> ' + esc(e.name) : '') +
+      (e.d ? '<div class="d">' + esc(e.d) + '</div>' : '') + '</li>').join('') : '<li class="empty" style="border:0">Nothing yet.</li>';
+
+  // live points
+  const lp = d.lp;
+  $('points').hidden = !(lp && lp.rows && lp.rows.length);
+  if (lp && lp.rows) {
+    $('lpTitle').textContent = lp.title || 'Live points';
+    $('lp').innerHTML = lp.rows.map((r, k) => '<tr class="' + (k === lp.line ? 'line ' : '') + (r.status === 'in' || r.status === 'lock' || r.status === 'champ' ? 'in ' : '') + (r.racing ? '' : 'notracing') + '">' +
+      '<td class="p num">' + esc(r.p) + '</td><td class="n num">' + esc(r.n) + '</td><td class="d l">' + esc(r.d) + '</td>' +
+      '<td class="num">' + esc(r.pts) + '</td><td class="num cut ' + (r.cut === 'IN' || r.cut === 'CHAMP' ? 'lock' : String(r.cut).startsWith('-') ? 'neg' : '') + '">' + esc(r.cut) + '</td></tr>').join('');
+  }
+
+  // standings
+  const st = d.st;
+  $('standings').hidden = !(st && st.rows && st.rows.length);
+  if (st && st.rows) {
+    $('stTitle').textContent = st.title || 'Standings';
+    $('st').innerHTML = st.rows.map(r => '<tr><td class="p num">' + esc(r[0]) + '</td><td class="n num">' + esc(r[1]) + '</td><td class="d l">' + esc(r[2]) + '</td><td class="num">' + esc(r[3]) + '</td></tr>').join('');
+  }
+}
+
+connect();
+</script>
+</body>
+</html>

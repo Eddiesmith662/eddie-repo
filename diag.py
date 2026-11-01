@@ -412,6 +412,8 @@ def _labels(path, data):
         out.append("Penalty: %s" % d.get("cmd", "?"))
     elif path == "/api/incident":
         out.append("Incident log: %s" % d.get("cmd", "?"))
+    elif path == "/api/announcer":
+        out.append("Announcer page: %s" % d.get("cmd", "?"))
     elif path == "/api/gfx":
         out.append("Track graphic: %s" % d.get("cmd", "?"))
     elif path == "/api/pitrace":

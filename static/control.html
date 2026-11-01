@@ -611,6 +611,16 @@
     <p class="hint tip">Click a picture to load a new one (1920 × 1080 PNG, transparent background). One sponsor on air at a time: its button turns red and says Hide (press it to take it off); Show on another swaps it in.</p>
   </section>
 
+  <section id="anSec">
+    <h2><span class="t">Announcer page</span><span class="pill" id="anPill">OFF</span></h2>
+    <p class="hint" id="anInfo" style="margin:0 0 8px">Set it up on the Setup tab.</p>
+    <div class="row"><button id="anCopy">Copy announcer link</button></div>
+    <label>Notes for the announcers</label>
+    <textarea id="anNotes" rows="3" maxlength="600" placeholder="e.g. Sponsor read after the restart"></textarea>
+    <div class="row" style="margin-top:6px"><button id="anClear">Clear notes</button><span class="hint" id="anNotesState" style="margin:0 0 0 8px;align-self:center"></span></div>
+    <p class="hint tip">Remote announcers open the announcer link in any browser and see the running order, the flag and lap, what's on screen, incidents, live points, standings and these notes, updated every second. Notes go out as you type. Nothing on their page can change anything here.</p>
+  </section>
+
 </main>
 
 <!-- ================= STANDINGS ================= -->
@@ -757,6 +767,20 @@
     <h2><span class="t">Reset</span></h2>
     <button id="resetBtn" style="width:100%">Reset live race settings to default</button>
     <p class="hint">Doesn't touch standings, bracket, race info or team (those are saved in the standings folder).</p>
+  </section>
+
+  <section class="wide" id="anSetup">
+    <h2><span class="t">Announcer page</span><span class="pill" id="anPill2">OFF</span></h2>
+    <p class="hint" style="margin-top:0">A live page for remote announcers: they open a link in any browser. The overlay sends it a small update every second through the VSPEED relay; nothing on their side can change anything here.</p>
+    <label>Producer code for this show (from the relay's /admin page; one code per show)</label>
+    <div class="url"><input id="anCode" placeholder="https://…/k/show-name.…" spellcheck="false" autocomplete="off"><button id="anCodeSave">Save</button></div>
+    <div class="grid2" style="margin-top:10px">
+      <div><label>Feed</label><div class="seg" id="anSeg"><button data-v="on">On</button><button data-v="off">Off</button></div></div>
+      <div><label>Status</label><div class="hint" id="anStatus" style="margin:6px 0 0">—</div></div>
+    </div>
+    <label>Announcer link (send this to your announcers)</label>
+    <div class="url"><input readonly id="anLink" placeholder="Appears once the producer code is saved"><button data-copy="anLink">Copy</button><button id="anNew" title="Make a new link: the old one stops working">New link</button></div>
+    <p class="hint">If a link gets passed around, press <b>New link</b> and send the new one: the old link stops working straight away.</p>
   </section>
 
   <section class="wide">
@@ -1644,6 +1668,39 @@ $('u1').value = o + '/overlay'; $('u2').value = o + '/standings'; $('u3').value 
 document.querySelectorAll('[data-copy]').forEach(b => b.onclick = () => { const i = $(b.dataset.copy); i.select(); try { navigator.clipboard.writeText(i.value); } catch (e) { document.execCommand('copy'); } toast('Copied'); });
 $('resetBtn').onclick = async () => { if (confirm('Reset live race settings and text to default?')) { await post('/api/reset', {}); filled = false; toast('Reset'); } };
 
+/* ---------- announcer page (Race tab: link + notes; Setup tab: producer code, on/off, new link) ---------- */
+let AN = {};
+async function anCmd(body) { const r = await post('/api/announcer', body); if (r.msg) toast(r.msg); return r; }
+function copyText(t) {
+  try { navigator.clipboard.writeText(t).then(() => toast('Copied'), () => fallback()); } catch (e) { fallback(); }
+  function fallback() { const i = document.createElement('input'); i.value = t; document.body.appendChild(i); i.select(); try { document.execCommand('copy'); toast('Copied'); } catch (e) {} i.remove(); }
+}
+$('anCodeSave').onclick = () => anCmd({ cmd: 'code', code: $('anCode').value.trim() });
+$('anCode').onkeydown = e => { if (e.key === 'Enter') $('anCodeSave').click(); };
+$('anSeg').onclick = e => { const b = e.target.closest('button'); if (b) anCmd({ cmd: b.dataset.v }); };
+$('anNew').onclick = () => { if (confirm('Make a new announcer link? The old link stops working straight away, so send the new one to your announcers.')) anCmd({ cmd: 'newlink' }); };
+$('anCopy').onclick = () => { const l = AN.link || ''; if (!l) return toast('Set up the announcer page on the Setup tab first'); copyText(l); };
+let anT = 0;
+$('anNotes').oninput = () => {      // notes go out as you type (short pause)
+  clearTimeout(anT); $('anNotesState').textContent = 'Sending…';
+  anT = setTimeout(async () => { anT = 0; const r = await anCmd({ cmd: 'notes', text: $('anNotes').value }); $('anNotesState').textContent = r.ok ? 'Sent' : 'Not sent'; }, 600);
+};
+$('anClear').onclick = () => { $('anNotes').value = ''; clearTimeout(anT); anT = 0; anCmd({ cmd: 'notes', text: '' }); $('anNotesState').textContent = 'Cleared'; };
+function anRender() {
+  const a = S.announcer || {}, st = AN || {};
+  const label = { live: 'LIVE', error: 'PROBLEM', setup: 'SET UP', off: 'OFF' }[st.state] || 'OFF';
+  for (const id of ['anPill', 'anPill2']) { $(id).textContent = label; $(id).classList.toggle('air', st.state === 'live'); }
+  const info = st.state === 'live' ? `Live · ${st.viewers || 0} announcer${st.viewers === 1 ? '' : 's'} viewing`
+    : st.state === 'error' ? (st.error || 'Problem sending') : st.state === 'setup' ? (st.error || 'Finish the setup on the Setup tab')
+    : 'Off. Set it up and switch it on on the Setup tab.';
+  $('anInfo').textContent = info; $('anStatus').textContent = info;
+  $('anInfo').style.color = $('anStatus').style.color = st.state === 'error' ? '#ff8da3' : '';
+  document.querySelectorAll('#anSeg button').forEach(b => b.classList.toggle('on', (b.dataset.v === 'on') === !!a.on));
+  if (document.activeElement !== $('anCode')) $('anCode').value = a.code || '';
+  $('anLink').value = st.link || '';
+  if (document.activeElement !== $('anNotes') && !anT) $('anNotes').value = a.notes || '';
+}
+
 /* ---------- Getting started checklist (Prerace tab) ---------- */
 let LOGO_FILES = null;
 const GS_KEY = 'vsSetupHidden';
@@ -1789,6 +1846,7 @@ function render() {
   if (!S || !L) return;
   fillInputs();
   gsRender();
+  anRender();
   const st = SD ? SD.state : {};
   const virt = { '@standings': st.visible, '@info': st.analysis && st.analysis.visible, '@team': st.team && st.team.visible, '@track': trackOnAir(), '@grid': !!(S.gridw && S.gridw.visible) };
   document.querySelectorAll('.tile').forEach(t => t.classList.toggle('on', t.dataset.k in virt ? !!virt[t.dataset.k] : !!S.show[t.dataset.k]));
@@ -1938,7 +1996,7 @@ function connect() {
   es.onmessage = e => { const d = JSON.parse(e.data);
     const v = d.app && d.app.version;          // the program was updated: load the new page
     if (v) { if (window.__pageVer == null) window.__pageVer = v; else if (v !== window.__pageVer) return location.reload(); }
-    seriesUpdate(d.series); S = d.settings; PR = d.pitrace || PR; L = d.live; SD = d.standings; APP = d.app || APP; PEN = d.penalties || PEN; render(); if (SOLO && d.incidentsVer !== INC.ver) incFetch(); };
+    seriesUpdate(d.series); AN = d.announcer || AN; S = d.settings; PR = d.pitrace || PR; L = d.live; SD = d.standings; APP = d.app || APP; PEN = d.penalties || PEN; render(); if (SOLO && d.incidentsVer !== INC.ver) incFetch(); };
   es.onerror = () => { es.close(); $('conn').textContent = 'Server offline'; $('dot').className = 'dot'; setTimeout(connect, 2000); };
 }
 connect();
