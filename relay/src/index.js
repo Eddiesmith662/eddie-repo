@@ -1,7 +1,7 @@
 /*
  * VSPEED announcer relay (Cloudflare Worker + one Durable Object per show).
  *
- * The overlay on the producer's PC sends a small update about once a second (POST /push). Announcers open
+ * The overlay on the producer's PC sends a small update twice a second (POST /push). Announcers open
  * /a/<channel>/<view code> in any browser; the page holds one live connection (/a/<channel>/<view code>/events,
  * server-sent events) and the show's Durable Object hands every update to every connected page. Data only flows
  * one way: nothing on this side can change anything on the producer's PC.

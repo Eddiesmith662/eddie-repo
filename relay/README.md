@@ -1,11 +1,11 @@
 # VSPEED announcer relay
 
 A small Cloudflare Worker that passes the overlay's live data to remote announcers. The overlay on the producer's PC
-sends one small update about once a second; every announcer with the show's link open in a browser gets it straight
+sends one small update twice a second; every announcer with the show's link open in a browser gets it straight
 away. Data only flows one way, and nothing here can change anything on the producer's PC.
 
 ```
-Producer PC (overlay) ──1 update/s──▶ this relay (one Durable Object per show) ──live──▶ announcer browsers
+Producer PC (overlay) ──2 updates/s──▶ this relay (one Durable Object per show) ──live──▶ announcer browsers
 ```
 
 ## One-time setup (Cloudflare)
@@ -40,9 +40,9 @@ how fresh the numbers are, and turns red if updates stop.
 ## Costs
 
 Each update from a producer is one Worker request and one Durable Object request; updates passed on to announcers
-are free, however many are watching. A 3-hour show is about 11,000 updates. The Workers Paid plan includes 1 million
-Durable Object requests a month, so about 90 show-nights a month before any extra charge (a few cents per million after
-that). Each show sleeps when its producer's overlay stops sending.
+are free, however many are watching. A 3-hour show is about 22,000 updates (fewer when nothing changes, e.g. under caution). The Workers Paid plan
+includes 1 million Durable Object requests a month, so about 45 show-nights a month before any extra charge (about
+$0.15 per extra million after that). Each show sleeps when its producer's overlay stops sending.
 
 ## Files
 

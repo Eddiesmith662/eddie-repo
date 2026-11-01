@@ -1,4 +1,4 @@
-"""Announcer page feed: sends a small update about once a second to the VSPEED relay (a Cloudflare Worker), which hands
+"""Announcer page feed: sends a small update twice a second to the VSPEED relay (a Cloudflare Worker), which hands
 it to every announcer who has the show's link open in a browser. Data only goes out: nothing comes back in.
 
 Light on purpose: it runs in its own thread, sends only what the announcer page shows, skips updates that haven't
@@ -23,7 +23,7 @@ import net
 import standings
 
 DEFAULTS = {"on": False, "code": "", "token": "", "notes": "", "notesAt": 0}
-SEND_EVERY = 1.0           # seconds between updates
+SEND_EVERY = 0.5           # seconds between updates (twice a second)
 HEARTBEAT = 10.0           # send even when nothing changed, at least this often
 TIMEOUT = 5.0              # give up on one update after this long
 MAX_INC = 12               # incidents on the page
