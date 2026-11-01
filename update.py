@@ -46,7 +46,8 @@ def local_version():
 
 def vtuple(v):
     out = []
-    for part in str(v or "").strip().lstrip("vV").split("."):
+    # "v1.5.27", "1.5.27" and typos like "v.1.5.27" all read as 1.5.27
+    for part in str(v or "").strip().lstrip("vV").strip(".").split("."):
         digits = "".join(ch for ch in part if ch.isdigit())
         out.append(int(digits) if digits else 0)
     return tuple((out + [0, 0, 0])[:3])
