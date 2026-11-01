@@ -108,7 +108,7 @@ def build(live, settings, on_air):
 
     st = None
     try:
-        data = standings.data_snapshot()
+        data = standings.eligible_data()         # excluded drivers left out
         header, rows = data.get("header") or [], data.get("rows") or []
         pi, ni, di, ti = _col(header, "pos"), _col(header, "#", "no", "num", "car"), _col(header, "driver"), _col(header, "pts", "points")
         if rows and di >= 0:

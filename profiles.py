@@ -2,7 +2,8 @@
 
 A profile holds:
   - the standings (Xtreme Scoring link, the pulled or loaded table, any hand edits), the standings graphic's title,
-    logo, logo size and playoff cutoff (on/off and the number), and the playoff bracket (with its round-win marks),
+    logo, logo size and playoff cutoff (on/off and the number), the drivers excluded from the standings, and the
+    playoff bracket (with its round-win marks),
   - live points: the points table, bonuses, line, places and playoff mode,
   - the ticker header (race name) and the top-right league logo,
   - the Next broadcast text and logo.
@@ -25,7 +26,7 @@ import standings
 DIR = os.path.join(datafiles.DATA, "profiles")
 INDEX = os.path.join(DIR, "index.json")
 SETTINGS_KEYS = ("livePoints", "raceName", "leagueLogo", "nextRace")       # settings.json keys that belong to a series
-CONFIG_KEYS = ("xtreme", "title", "cutoff", "logo", "logo_name", "logo_size")   # standings/config.json keys that do
+CONFIG_KEYS = ("xtreme", "title", "cutoff", "logo", "logo_name", "logo_size", "excluded")   # standings/config.json keys that do
 STANDINGS_FILES = ("standings.json", "bracket.json")
 LOCK = threading.Lock()
 _state = None          # the overlay's State (server.py), set by init()
@@ -137,7 +138,8 @@ def _load(pid):
     for f in _logo_files(sd):
         shutil.copy2(os.path.join(sd, f), os.path.join(standings.CONFIG_DIR, f))
     cfg_saved = saved.get("config") or {}
-    standings.update_config(**{k: cfg_saved.get(k, "" if k != "logo_size" else 192) for k in CONFIG_KEYS if k != "cutoff"},
+    blank = {"logo_size": 192, "excluded": []}
+    standings.update_config(**{k: cfg_saved.get(k, blank.get(k, "")) for k in CONFIG_KEYS if k != "cutoff"},
                             cutoff=cfg_saved.get("cutoff", 16))
     # the standings module's state from those files
     if not standings.load_data():

@@ -1628,7 +1628,7 @@ def telemetry_loop(demo, multiclass=False, qual=False):
                 diag.error("Race off pit road error: %r" % (e,), e)
             try:
                 live["livePoints"] = livepoints.compute(live, STATE.settings.get("livePoints"), standings.data_snapshot(),
-                                                        standings.bracket_snapshot())
+                                                        standings.bracket_snapshot(), standings.excluded_keys())
             except Exception as e:      # live points must never stop the overlay
                 diag.error("Live points error: %r" % (e,), e)
             STATE.set_live(live)
@@ -1736,7 +1736,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_bytes(json.dumps(d).encode(), "application/json")
         if path in ("/standings.csv", "/standings-example.csv"):
             if path == "/standings.csv":
-                snap = standings.data_snapshot()
+                snap = standings.eligible_data()          # excluded drivers left out, positions renumbered
                 if not snap["rows"]:
                     return self.send_bytes(b"No standings loaded yet.", "text/plain", 404)
                 body = standings.rows_to_csv(snap["header"], snap["rows"])

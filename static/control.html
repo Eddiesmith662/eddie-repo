@@ -136,6 +136,11 @@
   table.st th { text-align: left; font-weight: 400; color: var(--dim); font-size: 12px; letter-spacing: 1px; padding: 6px; border-bottom: 1px solid var(--line); text-transform: uppercase; }
   table.st td { padding: 5px 6px; border-bottom: 1px solid #2f2f30; white-space: nowrap; }
   table.st tr.cut td { border-bottom: 2px solid var(--red); }
+  table.st tr.excl td { color: #6c6c6e; text-decoration: line-through; }
+  table.st tr.excl td.xb { text-decoration: none; }
+  table.st td.xb { width: 1%; padding: 2px 4px; }
+  table.st td.xb button { padding: 3px 8px; font-size: 12px; text-decoration: none; }
+  table.st tr.excl td.xb button { color: #fff; border-color: var(--red); }
   table.st input { padding: 5px 6px; min-width: 44px; }
   table.st td.drv input { min-width: 170px; }
   .tablewrap { overflow: auto; max-height: 640px; border: 1px solid var(--line); border-radius: 5px; }
@@ -679,6 +684,7 @@
     <h2><span class="t">Standings</span>
       <button id="editBtn" style="flex:0 0 auto">Edit by hand</button></h2>
     <div class="tablewrap"><table class="st" id="sTable"></table></div>
+    <p class="hint">⊘ leaves a driver out of the standings graphic, live points and Load top 12 (e.g. not eligible for the playoffs); everyone below moves up. It's kept for this series through every pull until you press <b>Include</b>.</p>
     <div id="editBar" style="display:none">
       <label style="display:flex;gap:8px;align-items:center;text-transform:none;letter-spacing:0;font-size:14px;color:#ddd">
         <input type="checkbox" id="recalc" checked style="width:auto"> Re-sort by points and recalculate Pos, To Ldr and To Nxt when saving
@@ -1025,13 +1031,27 @@ function renderTable() {
       `<td class="${SD.header[i].toLowerCase() === 'driver' ? 'drv' : ''}"><input data-r="${ri}" data-c="${i}" value="${esc(r[i])}"></td>`).join('') + '</tr>').join('');
     return;
   }
-  const cut = cutoffIndex();
-  const html = head + SD.rows.map((r, ri) => `<tr class="${ri === cut ? 'cut' : ''}">` + cols.map(i => `<td>${esc(r[i])}</td>`).join('') + '</tr>').join('');
+  // every driver, in the standings' order; excluded ones greyed and crossed out (positions and gaps are worked out
+  // without them, so the eligible rows show the renumbered values the graphic uses)
+  const cut = cutoffIndex(), low = SD.header.map(h => h.toLowerCase()), di = low.indexOf('driver');
+  const key = n => String(n || '').toLowerCase().replace(/[^a-z]/g, '');
+  const elig = new Map(SD.rows.map((r, k) => [key(r[di]), { r, k }]));
+  const all = SD.allRows || SD.rows;
+  const html = head.replace('</tr>', '<th></th></tr>') + all.map(r => {
+    const e = elig.get(key(r[di]));
+    const row = e ? e.r : r, out = !e;
+    const btn = `<td class="xb"><button data-excl="${esc(r[di])}" data-on="${out ? 0 : 1}" title="${out ? 'Put this driver back in the standings and live points' : 'Leave this driver out of the standings graphic, live points and the bracket (e.g. not eligible for the playoffs)'}">${out ? 'Include' : '⊘'}</button></td>`;
+    return `<tr class="${out ? 'excl' : (e.k === cut ? 'cut' : '')}">` + cols.map(i => `<td>${esc(out && low[i] === 'pos' ? '—' : row[i])}</td>`).join('') + btn + '</tr>';
+  }).join('');
   if (t.dataset.mode !== 'view' || t._h !== html) { t.dataset.mode = 'view'; t._h = html; t.innerHTML = html; }
 }
+$('sTable').addEventListener('click', e => {      // ⊘ / Include: leave a driver out, or put them back
+  const b = e.target.closest('[data-excl]'); if (!b) return;
+  std('exclude', { name: b.dataset.excl, on: b.dataset.on === '1' });
+});
 $('editBtn').onclick = () => {
-  if (!SD || !SD.rows.length) return toast('Pull or load the standings first');
-  editing = { ver: SD.state.dataVer, rows: SD.rows.map(r => r.slice()) };
+  if (!SD || !(SD.allRows || SD.rows).length) return toast('Pull or load the standings first');
+  editing = { ver: SD.state.dataVer, rows: (SD.allRows || SD.rows).map(r => r.slice()) };
   $('editBar').style.display = ''; $('editBtn').style.display = 'none'; renderTable();
 };
 function stopEdit() { editing = null; $('editBar').style.display = 'none'; $('editBtn').style.display = ''; $('sTable').dataset.mode = ''; renderTable(); }

@@ -34,6 +34,7 @@ The championship table from the pulled standings, run from the Standings tab (or
 | **View: Standings / Playoff bracket** | Switches between the points table and the bracket (with an animation if it's on air) |
 | **Playoff cutoff** | Turns on the green "in" block and red cutline: drivers with a win (Wins column) are LOCKED IN, the rest of the spots go on points, and the gap column becomes TO CUTOFF |
 | **Edit by hand** | Fix a name, number or points in the table; **Save edits** keeps them until the next pull |
+| **⊘ / Include** | ⊘ next to a driver leaves them out of the standings graphic, live points and **Load top 12** (e.g. not eligible for the playoffs); everyone below moves up and positions are renumbered. Kept for this series through every pull; **Include** puts them back |
 
 The standings graphic's playoff cutoff is its own setting: changing it doesn't move the live points line, and the other way round.
 

@@ -240,6 +240,54 @@ def data_snapshot():
         return copy.deepcopy(DATA)
 
 
+# ---- Excluded drivers: left out of the standings graphic, live points and the bracket (e.g. not eligible for the
+# playoffs). Set by hand on the Standings tab, kept by name for each series, and they survive every pull.
+def name_key(name):
+    """Name for matching: letters only, lower case (the same rule as live points)."""
+    return re.sub(r"[^a-z]", "", str(name or "").lower())
+
+
+def excluded_names():
+    return list(_CFG_CACHE.get("excluded") or [])
+
+
+def excluded_keys():
+    return {name_key(n) for n in excluded_names() if name_key(n)}
+
+
+def eligible_data(snap=None):
+    """The standings without the excluded drivers: positions renumbered (drivers level on points share one) and the
+    To Ldr / To Nxt gaps worked out again. The standings graphic, the bracket and the announcer page use this."""
+    snap = snap or data_snapshot()
+    header, rows = snap.get("header") or [], snap.get("rows") or []
+    out = dict(snap)
+    keys = excluded_keys()
+    low = [h.lower() for h in header]
+    if not keys or "driver" not in low:
+        return out
+    di = low.index("driver")
+    rows = [list(r) for r in rows if name_key(r[di] if di < len(r) else "") not in keys]
+    idx = {n: low.index(n) if n in low else -1 for n in ("pos", "pts", "to ldr", "to nxt")}
+    try:
+        pts = [float(str(r[idx["pts"]]).replace(",", "")) for r in rows] if idx["pts"] >= 0 else None
+    except (ValueError, IndexError):
+        pts = None
+    pos = 0
+    for k, r in enumerate(rows):
+        same = pts is not None and k > 0 and pts[k] == pts[k - 1]
+        if not same:
+            pos = k + 1
+        if idx["pos"] >= 0:
+            r[idx["pos"]] = str(pos)
+        if pts is not None:
+            if idx["to ldr"] >= 0:
+                r[idx["to ldr"]] = _fmt_num(pts[k] - pts[0])
+            if idx["to nxt"] >= 0:
+                r[idx["to nxt"]] = _fmt_num(pts[k] - pts[k - 1]) if k else "0"
+    out["rows"] = rows
+    return out
+
+
 def save_data():
     try:
         os.makedirs(CONFIG_DIR, exist_ok=True)
@@ -569,11 +617,13 @@ def summary():
     with STATE_LOCK:
         st = copy.deepcopy(STATE)
     snap = data_snapshot()
+    elig = eligible_data(snap)
     cfg = _CFG_CACHE
     age, stale, note = age_text()
     return {
         "state": st,
-        "header": snap["header"], "rows": snap["rows"][:PULL_ROWS], "source": snap["source"],
+        "header": snap["header"], "rows": elig["rows"][:PULL_ROWS], "source": snap["source"],
+        "allRows": snap["rows"][:PULL_ROWS], "excluded": excluded_names(),
         "edited": bool(snap["edited_at"]), "age": age, "stale": stale, "note": note,
         "pullErr": PULL_ERR, "pulling": PULLING, "xtreme": cfg.get("xtreme", ""),
         "logoName": cfg.get("logo_name", "") if LOGO_PATH else "",
@@ -696,7 +746,7 @@ def command(cmd, d):
         log("Standings edited by hand."); return True, msg
     # ---- bracket ----
     if cmd == "bracketLoad":
-        snap = data_snapshot()
+        snap = eligible_data()
         entries = bracket_from_standings(snap["header"], snap["rows"]) if snap["rows"] else None
         if not entries:
             return False, "Pull or load the standings first, then load the bracket."
@@ -704,6 +754,18 @@ def command(cmd, d):
             return False, "CONFIRM:The bracket already has drivers. Loading the top 12 replaces it and clears any advancing. Continue?"
         set_bracket([entries, [], [], []])
         log("Bracket loaded with the top %d drivers." % len(entries)); return True, "Bracket loaded"
+    if cmd == "exclude":                      # {name, on}: leave a driver out (on) or bring them back
+        name = " ".join(str(d.get("name") or "").split())[:60]
+        if not name_key(name):
+            return False, "No driver given."
+        cur = [n for n in excluded_names() if name_key(n) != name_key(name)]
+        on = bool(d.get("on"))
+        if on:
+            cur.append(name)
+        update_config(excluded=cur)
+        bump("dataVer")                       # the standings graphic re-reads its data
+        log("%s %s." % (name, "excluded from the standings and live points" if on else "back in the standings"))
+        return True, ("%s excluded" % name) if on else ("%s back in" % name)
     if cmd == "bracketClear":
         if any(bracket_snapshot()) and not force:
             return False, "CONFIRM:This removes every driver from the bracket. Continue?"

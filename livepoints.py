@@ -62,8 +62,12 @@ def _find(people, name, num):
     return p
 
 
-def compute(live, cfg, standings_data, bracket=None):
-    """Returns what the live points graphic and the control panel show (see the module notes)."""
+def compute(live, cfg, standings_data, bracket=None, excluded=None):
+    """Returns what the live points graphic and the control panel show (see the module notes).
+    excluded: name keys (letters only, lower case) of drivers left out by hand on the Standings tab, e.g. not eligible
+    for the playoffs. They're matched to their car as usual (so they don't come back as 'not in the standings'), then
+    left out: they're not listed and never take a spot above the line."""
+    excluded = set(excluded or ())
     cfg = dict(DEFAULTS, **(cfg or {}))
     playoff = bool(cfg.get("playoff"))
     out = {"ok": False, "why": "", "rows": [], "cutoff": int(cfg.get("cutoff") or 12), "lap": live.get("lap"),
@@ -92,7 +96,7 @@ def compute(live, cfg, standings_data, bracket=None):
     for k, r in enumerate(srows):
         g = lambda i: r[i] if 0 <= i < len(r) else ""
         people.append({"name": g(di), "num": str(g(ni)).strip(), "base": _num(g(pi)), "wins": int(_num(g(wi))),
-                       "basePos": int(_num(g(posi))) or (k + 1), "car": None})
+                       "basePos": int(_num(g(posi))) or (k + 1), "car": None, "excl": _key(g(di)) in excluded})
     by_name = {}
     for p in people:
         by_name.setdefault(_key(p["name"]), p)
@@ -109,9 +113,18 @@ def compute(live, cfg, standings_data, bracket=None):
             if p is not None and p["car"] is not None:
                 p = None
         if p is None:                      # not in the standings: starts from 0
-            p = {"name": c.get("name", ""), "num": str(c.get("num") or ""), "base": 0.0, "wins": 0, "basePos": None, "car": None}
+            p = {"name": c.get("name", ""), "num": str(c.get("num") or ""), "base": 0.0, "wins": 0, "basePos": None, "car": None,
+                 "excl": _key(c.get("name")) in excluded}
             people.append(p)
         p["car"] = c
+
+    # excluded drivers: matched above, now left out
+    people = [p for p in people if not p.get("excl")]
+    # positions in the standings without them (drivers level on points share one), for the moved-up / down arrows
+    if excluded:
+        ranked = sorted((p for p in people if p["basePos"]), key=lambda p: p["basePos"])
+        for k, p in enumerate(ranked):
+            p["basePos"] = ranked[k - 1]["basePos"] if k and p["base"] == ranked[k - 1]["base"] else k + 1
 
     # cars in this race that aren't in the standings (a first race in the series, or a name and number that don't match)
     out["unmatched"] = ["#%s %s" % (p["num"], p["name"]) for p in people if p["car"] is not None and not p["basePos"]]
