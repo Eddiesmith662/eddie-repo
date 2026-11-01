@@ -72,9 +72,12 @@
   tbody tr:nth-child(even) td { background: #1c1c20; }
   td.p { font-weight: 800; text-align: center; width: 36px; }
   td.n { color: var(--dim); font-weight: 700; }
-  td.d { font-weight: 600; max-width: 240px; overflow: hidden; text-overflow: ellipsis; }
+  td.d { font-weight: 600; }
+  td.d .dn2 { display: flex; align-items: center; gap: 4px; min-width: 0; }
+  td.d .nm { overflow: hidden; text-overflow: ellipsis; max-width: 220px; }
   tr.camcar td { background: #3a1420 !important; }
-  tr.camcar td.d::after { content: "  ● ON CAMERA"; color: var(--red); font-size: 11px; font-weight: 800; letter-spacing: .5px; }
+  .oncam { color: var(--red); font-size: 11px; font-weight: 800; letter-spacing: .5px; white-space: nowrap; margin-left: 4px; }
+  .tag .sh { display: none; }
   tr.out td { color: var(--faint); }
   .close { color: #ff5c7c; font-weight: 700; }
   .ld { color: var(--dim); }
@@ -103,8 +106,8 @@
     .side { display: contents; }
     #notes { order: 1; } #screen { order: 2; } #order { order: 3; } #incidents { order: 4; } #points { order: 5; } #standings { order: 6; }
     header { padding: 8px 10px; gap: 10px; } .lap { font-size: 22px; }
-    td.d { max-width: 150px; }
-    tr.camcar td.d::after { content: " ●"; }
+    td.d .nm { max-width: 120px; }
+    .oncam .lg, .tag .lg { display: none; } .tag .sh { display: inline; }
     .narrow-hide { display: none; }
     /* keep position, number and driver in view while the rest scrolls sideways */
     #order th:nth-child(-n+3), #order td:nth-child(-n+3) { position: sticky; z-index: 1; background: var(--panel); }
@@ -131,7 +134,7 @@
     <h2>Running order <span class="r" id="orderNote"></span></h2>
     <div class="tbl"><table><thead><tr>
       <th class="c">Pos</th><th>#</th><th class="l">Driver</th><th>Gap</th><th>Int</th><th class="c">+/-</th><th>Led</th>
-      <th>Last</th><th>Best</th><th>Pits</th><th>Since pit</th><th class="l"></th>
+      <th>Last</th><th>Best</th><th>Pits</th><th>Since pit</th>
     </tr></thead><tbody id="cars"></tbody></table></div>
     <div class="empty" id="carsEmpty">Waiting for the producer's feed…</div>
   </section>
@@ -224,16 +227,20 @@ function render() {
   $('orderNote').textContent = s.race ? '' : (s.name ? 'times are best laps' : '');
   $('cars').innerHTML = cars.map(c => {
     const gn = c.gn == null ? '<span class="ld">–</span>' : c.gn > 0 ? '<span class="up">▲' + c.gn + '</span>' : c.gn < 0 ? '<span class="dn">▼' + (-c.gn) + '</span>' : '<span class="ld">–</span>';
-    const tags = (c.pit ? '<span class="tag pit">PIT</span>' : '') + (c.bf ? '<span class="tag bf">BLACK FLAG</span>' : '') +
-                 (c.mb ? '<span class="tag mb">REPAIRS</span>' : '') + (c.out ? '<span class="tag out">' + esc(c.out) + '</span>' : '');
+    // after the name: on camera, then pit road / black flag / repairs / out (short labels on a phone)
+    const tag = (cls, long, short) => '<span class="tag ' + cls + '"><span class="lg">' + long + '</span><span class="sh">' + short + '</span></span>';
+    const tags = (c.cam ? '<span class="oncam">●<span class="lg"> ON CAMERA</span></span>' : '') +
+                 (c.pit ? tag('pit', 'PIT', 'PIT') : '') + (c.bf ? tag('bf', 'BLACK FLAG', 'BF') : '') +
+                 (c.mb ? tag('mb', 'REPAIRS', 'RP') : '') + (c.out ? tag('out', esc(c.out), 'OUT') : '');
     return '<tr class="' + (c.cam ? 'camcar ' : '') + (c.out ? 'out' : '') + '">' +
-      '<td class="p num">' + esc(c.p) + '</td><td class="n num">' + esc(c.n) + '</td><td class="d l">' + esc(c.d) + '</td>' +
+      '<td class="p num">' + esc(c.p) + '</td><td class="n num">' + esc(c.n) + '</td>' +
+      '<td class="d l"><span class="dn2"><span class="nm">' + esc(c.d) + '</span>' + tags + '</span></td>' +
       '<td class="num ' + (c.ld ? 'ld' : '') + '">' + esc(c.g === 'LEADER' ? 'Leader' : c.g) + '</td>' +
       '<td class="num ' + (c.ic ? 'close' : '') + '">' + esc(c.iv) + '</td><td class="c">' + gn + '</td>' +
       '<td class="num">' + (c.led ? esc(c.led) : '') + '</td>' +
       '<td class="num ' + (c.lc || '') + '">' + esc(c.l) + '</td><td class="num ' + (c.ob ? 'ob' : '') + '">' + esc(c.b) + '</td>' +
       '<td class="num">' + (c.st ? esc(c.st) + (c.lp != null ? ' <span class="ld">(' + esc(c.lp) + 's)</span>' : '') : '') + '</td>' +
-      '<td class="num">' + (c.sp != null && c.st ? esc(c.sp) : '') + '</td><td class="l">' + tags + '</td></tr>';
+      '<td class="num">' + (c.sp != null && c.st ? esc(c.sp) : '') + '</td></tr>';
   }).join('');
 
   // producer notes: flash when they change
