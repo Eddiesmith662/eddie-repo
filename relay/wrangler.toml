@@ -1,4 +1,4 @@
-# VSPEED announcer relay. Deployed by Cloudflare (Workers Builds) from this folder of the repo; see README.md.
+# VSPEED announcer relay. Deployed by Cloudflare (Workers Builds) from this folder of the repo.
 # The CHANNEL_SECRET secret is set in the Cloudflare dashboard, never here.
 name = "vspeed-relay"
 main = "src/index.js"

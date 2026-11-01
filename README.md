@@ -175,7 +175,7 @@ Nothing on their page can change anything on your PC.
 3. **Notes** (Race tab) go out as you type, e.g. "Sponsor read after the restart".
 
 If a link gets passed around, **New link** (Setup tab) makes a fresh one and the old one stops working straight away.
-Running the relay itself (Cloudflare): see [relay/README.md](relay/README.md).
+The relay itself runs on Cloudflare and is looked after by VSPEED.
 
 ---
 
