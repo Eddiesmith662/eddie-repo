@@ -782,9 +782,15 @@ const A_EXAMPLE = { title: 'RACE ANALYSIS', lines: ['RACE LENGTH: 100 LAPS', 'PI
 const T_EXAMPLE = { title: 'BROADCASTING TEAM', people: [['Sam Rivera', 'Lead Commentary'], ['Jordan Lee', 'Co-Commentary'], ['Casey Hart', 'Producer']] };
 
 function toast(t) { if (!t) return; const el = $('toast'); el.textContent = t; el.classList.add('show'); clearTimeout(el._t); el._t = setTimeout(() => el.classList.remove('show'), 2200); }
+// where a press came from, for the usage counts in Save diagnostics: "live timing" or the control panel tab
+function pressFrom() {
+  if (SOLO) return 'live timing';
+  const b = document.querySelector('nav button.on');
+  return b && b.dataset.tab ? b.dataset.tab.charAt(0).toUpperCase() + b.dataset.tab.slice(1) + ' tab' : '';
+}
 async function post(url, body) {
   try {
-    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-VS-From': pressFrom() }, body: JSON.stringify(body) });
     return await r.json();
   } catch (e) { toast('Server not reachable'); return { ok: false }; }
 }
@@ -863,12 +869,22 @@ async function camTo(carIdx, group) {
   const res = await post('/api/camera', { carIdx, group: group != null ? group : ($('camGroup').value ? +$('camGroup').value : null) });
   if (!res.ok) toast('Camera switch failed (iRacing connected?)');
 }
-let ctxSkipClick = false;
-$('cars').onclick = e => {
-  const r = e.target.closest('.car'); if (!r) return;
-  if (ctxSkipClick) { ctxSkipClick = false; return; }
-  camTo(+r.dataset.idx);
-};
+// Picking a driver works on press and release, not 'click': the list is redrawn several times a second while the
+// cars move, and a redraw between pressing and releasing the button used to swallow the click (about half of normal
+// clicks, Oct 2026: "it takes a couple of clicks"). The car is the one under the pointer when it was pressed.
+let carDown = null;
+$('cars').addEventListener('pointerdown', e => {
+  const r = e.target.closest('.car');
+  carDown = r && e.button === 0 ? { idx: +r.dataset.idx, x: e.clientX, y: e.clientY, t: Date.now(), id: e.pointerId } : null;
+});
+$('cars').addEventListener('pointerup', e => {
+  const d = carDown; carDown = null;
+  if (!d || d.id !== e.pointerId) return;
+  if (Math.hypot(e.clientX - d.x, e.clientY - d.y) > 12 || Date.now() - d.t > 1500) return;   // a scroll or drag, not a pick
+  if (!e.target.closest('#cars')) return;
+  camTo(d.idx);
+});
+$('cars').addEventListener('pointercancel', () => { carDown = null; });   // the browser took over (scrolling on a phone)
 // right-click (or press and hold) a driver: pick the camera to cut to
 function openCtx(row, x, y) {
   const car = (L.cars || []).find(c => c.idx === +row.dataset.idx); if (!car) return;
@@ -887,7 +903,7 @@ let holdT = null;
 $('cars').addEventListener('pointerdown', e => {
   if (e.pointerType === 'mouse') return;
   const r = e.target.closest('.car'); if (!r) return;
-  holdT = setTimeout(() => { ctxSkipClick = true; openCtx(r, e.clientX, e.clientY); }, 550);
+  holdT = setTimeout(() => { carDown = null; openCtx(r, e.clientX, e.clientY); }, 550);   // press and hold: the menu, not a pick
 });
 ['pointerup', 'pointercancel', 'pointermove'].forEach(ev => $('cars').addEventListener(ev, e => { if (ev !== 'pointermove' || Math.abs(e.movementY) > 4) clearTimeout(holdT); }));
 $('ctx').onclick = e => {

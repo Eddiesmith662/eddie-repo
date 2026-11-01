@@ -1787,7 +1787,8 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"ok": False, "error": str(e)})
         if path.startswith("/api/"):
             ref = urlparse(self.headers.get("Referer") or "").path
-            diag.action(path, data, "live timing" if ref.startswith("/timing") else "control panel" if ref.startswith("/control") or ref == "/" else ref or "")
+            diag.action(path, data, "live timing" if ref.startswith("/timing") else "control panel" if ref.startswith("/control") or ref == "/" else ref or "",
+                        re.sub(r"[^A-Za-z ]", "", self.headers.get("X-VS-From") or "")[:30])   # which window / tab
         if path == "/api/settings":
             STATE.update_settings(data)
             return self.send_json({"ok": True})

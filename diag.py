@@ -363,7 +363,7 @@ def watch(live):
 # ---------------------------------------------------------------- usage: which buttons and graphics get used
 USAGE_FILE = os.path.join(LOG_DIR, "usage.json")
 _use_lock = threading.Lock()
-_use = {"since": None, "presses": {}, "pages": {}, "onAir": {}, "shows": {}}   # this run
+_use = {"since": None, "presses": {}, "where": {}, "pages": {}, "onAir": {}, "shows": {}}   # this run
 _use_total = None                                                             # every run, loaded from usage.json
 _air_prev = set()
 _use_dirty = False
@@ -425,13 +425,16 @@ def _bump(dct, key, n=1):
     dct[key] = round(dct.get(key, 0) + n, 1)
 
 
-def usage_press(path, data, page=""):
-    """Count a button press (cheap: a few dictionary updates)."""
+def usage_press(path, data, page="", where=""):
+    """Count a button press (cheap: a few dictionary updates). where = the window or tab it came from
+    ("live timing", "Race tab", ...): counted again as "<press> | <where>" so the layout can follow how it's used."""
     global _use_dirty
     with _use_lock:
         _use["since"] = _use["since"] or datetime.datetime.now().isoformat(timespec="seconds")
         for lbl in _labels(path, data):
             _bump(_use["presses"], lbl)
+            if where:
+                _bump(_use["where"], "%s | %s" % (lbl, where))
         if page:
             _bump(_use["pages"], page)
         _use_dirty = True
@@ -452,7 +455,7 @@ def usage_on_air(names):
 
 
 def _merge(total, run):
-    for k in ("presses", "pages", "onAir", "shows"):
+    for k in ("presses", "where", "pages", "onAir", "shows"):
         for a, b in run.get(k, {}).items():
             _bump(total.setdefault(k, {}), a, b)
 
@@ -477,7 +480,7 @@ def flush_usage():
         allt = json.loads(json.dumps(_use_total))
         _merge(allt, run)
         top = lambda d: dict(sorted(d.items(), key=lambda kv: -kv[1]))
-        out = {"note": "Button presses and seconds on air, most used first. thisRun = since the overlay started; allTime includes earlier runs.",
+        out = {"note": "Button presses and seconds on air, most used first. where = the same presses by the window or tab they came from. thisRun = since the overlay started; allTime includes earlier runs.",
                "thisRun": {k: (top(v) if isinstance(v, dict) else v) for k, v in run.items()},
                "allTime": {k: top(v) for k, v in allt.items()},
                "earlierRuns": _use_total}
@@ -490,10 +493,10 @@ def flush_usage():
         pass
 
 
-def action(path, data, page=""):
+def action(path, data, page="", where=""):
     """A command from the control panel or live timing."""
     try:
-        usage_press(path, data, page)
+        usage_press(path, data, page, where)
     except Exception:
         pass
     try:
