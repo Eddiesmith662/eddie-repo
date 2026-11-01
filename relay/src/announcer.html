@@ -57,12 +57,14 @@
 
   /* notes from the producer */
   #notes { border-color: #5a4a12; }
-  #notes .txt { white-space: pre-wrap; font-size: 18px; line-height: 1.4; font-weight: 600; padding: 12px; min-height: 22px; }
+  #notes .txt { white-space: pre-wrap; font-size: 17px; line-height: 1.4; font-weight: 600; padding: 12px; min-height: 22px; }
   #notes.flash { animation: flash 2.4s ease-out; }
   @keyframes flash { 0%, 30% { background: #4a3d0c; border-color: var(--yellow); } 100% { background: var(--panel); } }
 
   /* on screen now */
-  .cam { display: flex; align-items: baseline; gap: 8px; font-size: 17px; font-weight: 700; }
+  .cam { display: flex; align-items: baseline; gap: 10px; font-size: 24px; font-weight: 800; flex-wrap: wrap; }
+  #screen .gfx .chip { font-size: 14px; padding: 6px 12px; }
+  #screen { border-color: #5a2433; }
   .cam .lbl { font-size: 12px; color: var(--dim); font-weight: 600; letter-spacing: .8px; text-transform: uppercase; }
   .gfx { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   .gfx .chip { background: var(--red); color: #fff; font-size: 12px; }
@@ -137,10 +139,10 @@
 <div class="banner" id="banner"></div>
 
 <div class="top">
-  <section id="notes"><h2>Producer notes <span class="r" id="notesAge"></span></h2><div class="txt" id="notesTxt"></div></section>
   <section id="screen"><h2>On screen now</h2><div class="pad">
     <div class="cam"><span class="lbl">Camera</span><span id="cam">—</span></div>
     <div class="gfx" id="gfx"></div></div></section>
+  <section id="notes"><h2>Producer notes <span class="r" id="notesAge"></span></h2><div class="txt" id="notesTxt"></div></section>
   <section id="weather"><h2>Weather <span class="r" id="wxWet"></span></h2><div class="pad wx" id="wx"><span class="ld">No weather data yet</span></div></section>
 </div>
 
