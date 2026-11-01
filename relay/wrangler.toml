@@ -3,7 +3,9 @@
 name = "vspeed-relay"
 main = "src/index.js"
 compatibility_date = "2026-10-01"
-workers_dev = true
+workers_dev = true     # the old *.workers.dev address keeps working too
+# the relay's own address (the domain is in the same Cloudflare account; Cloudflare makes the certificate)
+routes = [{ pattern = "vspeedlivetiming.app", custom_domain = true }]
 preview_urls = false   # one address only: no extra preview copies of the relay
 
 [[durable_objects.bindings]]

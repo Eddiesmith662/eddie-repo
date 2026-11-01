@@ -17,12 +17,12 @@ Producer PC (overlay) ──1 update/s──▶ this relay (one Durable Object p
 2. **Set the relay password.** In the Worker: **Settings → Variables and Secrets → Add**, type **Secret**, name
    `CHANNEL_SECRET`, and a long random password as the value. Keep it private: it's what makes producer codes.
    Changing it later turns every producer code off (make new ones).
-3. Your relay's address is shown on the Worker's page, e.g. `https://vspeed-relay.<your-name>.workers.dev`.
-   A custom domain can be added any time (Settings → Domains & Routes); producers then need new codes.
+3. The relay's address is **https://vspeedlivetiming.app** (set in `wrangler.toml`; the domain has to be in the same
+   Cloudflare account). The `*.workers.dev` address keeps working too.
 
 ## For each show
 
-1. Open `https://<relay address>/admin`, type a show name (e.g. `glr-cup`) and the relay password, and press
+1. Open `https://vspeedlivetiming.app/admin` (or press **Producer codes** at the top of the control panel), type a show name (e.g. `glr-cup`) and the relay password, and press
    **Make the code**. One code per show; several shows can run at the same time.
 2. Give that code to the show's producer only. In the overlay's control panel: **Setup tab → Announcer page**, paste
    it and press **Save** (it switches the feed on).
