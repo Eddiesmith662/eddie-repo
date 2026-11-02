@@ -913,7 +913,9 @@ def qual_track(cars, store, now, est_at, is_qual):
         elif lapn == st["lap"] + 1:                                        # crossed the line
             if st["hot"] and st["start"] is not None:
                 lt = now - st["start"]
-                st["done"] = {"time": lt, "t": now}
+                # iRacing posts the lap's official time and position about a second after the line: wait for it
+                # (Nov 2026: the result showed our own timing, or the previous lap's time as a "best", for that second)
+                st["done"] = {"time": lt, "t": now, "prev": c.get("last") or 0, "shown": None}
                 if st["splits"] and (st["bestT"] is None or lt < st["bestT"]):
                     st["bestSplits"], st["bestT"] = st["splits"], lt
             st.update(lap=lapn, start=now, hot=not c.get("pit"), splits=[])
@@ -923,9 +925,15 @@ def qual_track(cars, store, now, est_at, is_qual):
             k = min(99, int(frac * 100))
             while len(st["splits"]) <= k:
                 st["splits"].append(now - st["start"])
-        if st["done"] and now - st["done"]["t"] < 6:
-            lt = round(c.get("last") or st["done"]["time"], 3)
-            c["qualDone"] = {"time": lt, "improved": bool(c.get("best")) and lt <= c["best"] + 0.002}   # did it beat their best?
+        d = st["done"]
+        if d:
+            last = c.get("last") or 0
+            official = last > 0 and abs(last - d["prev"]) > 0.0005 and (c.get("officialPos") or 0) > 0   # iRacing posted the time and position
+            if d["shown"] is None and (official or now - d["t"] > 3):      # (after 3 s: identical lap time, or none came)
+                d["shown"] = now
+            if d["shown"] is not None and now - d["shown"] < 6:
+                lt = round(last if official else d["time"], 3)
+                c["qualDone"] = {"time": lt, "improved": bool(c.get("best")) and lt <= c["best"] + 0.002}   # did it beat their best?
         if not (st["hot"] and st["start"] is not None):
             continue
         c["qual"] = {"hot": True, "delta": None, "proj": None}
