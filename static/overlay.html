@@ -471,14 +471,17 @@ const lineIn  = [{ transform: 'scaleX(0)' }, { transform: 'scaleX(1)' }];
 const lineOut = [{ transform: 'scaleX(1)' }, { transform: 'scaleX(0)' }];
 const q = (id, sel) => $(id).querySelector(sel);
 
-// Rows check (see IN.board and IN.movers): a graphic has come up with only its title bar, rows there but hidden (results
-// board Oct 25 and 30; Biggest movers Nov 1, "the title with no rows" until the page was refreshed; vMix's built-in
-// browser, an older Chrome; couldn't reproduce in a current browser). Shortly after it comes up: if the rows are
-// hidden, log what was hiding them, with the browser version (Save diagnostics), then put them back on screen.
+// Rows check (see IN.board, IN.movers and IN.tower): a graphic has come up with only its title bar, rows there but
+// hidden, until the page was refreshed (results board Oct 25 and 30; Biggest movers Nov 1, "the title with no rows";
+// the ticker, reported by other producers). Seen in OBS's and vMix's built-in browsers (an older Chrome), never in a
+// current browser. Shortly after it comes up: if the rows are hidden, log what was hiding them, with the browser
+// version (Save diagnostics), then put them back on screen.
 const ROWS_CHECK = {
   board:  { name: 'Results board',  body: 'bCols',  rows: '.r',      render: () => renderBoard() },
   movers: { name: 'Biggest movers', body: 'mvBody', rows: '.r, .none', render: () => renderMovers() },
+  tower:  { name: 'Ticker',         body: 'tRows',  rows: '.row',    render: () => renderTower() },
 };
+const FIX_PROPS = ['visibility', 'opacity', 'clip-path'];   // what the fix sets; only these are cleared (the ticker's rows keep other inline styles)
 function boardLog(msg) { try { navigator.sendBeacon('/api/clientlog', JSON.stringify({ page: 'overlay', msg })); } catch (e) {} }
 function rowsHidden(id) {
   const k = ROWS_CHECK[id], b = $(id), c = $(k.body), cs = getComputedStyle(c), r = c.getBoundingClientRect();
@@ -487,12 +490,12 @@ function rowsHidden(id) {
 }
 function rowsCheckLater(id, ms) {
   const k = ROWS_CHECK[id];
-  $(k.body).style.cssText = '';   // the last fix, if any
+  const c = $(k.body); FIX_PROPS.forEach(p => c.style.removeProperty(p));   // the last fix, if any
   clearTimeout(k.t); k.t = setTimeout(() => rowsCheck(id), ms);
 }
 function rowsUnfix(id) {   // the fix shows the rows with inline styles: drop them once the graphic is going off (they'd override 'off')
   const c = $(ROWS_CHECK[id].body);
-  if (c.style.visibility) c.style.cssText = '';
+  if (c.style.visibility) FIX_PROPS.forEach(p => c.style.removeProperty(p));
 }
 function rowsCheck(id, again) {
   const k = ROWS_CHECK[id];
@@ -521,7 +524,7 @@ function rowsCheck(id, again) {
   c.getAnimations().forEach(a => a.cancel());
   if (!c.querySelector(k.rows)) k.render();
   // !important: a leftover animation the browser doesn't list (seen in testing) still beats a plain inline style
-  [['visibility', 'visible'], ['opacity', '1'], ['clip-path', 'none']].forEach(([p, v]) => c.style.setProperty(p, v, 'important'));
+  FIX_PROPS.forEach((p, i) => c.style.setProperty(p, ['visible', '1', 'none'][i], 'important'));
   setTimeout(() => rowsCheck(id, true), 1000);
 }
 
@@ -551,6 +554,7 @@ const IN = {
     anim(q('tower', '.sub'), dropIn, { duration: 350, delay: 300 });
     const rows = $('tRows'), n = rows.children.length;
     const dur = 350 + n * 30;
+    rowsCheckLater('tower', 500 + dur + 500);
     anim(rows, dropIn, { duration: dur, delay: 500, easing: 'cubic-bezier(.3,.6,.3,1)' });
     anim($('tPits'), [{ opacity: 0 }, { opacity: 1 }], { duration: 300, delay: 500 + dur - 200 });
     shineOn(head, 650);
@@ -750,6 +754,7 @@ function overtimeLabel(yellow) {
 }
 function renderTower() {
   const on = S.show.tower && L.connected && L.cars.length;
+  if (!on) rowsUnfix('tower');
   show('tower', on);
   if (!on) return;
   $('tHead').textContent = S.raceName || L.track || 'VSPEED';
