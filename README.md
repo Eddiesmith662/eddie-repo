@@ -23,8 +23,12 @@ standings, live points, podium, sponsors and more, built to the VSPEED Brand Sty
    - put your league logo in the overlay's `data\logos` folder and pick it
    - type the ticker header (your league or race name)
    - load your standings, if your league uses them
-4. **Add the overlay to vMix or OBS:** a **Web Browser** input with `http://localhost:8765/overlay`, size
-   **1920 × 1080**, on a layer above your iRacing capture. The page is see-through.
+4. **Add the overlay to vMix or OBS,** on a layer above your iRacing capture. The page is see-through.
+   - **vMix:** Add Input → **Web Browser**, URL `http://localhost:8765/overlay`, size **1920 × 1080**.
+   - **OBS:** in your scene, Sources → **+** → **Browser**. URL `http://localhost:8765/overlay`, width **1920**,
+     height **1080**. Leave **Shutdown source when not visible** and **Refresh browser when scene becomes active**
+     off, so the graphics keep running when you switch scenes. Put the source at the top of the list so it sits
+     above the game capture.
 5. **Start iRacing.** The overlay connects by itself.
 
 No iRacing handy? **`start-demo.bat`** runs a pretend race so you can try every graphic.
@@ -59,8 +63,8 @@ the address to use.
 | **Prerace** | Getting started checklist, race info, broadcast team, Next broadcast, broadcast text (ticker header and league logo), track graphic, Results board title |
 | **Race** | Graphics tiles, Race off pit road, Podium, Live points, ticker and driver info settings, cameras, incident log, Grid and Pole Award, Sponsors, Announcer page link and notes |
 | **Standings** | Standings graphic on/off, title and logo, Xtreme Scoring link or CSV, the standings table (edit, exclude), playoff bracket |
-| **Layout** | Drag any graphic to move it, sliders to resize it. Changes show in vMix straight away and are saved |
-| **Setup** | Live points scoring (points per place, bonuses), the overlay links for vMix, car renders, announcer page setup, diagnostics |
+| **Layout** | Drag any graphic to move it, sliders to resize it. Changes show in vMix or OBS straight away and are saved |
+| **Setup** | Live points scoring (points per place, bonuses), the overlay links for vMix or OBS, car renders, announcer page setup, diagnostics |
 
 At the top: the version, the **Series** picker, **Open live timing ↗** and **Producer codes ↗** (for the announcer page).
 
@@ -200,7 +204,7 @@ The relay itself runs on Cloudflare and is looked after by VSPEED.
 
 The overlay checks GitHub each time it starts. If there's a new version, the black window shows what's new and asks
 **Install it now? [Y/N]**. With no answer it starts the version you have after 30 seconds. It never updates
-during a broadcast; the control panel says when one is waiting. After an update, the pages in vMix reload themselves.
+during a broadcast; the control panel says when one is waiting. After an update, the overlay in vMix or OBS reloads itself.
 
 Everything you set up lives in the `data` folder, which updates never touch.
 
@@ -215,9 +219,13 @@ Everything you set up lives in the `data` folder, which updates never touch.
 
 - **Save diagnostics** (Setup tab) bundles the logs, the last 3 hours of iRacing data and your settings into one zip
   (also kept in `data\diagnostics`). Send it to Claude. Everything stays on your PC unless you share it.
-- **Nothing on screen in vMix:** check the input is `http://localhost:8765/overlay` at 1920 × 1080 and the black
-  window is still open. The Getting started checklist ticks *overlay added* once vMix has opened it.
-- **"Waiting for iRacing":** iRacing has to run on the same PC as the overlay. vMix can be on another PC: use
+- **Nothing on screen in vMix or OBS:** check the input or browser source is `http://localhost:8765/overlay` at
+  1920 × 1080 and the black window is still open. The Getting started checklist ticks *overlay added* once vMix or
+  OBS has opened it.
+- **A graphic looks stuck or half drawn:** reload the overlay. OBS: select the browser source → **Properties** →
+  **Refresh cache of current page**. vMix: right-click the input → **Refresh**. Then Save diagnostics and send it, so
+  the cause can be found.
+- **"Waiting for iRacing":** iRacing has to run on the same PC as the overlay. vMix or OBS can be on another PC: use
   `http://<this PC's address>:8765/overlay` (the black window shows the address).
 - **Standings look a race behind or ahead:** pull before the race (Standings tab → Pull standings now).
 - **The black window says Python wasn't found:** check the internet connection and run `start.bat` again; the first
