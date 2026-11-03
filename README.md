@@ -115,7 +115,8 @@ When standings, race info or the broadcast team are on screen, any live graphic 
   load the badge once (**Load…**), show the grid on row 1, then press **Show** next to the badge.
 - **Podium:** after the race, press **Winner**, **2nd place**, **3rd place**, then **Hide**.
 - **Sponsors:** click a slot's picture to load an image.
-  - **Green Flag, Restart, White Flag:** the sponsor's logo (PNG with a transparent background). It plays by itself in
+  - **Green Flag, Restart, White Flag:** the sponsor's logo, a PNG with a transparent background, best at about
+    **800 × 400** (twice as wide as tall: that fills the box; square logos fit too, just smaller). It plays by itself in
     the ticker's flag flash, under "presented by": Green Flag on the first green of the race, Restart on every green
     after a caution (the ticker flashes green), White Flag on the white flag. Only in races, while the ticker is up.
   - **Sponsor Read 1–3:** a 1920 × 1080 PNG with a transparent background, shown full screen with **Show**. Optional

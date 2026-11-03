@@ -616,7 +616,7 @@
       <span class="s">Auto-hide</span><input type="number" id="spHold" min="0" max="600" title="0 = stays up until you press Hide"><span class="s">s</span>
     </div>
     <input type="file" id="spFile" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" hidden>
-    <p class="hint tip">Click a picture to load a new one. <b>Green Flag, Restart and White Flag</b> take the sponsor's logo (PNG, transparent background): it plays by itself in the ticker's flag flash, under "presented by", on the first green, every restart and the white flag. <b>Sponsor reads</b> take a 1920 × 1080 PNG with a transparent background; one on air at a time: its button turns red and says Hide (press it to take it off); Show on another swaps it in.</p>
+    <p class="hint tip">Click a picture to load a new one. <b>Green Flag, Restart and White Flag</b> take the sponsor's logo (PNG, transparent background; best at about <b>800 × 400</b>, twice as wide as tall, which fills the box; square logos fit too, just smaller): it plays by itself in the ticker's flag flash, under "presented by", on the first green, every restart and the white flag. <b>Sponsor reads</b> take a 1920 × 1080 PNG with a transparent background; one on air at a time: its button turns red and says Hide (press it to take it off); Show on another swaps it in.</p>
   </section>
 
   <section id="anSec">
@@ -1302,7 +1302,8 @@ function sponsorRender() {
     const bg = f ? `url("/sponsor/${f}")` : '';
     if (th.dataset.bg !== bg) { th.dataset.bg = bg; th.style.backgroundImage = bg; th.textContent = f ? '' : 'no image'; }
     let nm = ''; try { nm = localStorage.getItem('vsSpName_' + k) || ''; } catch (e) {}
-    th.title = (f ? (nm || 'Image loaded') + ' (click to load a different one)' : 'Click to load an image');
+    th.title = (f ? (nm || 'Image loaded') + ' (click to load a different one)' : 'Click to load an image') +
+               (SP_FLAG[k] ? '. Logo, PNG with a transparent background, best about 800 × 400' : '. 1920 × 1080 PNG, transparent background');
   });
   if (document.activeElement !== $('spHold')) $('spHold').value = sp.hold || 0;
 }
