@@ -1,11 +1,12 @@
 # VSPEED GLR league site: results, drivers and (later) standings for the GLR leagues, at vspeedlivetiming.app/glr.
 # Deployed by Cloudflare (Workers Builds) from this folder of the repo, separately from the announcer relay.
-# Secrets (e.g. the first-admin setup key) are set in the Cloudflare dashboard, never here.
+# Secrets (the Discord sign-in settings) are set in the Cloudflare dashboard, never here.
 name = "vspeed-glr"
 main = "src/index.js"
 compatibility_date = "2026-10-01"
 workers_dev = false
 preview_urls = false
+keep_vars = true          # leave settings saved in the Cloudflare dashboard alone on deploy
 # only the /glr part of the domain: the announcer relay keeps everything else
 # (a route takes precedence over the relay's custom domain on the same hostname)
 routes = [{ pattern = "vspeedlivetiming.app/glr*", zone_name = "vspeedlivetiming.app" }]
