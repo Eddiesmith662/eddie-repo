@@ -89,14 +89,13 @@
   #tower.f-checkered .cbar span { background: #111; color: #fff; display: inline-block; line-height: 26px; }
   #tower .cwipe { position: absolute; inset: 0; background: var(--yellow); z-index: 3; opacity: 0; pointer-events: none; }
   #tower .cwipe.white { background: #fff; }
-  /* flag sponsor sweep: the ticker's rows turn into the flag's colour one after another, top to bottom, the sponsor
+  /* flag sponsor sweep: the ticker's rows fill with the flag's colour (one solid colour) one after another, top to bottom, the sponsor
      banner pops up in the middle on a dark VSPEED plate, then the rows go back the same way, bottom to top */
   #tower .fsweep { position: absolute; left: 0; width: 100%; z-index: 6; pointer-events: none; visibility: hidden;
-    --a: #27c24f; --b: #1fae45; }
-  #tower .fsweep.white { --a: #f4f4f5; --b: #e2e3e6; }
+    --a: #22b84a; }
+  #tower .fsweep.white { --a: #f2f2f3; }
   #tower .fsweep .fsl { position: absolute; left: 0; width: 100%; transform-origin: left center; transform: scaleX(0);
-    background: var(--a); box-shadow: inset 0 -1px 0 rgba(0,0,0,.12); }
-  #tower .fsweep .fsl:nth-child(even) { background: var(--b); }
+    background: var(--a); }
   #tower .fsweep .fbn { position: absolute; left: 50%; top: 50%; width: 94%; opacity: 0; transform: translate(-50%, -50%); }
   #tower .fsweep .fpl { position: absolute; left: -2%; right: -2%; top: -22%; bottom: -22%; background: var(--black);
     transform: skewX(-12deg); border-left: 5px solid var(--red); box-shadow: 0 10px 30px rgba(0,0,0,.45); }
@@ -1277,8 +1276,9 @@ async function fsSweep(slot) {
   const H = Math.max(120, rows.offsetHeight), first = rows.querySelector('.row');
   const rh = Math.max(20, first ? first.offsetHeight : 34), n = Math.ceil(H / rh);
   box.style.top = rows.offsetTop + 'px'; box.style.height = H + 'px';
+  // one strip per ticker row, 1 px taller than the row so the colour is solid with no seams
   if (sl.children.length !== n) sl.innerHTML = '<i class="fsl"></i>'.repeat(n);
-  [...sl.children].forEach((e, i) => { e.style.top = (i * rh) + 'px'; e.style.height = Math.min(rh, H - i * rh) + 'px'; });
+  [...sl.children].forEach((e, i) => { e.style.top = (i * rh) + 'px'; e.style.height = Math.min(rh + 1, H - i * rh) + 'px'; });
   box.style.visibility = 'visible';
   const STEP = Math.min(30, 420 / n), ROW = 320, IN = ROW + STEP * n, HOLD = 3000, ALL = IN * 2 + HOLD;
   // each row fills with the flag's colour from the left, top to bottom; at the end they empty again, bottom to top
