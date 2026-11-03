@@ -20,7 +20,7 @@
  */
 import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, importEvent, setSeriesRole, seriesById, seasonsOf,
   getRules, saveRules, seasonEvents, listAdjustments, addAdjustment, deleteAdjustment,
-  importOverlay, listKeys, createKey, revokeKey, checkKey } from "./db.js";
+  importOverlay, listKeys, createKey, revokeKey, checkKey, deleteEvent, listFixes, fixResult, FIX_FIELDS } from "./db.js";
 import { computeStandings, cleanRules, DEFAULT_RULES, GLR_PLAYOFFS } from "./standings.js";
 import { parseExport, parseOverlay } from "./parse.js";
 import { configured, login, callback, currentUser, logout, canEdit } from "./auth.js";
@@ -139,14 +139,46 @@ function sessionTables(rows, race, label) {
   return classes.map(c => `<h2>${esc(label)} ${cls(c)}</h2>` + sessionTable(rows.filter(r => r.car_class === c), race, race)).join("");
 }
 
-function resultPage(ev, user) {
+function fixesHtml(fixes) {
+  if (!fixes.length) return "";
+  return `<h2>Corrections</h2><div class="wrap"><table><tr><th>Driver</th><th>Changed</th><th>Reason</th><th>When</th></tr>` +
+    fixes.map(f => `<tr><td>${driverLink(f.cust_id, f.name || f.cust_id)}</td><td style="white-space:normal">${Object.entries(f.changes).map(([k, [a, b]]) => `${esc(FIX_FIELDS[k] || k)} ${esc(a ?? "–")} → <b>${esc(b)}</b>`).join(", ")}</td>
+      <td style="white-space:normal">${esc(f.reason)}</td><td>${day(f.created_at)}</td></tr>`).join("") + `</table></div>`;
+}
+
+function officialsPanel(ev, msg) {
+  const race = (ev.sessions.race || []).slice().sort((a, b) => a.finish_pos - b.finish_pos);
+  if (!race.length) return "";
+  const D = race.map(r => ({ id: r.cust_id, t: `P${r.finish_pos} #${r.car_number} ${r.name}`, pos: r.finish_pos, laps: r.laps, led: r.laps_led, inc: r.incidents, st: r.reason_out, pts: r.league_points }));
+  const n = (name, label, extra = "") => `<label>${label}<br><input type="number" name="${name}" id="fx_${name}" ${extra}></label>`;
+  return `<h2 id="fix">Officials</h2>${msg ? `<div class="msg ${/^Fixed/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>` : ""}
+  <fieldset><legend>Fix a result</legend>
+  <form method="post" action="#fix"><input type="hidden" name="action" value="fix">
+    <label for="fx_d">Driver</label><select id="fx_d" name="cust">${D.map(d => `<option value="${d.id}">${esc(d.t)}</option>`).join("")}</select>
+    <div class="grid">${n("finish_pos", "Finish", `min="1" max="${race.length}"`)}${n("laps", "Laps")}${n("laps_led", "Laps led")}${n("incidents", "Incidents")}${n("league_points", "League points")}</div>
+    <label for="fx_reason_out">Status</label><input type="text" id="fx_reason_out" name="reason_out" list="fx_sts" maxlength="40">
+    <datalist id="fx_sts"><option value="Running"><option value="Disqualified"><option value="Disconnected"><option value="Retired"></datalist>
+    <label for="fx_why">Reason (shown on this page)</label><input type="text" id="fx_why" name="reason" maxlength="200" required>
+    <p class="tag">Change only what's wrong. A new finish moves the other drivers up or down to make room. To disqualify, set the status to Disqualified and the finish to ${race.length} (last). Re-uploading the iRacing file replaces the results and these fixes.</p>
+    <p><button class="btn">Save fix</button></p></form></fieldset>
+  <fieldset><legend>Remove this race</legend>
+  <form method="post" onsubmit="return confirm('Remove this race from the site? Its results, penalties and fixes are deleted and the standings recalculate. You can upload it again later.')">
+    <input type="hidden" name="action" value="delete"><p class="tag">For a race uploaded by mistake or to the wrong series. Its results, penalties and fixes are deleted; you can upload it again later.</p>
+    <p><button class="btn ghost">Remove this race</button></p></form></fieldset>
+<script>const D=${JSON.stringify(D).replace(/</g, "\\u003c")},S=document.getElementById('fx_d');
+const fill=()=>{const d=D.find(x=>String(x.id)===S.value)||D[0];for(const [k,v] of [['finish_pos',d.pos],['laps',d.laps],['laps_led',d.led],['incidents',d.inc],['league_points',d.pts],['reason_out',d.st]]){const e=document.getElementById('fx_'+k);e.value=v??'';}};
+S.onchange=fill;fill();</script>`;
+}
+
+function resultPage(ev, user, { fixes = [], edit = false, msg = "" } = {}) {
   const facts = [ev.laps != null && `${ev.laps} laps`, ev.cautions != null && `${ev.cautions} caution${ev.cautions === 1 ? "" : "s"}${ev.caution_laps ? ` (${ev.caution_laps} laps)` : ""}`,
     ev.lead_changes != null && `${ev.lead_changes} lead changes`, ev.sof && `SOF ${ev.sof}`].filter(Boolean).join(" · ");
   let body = crumb(ev) + `<h1>${esc(ev.track)}${prov(ev)}</h1>${ev.status === "provisional" ? `<p class="hint" style="padding-left:14px">Provisional: sent by the broadcast overlay at the end of the race. It's replaced by the official iRacing results file when that's uploaded, which also adds league points, qualifying and practice.</p>` : ""}<p class="sub">${day(ev.start_time)}${ev.season_name ? " · " + esc(ev.season_name) : ""}${facts ? " · " + facts : ""}</p>`;
   const names = { race: "Race", qualify: "Qualifying", practice: "Practice", warmup: "Warmup" };
   for (const s of ["race", "qualify", "warmup", "practice", ...Object.keys(ev.sessions).filter(k => !names[k])])
-    if (ev.sessions[s]) body += sessionTables(ev.sessions[s], s === "race", names[s] || s);
+    if (ev.sessions[s]) body += sessionTables(ev.sessions[s], s === "race", names[s] || s) + (s === "race" ? fixesHtml(fixes) : "");
   body += `<p class="tag">iRacing session ${ev.subsession_id}</p>`;
+  if (edit) body += officialsPanel(ev, msg);
   return page(`${ev.track} results`, body, { user });
 }
 
@@ -396,7 +428,7 @@ const f=document.getElementById('f'),inp=document.getElementById('file'),out=doc
 const say=(t,cls,href)=>{const d=document.createElement('div');d.className='msg '+cls;d.textContent=t;if(href){const a=document.createElement('a');a.href=href;a.textContent=' Open';d.append(' ',a);}out.prepend(d);};
 async function send(files){for(const file of files){const fd=new FormData();fd.append('file',file);
   try{const r=await fetch('${BASE}/api/upload',{method:'POST',body:fd});const j=await r.json();
-    if(j.ok)say(file.name+': '+j.track+', '+j.results+' drivers'+(j.replaced?' (replaced the earlier upload)':''),'ok','${BASE}/results/'+j.subsessionId);
+    if(j.ok)say(file.name+': '+j.track+', '+j.results+' drivers'+(j.replaced?' (replaced the earlier upload'+(j.fixesCleared?', and its '+j.fixesCleared+' result fix'+(j.fixesCleared===1?'':'es')+': redo any that still apply':'')+')':''),j.fixesCleared?'bad':'ok','${BASE}/results/'+j.subsessionId);
     else say(file.name+': '+j.error,'bad');}catch(e){say(file.name+': upload failed, check your connection','bad');}}}
 f.onsubmit=e=>{e.preventDefault();if(inp.files.length)send([...inp.files]);};
 f.ondragover=e=>{e.preventDefault();f.classList.add('on');};f.ondragleave=()=>f.classList.remove('on');
@@ -494,7 +526,27 @@ export default {
       if ((m = path.match(/^\/glr\/api\/results\/(\d+)$/))) { const ev = await getEvent(db, Number(m[1])); return ev ? json({ ok: true, event: ev }) : json({ ok: false, error: "No such race" }, 404); }
       if ((m = path.match(/^\/glr\/api\/drivers\/(\d+)$/))) { const d = await getDriver(db, Number(m[1])); return d ? json({ ok: true, driver: d }) : json({ ok: false, error: "No such driver" }, 404); }
       if (path === BASE) return homePage(await listSeries(db), await listEvents(db, { limit: 15 }), user);
-      if ((m = path.match(/^\/glr\/results\/(\d+)$/))) { const ev = await getEvent(db, Number(m[1])); return ev ? resultPage(ev, user) : notFound("No race with that session number has been uploaded.", user); }
+      if ((m = path.match(/^\/glr\/results\/(\d+)$/))) {
+        const sub = Number(m[1]);
+        let ev = await getEvent(db, sub);
+        if (!ev) return notFound("No race with that session number has been uploaded.", user);
+        const edit = canEdit(user, await seriesById(db, ev.series_id));
+        let msg = "";
+        if (request.method === "POST") {
+          if (!edit || !sameOrigin(request, url)) return notFound("You can't change this race.", user);
+          const f = await request.formData(), who = `discord:${user.id}:${user.name}`;
+          if (f.get("action") === "delete") {
+            await deleteEvent(db, sub);
+            return Response.redirect(`${url.origin}${BASE}/${ev.slug || ""}`, 303);
+          }
+          try {
+            msg = "Fixed: " + await fixResult(db, sub, Number(f.get("cust")), { finish_pos: f.get("finish_pos"), laps: f.get("laps"), laps_led: f.get("laps_led"),
+              incidents: f.get("incidents"), league_points: f.get("league_points"), reason_out: f.get("reason_out") }, f.get("reason"), who);
+            ev = await getEvent(db, sub);
+          } catch (e) { msg = e.message; }
+        }
+        return resultPage(ev, user, { fixes: await listFixes(db, sub), edit, msg });
+      }
       if ((m = path.match(/^\/glr\/drivers\/(\d+)$/))) { const d = await getDriver(db, Number(m[1])); return d ? driverPage(d, user) : notFound("No driver with that iRacing ID has raced here yet.", user); }
       if ((m = path.match(/^\/glr\/api\/standings\/([a-z0-9-]+)$/))) {
         const sr = await getSeries(db, m[1]);

@@ -46,6 +46,9 @@ const SCHEMA = [
      id INTEGER PRIMARY KEY AUTOINCREMENT, subsession_id INTEGER NOT NULL, cust_id INTEGER NOT NULL,
      points INTEGER NOT NULL, reason TEXT NOT NULL DEFAULT '', created_at TEXT, created_by TEXT)`,
   `CREATE INDEX IF NOT EXISTS adjustments_event ON adjustments (subsession_id)`,
+  `CREATE TABLE IF NOT EXISTS result_fixes (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, subsession_id INTEGER NOT NULL, cust_id INTEGER NOT NULL, name TEXT,
+     changes TEXT NOT NULL, reason TEXT NOT NULL, created_at TEXT, created_by TEXT)`,
   `CREATE TABLE IF NOT EXISTS overlay_keys (
      id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE,
      created_at TEXT, created_by TEXT, last_used TEXT, uses INTEGER NOT NULL DEFAULT 0, revoked INTEGER NOT NULL DEFAULT 0)`,
@@ -122,6 +125,8 @@ export async function importEvent(db, ev, by = "") {
         sof = COALESCE(?10, sof), source = ?11, uploaded_at = ?12, uploaded_by = ?13, status = ?14`)
     .bind(ev.subsessionId, ev.league.id, ev.season.id, ev.track, ev.startTime, ev.laps, ev.cautions, ev.cautionLaps,
           ev.leadChanges, ev.sof, ev.source, now, by, status));
+  const fixes = (await db.prepare(`SELECT COUNT(*) AS n FROM result_fixes WHERE subsession_id = ?`).bind(ev.subsessionId).first()).n;
+  st.push(db.prepare(`DELETE FROM result_fixes WHERE subsession_id = ?`).bind(ev.subsessionId));   // the new results replace any fixes
   const seen = new Map();
   for (const s of ev.sessions) {
     st.push(db.prepare(`DELETE FROM results WHERE subsession_id = ? AND session = ?`).bind(ev.subsessionId, s.name));
@@ -148,7 +153,7 @@ export async function importEvent(db, ev, by = "") {
   }
   await db.batch(st);
   await nameSeries(db);
-  return { subsessionId: ev.subsessionId, drivers: seen.size, results: race.results.length,
+  return { subsessionId: ev.subsessionId, drivers: seen.size, results: race.results.length, fixesCleared: fixes,
            sessions: ev.sessions.map(s => s.name) };
 }
 
@@ -376,3 +381,67 @@ export async function checkKey(db, key) {
   if (row) await db.prepare(`UPDATE overlay_keys SET last_used = ?, uses = uses + 1 WHERE id = ?`).bind(new Date().toISOString(), row.id).run();
   return row;
 }
+
+// remove a race: its results, its penalties and its fixes. Drivers left with no races go too.
+export async function deleteEvent(db, sub) {
+  await ensureSchema(db);
+  await db.batch([
+    db.prepare(`DELETE FROM adjustments WHERE subsession_id = ?`).bind(sub),
+    db.prepare(`DELETE FROM result_fixes WHERE subsession_id = ?`).bind(sub),
+    db.prepare(`DELETE FROM results WHERE subsession_id = ?`).bind(sub),
+    db.prepare(`DELETE FROM events WHERE subsession_id = ?`).bind(sub),
+    db.prepare(`DELETE FROM driver_names WHERE cust_id NOT IN (SELECT cust_id FROM results)`),
+    db.prepare(`DELETE FROM drivers WHERE cust_id NOT IN (SELECT cust_id FROM results)`),
+  ]);
+}
+
+export async function listFixes(db, sub) {
+  await ensureSchema(db);
+  return (await db.prepare(`SELECT * FROM result_fixes WHERE subsession_id = ? ORDER BY id`).bind(sub).all()).results
+    .map(f => ({ ...f, changes: JSON.parse(f.changes) }));
+}
+
+const FIX_FIELDS = { finish_pos: "Finish", reason_out: "Status", laps: "Laps", laps_led: "Laps led", incidents: "Incidents", league_points: "League points" };
+
+/*
+ * Correct one driver's race result. A new finishing position moves the others up or down to make room (and
+ * recounts positions in each class). Every fix is kept with its reason. Re-uploading the iRacing file replaces the
+ * race's results, fixes included.
+ */
+export async function fixResult(db, sub, cust, want, reason, by) {
+  await ensureSchema(db);
+  const why = String(reason || "").trim();
+  if (!why) throw new Error("Give a reason. It's shown on the race page.");
+  const rows = (await db.prepare(`SELECT * FROM results WHERE subsession_id = ? AND session = 'race' ORDER BY finish_pos`).bind(sub).all()).results;
+  const me = rows.find(r => r.cust_id === cust);
+  if (!me) throw new Error("That driver isn't in this race's results.");
+  const changes = {}, set = {};
+  const intOrNull = (v, min, max) => { if (v === "" || v == null) return undefined; const n = Math.round(Number(v)); if (!Number.isFinite(n) || n < min || n > max) throw new Error("Check the numbers."); return n; };
+  const pos = intOrNull(want.finish_pos, 1, rows.length);
+  if (pos !== undefined && pos !== me.finish_pos) { changes.finish_pos = [me.finish_pos, pos]; }
+  for (const [k, min, max] of [["laps", 0, 10000], ["laps_led", 0, 10000], ["incidents", 0, 1000], ["league_points", -1000, 10000]]) {
+    const v = intOrNull(want[k], min, max);
+    if (v !== undefined && v !== me[k]) { changes[k] = [me[k], v]; set[k] = v; }
+  }
+  const st = String(want.reason_out ?? "").trim().slice(0, 40);
+  if (st && st !== me.reason_out) { changes.reason_out = [me.reason_out, st]; set.reason_out = st; }
+  if (!Object.keys(changes).length) throw new Error("Nothing was changed.");
+  const st2 = [];
+  if (changes.finish_pos) {
+    const order = rows.filter(r => r !== me);
+    order.splice(pos - 1, 0, me);
+    const inClass = new Map();
+    order.forEach((r, i) => {
+      const cp = (inClass.get(r.car_class) || 0) + 1; inClass.set(r.car_class, cp);
+      if (r.finish_pos !== i + 1 || r.class_pos !== cp)
+        st2.push(db.prepare(`UPDATE results SET finish_pos = ?, class_pos = ? WHERE subsession_id = ? AND session = 'race' AND cust_id = ?`).bind(i + 1, cp, sub, r.cust_id));
+    });
+  }
+  const cols = Object.keys(set);
+  if (cols.length) st2.push(db.prepare(`UPDATE results SET ${cols.map(c => `${c} = ?`).join(", ")} WHERE subsession_id = ? AND session = 'race' AND cust_id = ?`).bind(...cols.map(c => set[c]), sub, cust));
+  st2.push(db.prepare(`INSERT INTO result_fixes (subsession_id, cust_id, name, changes, reason, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .bind(sub, cust, me.name, JSON.stringify(changes), why.slice(0, 200), new Date().toISOString(), by));
+  await db.batch(st2);
+  return Object.entries(changes).map(([k, [a, b]]) => `${FIX_FIELDS[k]} ${a ?? "–"} → ${b}`).join(", ");
+}
+export { FIX_FIELDS };
