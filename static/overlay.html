@@ -89,6 +89,12 @@
   #tower.f-checkered .cbar span { background: #111; color: #fff; display: inline-block; line-height: 26px; }
   #tower .cwipe { position: absolute; inset: 0; background: var(--yellow); z-index: 3; opacity: 0; pointer-events: none; }
   #tower .cwipe.white { background: #fff; }
+  /* flag sponsor sweep: the Green Flag / Restart / White Flag sponsor banner across the top of the ticker */
+  #tower .fsweep { position: absolute; left: 0; width: 100%; z-index: 6; pointer-events: none; opacity: 0; }
+  #tower .fsweep img { display: block; width: 100%; height: auto; filter: drop-shadow(0 6px 14px rgba(0,0,0,.55)); }
+  #tower .fshine { position: absolute; inset: 0; pointer-events: none; opacity: 0;
+    background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,.75) 50%, transparent 65%) no-repeat;
+    background-size: 250% 100%; -webkit-mask-size: 100% 100%; mask-size: 100% 100%; }
   #tower .cwipe.checkered { background: repeating-conic-gradient(#111 0 25%, #fff 0 50%) 0 0/34px 34px; }
   #tower .chdr { z-index: 4; }
   .row {
@@ -392,6 +398,7 @@
   <div class="cbar" id="tCbar"><span>Caution</span></div>
   <div class="rows" id="tRows"><div class="cwipe" id="tCwipe"></div></div>
   <div class="pits" id="tPits"></div>
+  <div class="fsweep" id="tFs"><img id="tFsImg" alt=""><div class="fshine" id="tFsShine"></div></div>
   <div id="pitrace" class="widget off"><div class="h"><span>Race off pit road</span><small id="prSub"></small></div><div id="prBody"></div></div>
   <div id="livepts" class="widget off"><div class="h"><span id="lpTitle">Live points</span><small id="lpSub"></small></div><div id="lpBody"></div></div>
 </div>
@@ -1201,11 +1208,72 @@ function renderFlag() {
   if (!trigInit) { trigInit = true; lastTrigger = trig.t || 0; }
   else if (trig.t && trig.t !== lastTrigger) { lastTrigger = trig.t; if (FLAG_BANNERS) flashFlag(trig.flag); if (FLAG_BAND[trig.flag]) flagWipe(trig.flag); }
   if (L.flag !== lastFlag) {
-    const first = lastFlag === null;
+    const first = lastFlag === null, prev = lastFlag;
     lastFlag = L.flag;
+    if (!first && L.connected && L.isRace && !L.isReplay) flagSponsor(prev, L.flag);
     if (!first && FLAG_BANNERS && S.show.flags && L.connected && !L.isReplay) flashFlag(L.flag);
     if (!first && FLAG_BAND[L.flag] && L.connected && !L.isReplay) flagWipe(L.flag);
   }
+}
+
+/* ---------- flag sponsor sweep: on the first green of the race, every restart (green after a caution) and the
+   white flag, that sponsor slot's banner sweeps across the top of the ticker from left to right, holds, and sweeps out
+   to the right. The slots hold full-screen (1920x1080) frames with the banner somewhere on them: the banner is cut out
+   here (the see-through edges trimmed), so producers keep loading the same files. Only while the ticker is up. ---------- */
+const FS = { crops: {}, busy: false };
+function fsCrop(file) {   // the banner without its see-through edges, as an image address (cached per file)
+  if (!FS.crops[file]) FS.crops[file] = new Promise(res => {
+    const im = new Image();
+    im.onload = () => {
+      try {
+        const c = document.createElement('canvas'); c.width = im.naturalWidth; c.height = im.naturalHeight;
+        const g = c.getContext('2d'); g.drawImage(im, 0, 0);
+        const a = g.getImageData(0, 0, c.width, c.height).data;
+        let x0 = c.width, y0 = c.height, x1 = -1, y1 = -1;
+        for (let y = 0; y < c.height; y++) for (let x = 0; x < c.width; x++) {
+          if (a[(y * c.width + x) * 4 + 3] > 8) { if (x < x0) x0 = x; if (x > x1) x1 = x; if (y < y0) y0 = y; if (y > y1) y1 = y; }
+        }
+        if (x1 < 0) return res(null);
+        const o = document.createElement('canvas'); o.width = x1 - x0 + 1; o.height = y1 - y0 + 1;
+        o.getContext('2d').drawImage(c, x0, y0, o.width, o.height, 0, 0, o.width, o.height);
+        res(o.toDataURL('image/png'));
+      } catch (e) { res(null); }
+    };
+    im.onerror = () => res(null);
+    im.src = '/sponsor/' + encodeURIComponent(file);
+  });
+  return FS.crops[file];
+}
+function fsPreload() {   // cut the banners out ahead of time, so the sweep starts on the flag
+  const files = ((S && S.sponsor) || {}).files || {};
+  ['green', 'restart', 'white'].forEach(k => { if (files[k]) fsCrop(files[k]); });
+}
+function flagSponsor(prev, flag) {
+  const slot = flag === 'white' ? 'white'
+    : flag === 'green' && (prev === 'caution' || prev === 'red') ? 'restart'
+    : flag === 'green' && (L.lap || 0) <= 1 ? 'green' : '';
+  if (slot) fsSweep(slot);
+}
+async function fsSweep(slot) {
+  const file = (((S && S.sponsor) || {}).files || {})[slot];
+  if (!file || LAYOUT_MODE || !(VIS.tower && VIS.tower.on)) return;
+  const src = await fsCrop(file);
+  if (!src || !(VIS.tower && VIS.tower.on)) return;
+  const box = $('tFs'), img = $('tFsImg'), sh = $('tFsShine');
+  box.getAnimations({ subtree: true }).forEach(x => x.cancel());
+  img.src = src;
+  sh.style.webkitMaskImage = sh.style.maskImage = `url("${src}")`;   // the shine only crosses the banner itself
+  box.style.top = ($('tRows').offsetTop + 6) + 'px';
+  const HOLD = 3600;
+  box.animate([
+    { opacity: 1, clipPath: 'inset(-20% 100% -20% 0)', transform: 'translateX(-40px)', offset: 0 },
+    { opacity: 1, clipPath: 'inset(-20% 0 -20% 0)', transform: 'none', offset: 500 / (HOLD + 1000) },
+    { opacity: 1, clipPath: 'inset(-20% 0 -20% 0)', transform: 'none', offset: (500 + HOLD) / (HOLD + 1000) },
+    { opacity: 1, clipPath: 'inset(-20% 0 -20% 100%)', transform: 'translateX(40px)', offset: 1 }
+  ], { duration: HOLD + 1000, easing: 'cubic-bezier(.5,0,.3,1)' });
+  sh.animate([
+    { opacity: 1, backgroundPosition: '120% 0' }, { opacity: 1, backgroundPosition: '-20% 0' }
+  ], { duration: 900, delay: 350, easing: 'ease-in-out' });
 }
 
 /* ---------- sponsor graphic: one of six loaded images, one on air at a time ---------- */
@@ -1667,7 +1735,7 @@ function render() {
   S = Object.assign({}, RAW, { show: vis }, LAYOUT_MODE ? { lowerThirdMode: 'always' } : {});
   const realL = L;
   if (LAYOUT_MODE && !(L.connected && L.cars && L.cars.length)) L = sampleLive();
-  renderChrome(); renderTower(); renderLower(); renderBoard(); renderMovers(); renderNext(); renderPitrace(); renderLivePoints(); renderPodium(); renderGfx(); renderGrid(); gridAward(); renderSponsor(); renderPenalty();
+  renderChrome(); renderTower(); renderLower(); renderBoard(); renderMovers(); renderNext(); renderPitrace(); renderLivePoints(); renderPodium(); renderGfx(); renderGrid(); gridAward(); renderSponsor(); renderPenalty(); fsPreload();
   if (LAYOUT_MODE && FLAG_BANNERS) { const fl = $('flag'); Object.keys(FLAG_TEXT).forEach(k => fl.classList.toggle(k, k === 'green')); $('flagText').textContent = 'GREEN FLAG'; show('flag', true); } else renderFlag();
   L = realL;
 }
