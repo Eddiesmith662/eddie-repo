@@ -1218,7 +1218,7 @@ async function flagWipe(flag, slot) {
   anim(q('tower', '.cbar'), [{ filter: 'brightness(1.6)' }, { filter: 'none' }], { duration: 600, delay: 100 });
   if (!src) return;
   $('tCbanImg').src = src;
-  $('tCbanT').innerHTML = { green: 'Green<br>flag', restart: 'Restart', white: 'White<br>flag' }[slot] || '';
+  $('tCbanT').innerHTML = { green: 'Green<br>flag', restart: 'Restart<br>zone', white: 'White<br>flag' }[slot] || '';
   b.className = 'cban' + (flag === 'white' ? ' white' : '');
   const k = (o, extra) => Object.assign({ offset: o }, extra);
   // the block shows once the flicker settles and goes as the flash fades; inside it the title wipes in from the left,
