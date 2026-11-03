@@ -90,12 +90,20 @@
   #tower .cwipe { position: absolute; inset: 0; background: var(--yellow); z-index: 3; opacity: 0; pointer-events: none; }
   #tower .cwipe.white { background: #fff; }
   #tower .cwipe.green { background: #22b84a; }
-  /* the flag's sponsor banner (Green Flag, Restart, White Flag sponsor slots) in the middle of the flash */
-  #tower .cban { position: absolute; left: 6%; width: 88%; top: 50%; transform: translateY(-50%); z-index: 4; opacity: 0; pointer-events: none; }
-  #tower .cban img { display: block; width: 100%; height: auto; filter: drop-shadow(0 8px 16px rgba(0,0,0,.45)); }
+  /* the flag's sponsor in the middle of the flash: GREEN FLAG / RESTART / WHITE FLAG, "presented by", and the sponsor's
+     logo (Green Flag, Restart, White Flag sponsor slots) in a dark box */
+  #tower .cban { position: absolute; left: 0; width: 100%; top: 50%; transform: translateY(-50%); z-index: 4; opacity: 0;
+    pointer-events: none; text-align: center; color: #fff; --box: var(--black); }
+  #tower .cban.white { color: var(--black); }
+  #tower .cban .ct { font-family: var(--semi); font-weight: 700; font-size: 62px; line-height: .92; letter-spacing: 1px;
+    text-transform: uppercase; transform: skewX(-8deg); text-shadow: 0 3px 10px rgba(0,0,0,.25); }
+  #tower .cban.white .ct { text-shadow: none; }
+  #tower .cban .cp { margin: 16px 0 10px; font-family: var(--light); font-weight: 300; font-size: 15px; letter-spacing: 4px; }
+  #tower .cban .cbox { position: relative; margin: 0 auto; width: 84%; height: 150px; border-radius: 12px; background: var(--box);
+    display: flex; align-items: center; justify-content: center; overflow: hidden; box-shadow: 0 10px 26px rgba(0,0,0,.35); }
+  #tower .cban .cbox img { display: block; max-width: 80%; max-height: 74%; object-fit: contain; }
   #tower .fshine { position: absolute; inset: 0; pointer-events: none; opacity: 0;
-    background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,.75) 50%, transparent 65%) no-repeat;
-    background-size: 250% 100%; -webkit-mask-size: 100% 100%; mask-size: 100% 100%; }
+    background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,.35) 50%, transparent 65%) no-repeat; background-size: 250% 100%; }
   #tower .cwipe.checkered { background: repeating-conic-gradient(#111 0 25%, #fff 0 50%) 0 0/34px 34px; }
   #tower .chdr { z-index: 4; }
   .row {
@@ -397,7 +405,7 @@
   <div class="head" id="tHead">VSPEED</div>
   <div class="sub"><span id="tSub"></span><span class="flag" id="tFlag"></span></div>
   <div class="cbar" id="tCbar"><span>Caution</span></div>
-  <div class="rows" id="tRows"><div class="cwipe" id="tCwipe"></div><div class="cban" id="tCban"><img id="tCbanImg" alt=""><div class="fshine" id="tCbanShine"></div></div></div>
+  <div class="rows" id="tRows"><div class="cwipe" id="tCwipe"></div><div class="cban" id="tCban"><div class="ct" id="tCbanT"></div><div class="cp">PRESENTED BY</div><div class="cbox"><img id="tCbanImg" alt=""><div class="fshine" id="tCbanShine"></div></div></div></div>
   <div class="pits" id="tPits"></div>
   <div id="pitrace" class="widget off"><div class="h"><span>Race off pit road</span><small id="prSub"></small></div><div id="prBody"></div></div>
   <div id="livepts" class="widget off"><div class="h"><span id="lpTitle">Live points</span><small id="lpSub"></small></div><div id="lpBody"></div></div>
@@ -1189,7 +1197,8 @@ function flashFlag(f) {
 }
 /* flag wipe on the ticker (caution, white, checkered, and green at the start and on restarts in a race): the rows
    flicker to the flag, hold, then the order fades back through it. With a sponsor banner for that flag (Green Flag,
-   Restart, White Flag sponsor slots) the banner sits in the middle of the flash, which then holds a little longer. */
+   Restart, White Flag sponsor slots) the flag's name, "presented by" and the sponsor's logo sit in the middle of the flash,
+   which then holds a little longer. */
 const FLAG_BAND = { caution: 'Caution', white: 'White flag', checkered: 'Checkered' };
 async function flagWipe(flag, slot) {
   if (!(VIS.tower && VIS.tower.on)) return;
@@ -1209,19 +1218,24 @@ async function flagWipe(flag, slot) {
   anim(q('tower', '.cbar'), [{ filter: 'brightness(1.6)' }, { filter: 'none' }], { duration: 600, delay: 100 });
   if (!src) return;
   $('tCbanImg').src = src;
-  const sh = $('tCbanShine');
-  sh.style.webkitMaskImage = sh.style.maskImage = `url("${src}")`;   // the shine only crosses the banner itself
-  // in once the flicker settles, out as the flash fades
-  b.animate([
-    { opacity: 0, transform: 'translateY(-50%) scale(.9)', offset: 0 },
-    { opacity: 0, transform: 'translateY(-50%) scale(.9)', offset: .14, easing: 'cubic-bezier(.2,.8,.2,1)' },
-    { opacity: 1, transform: 'translateY(-50%) scale(1)', offset: .22 },
-    { opacity: 1, transform: 'translateY(-50%) scale(1)', offset: .78 },
-    { opacity: 0, transform: 'translateY(-50%) scale(1)', offset: .92 },
-    { opacity: 0, transform: 'translateY(-50%) scale(1)', offset: 1 }
+  $('tCbanT').innerHTML = { green: 'Green<br>flag', restart: 'Restart', white: 'White<br>flag' }[slot] || '';
+  b.className = 'cban' + (flag === 'white' ? ' white' : '');
+  const k = (o, extra) => Object.assign({ offset: o }, extra);
+  // the block shows once the flicker settles and goes as the flash fades; inside it the title wipes in from the left,
+  // then "presented by", then the logo box pops up with a shine across it
+  b.animate([k(0, { opacity: 0 }), k(.15, { opacity: 0 }), k(.18, { opacity: 1 }), k(.78, { opacity: 1 }), k(.92, { opacity: 0 }), k(1, { opacity: 0 })], { duration: dur });
+  b.querySelector('.ct').animate([
+    k(0, { clipPath: 'inset(-20% 100% -20% 0)', transform: 'skewX(-8deg) translateX(-30px)' }),
+    k(.16, { clipPath: 'inset(-20% 100% -20% 0)', transform: 'skewX(-8deg) translateX(-30px)', easing: 'cubic-bezier(.2,.8,.2,1)' }),
+    k(.26, { clipPath: 'inset(-20% 0 -20% 0)', transform: 'skewX(-8deg)' }), k(1, { clipPath: 'inset(-20% 0 -20% 0)', transform: 'skewX(-8deg)' })
   ], { duration: dur });
-  sh.animate([{ opacity: 1, backgroundPosition: '120% 0' }, { opacity: 1, backgroundPosition: '-20% 0' }],
-             { duration: 900, delay: dur * .24, easing: 'ease-in-out' });
+  b.querySelector('.cp').animate([k(0, { opacity: 0 }), k(.23, { opacity: 0 }), k(.29, { opacity: 1 }), k(1, { opacity: 1 })], { duration: dur });
+  b.querySelector('.cbox').animate([
+    k(0, { opacity: 0, transform: 'scale(.8)' }), k(.26, { opacity: 0, transform: 'scale(.8)', easing: 'cubic-bezier(.2,1.4,.4,1)' }),
+    k(.34, { opacity: 1, transform: 'scale(1)' }), k(1, { opacity: 1, transform: 'scale(1)' })
+  ], { duration: dur });
+  $('tCbanShine').animate([{ opacity: 1, backgroundPosition: '120% 0' }, { opacity: 1, backgroundPosition: '-20% 0' }],
+                          { duration: 900, delay: dur * .36, easing: 'ease-in-out' });
 }
 const FLAG_BANNERS = false;   // top-center flag pop-ups are switched off for now (set to true to bring them back)
 function renderFlag() {
@@ -1238,11 +1252,11 @@ function renderFlag() {
   }
 }
 
-/* ---------- flag sponsors: the Green Flag, Restart and White Flag sponsor slots hold full-screen (1920x1080) frames
-   with the banner somewhere on them. The banner is cut out here (the see-through edges trimmed) and shown in the
-   middle of the ticker's flag flash, so producers keep loading the same files. ---------- */
+/* ---------- flag sponsors: the Green Flag, Restart and White Flag sponsor slots hold the sponsors' logos, shown in a box
+   in the middle of the ticker's flag flash. See-through edges around a logo are trimmed here, so a logo saved on a
+   big see-through canvas still fills its box. ---------- */
 const FS = { crops: {} };
-function fsCrop(file) {   // the banner without its see-through edges, as an image address (cached per file)
+function fsCrop(file) {   // the image without its see-through edges, as an image address (cached per file)
   if (!FS.crops[file]) FS.crops[file] = new Promise(res => {
     const im = new Image();
     im.onload = () => {
