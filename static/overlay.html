@@ -89,16 +89,18 @@
   #tower.f-checkered .cbar span { background: #111; color: #fff; display: inline-block; line-height: 26px; }
   #tower .cwipe { position: absolute; inset: 0; background: var(--yellow); z-index: 3; opacity: 0; pointer-events: none; }
   #tower .cwipe.white { background: #fff; }
-  /* flag sponsor sweep: a panel in the flag's colour sweeps across the whole ticker (its rows), with the sponsor banner
-     in the middle, then sweeps off again */
-  #tower .fsweep { position: absolute; left: 0; width: 100%; z-index: 6; pointer-events: none; visibility: hidden; overflow: hidden;
-    --c1: #2fd35a; --c2: #0c9c34; --st: rgba(255,255,255,.13); --ln: rgba(255,255,255,.85); }
-  #tower .fsweep.white { --c1: #ffffff; --c2: #c9ccd1; --st: rgba(0,0,0,.07); --ln: rgba(90,90,100,.7); }
-  #tower .fsweep .fbg { position: absolute; inset: 0; background: linear-gradient(160deg, var(--c1), var(--c2)); }
-  #tower .fsweep .fst { position: absolute; inset: -40px -200px; background: repeating-linear-gradient(115deg, transparent 0 46px, var(--st) 46px 74px); }
-  #tower .fsweep .fln { position: absolute; left: 0; height: 2px; width: 140px; background: linear-gradient(90deg, transparent, var(--ln)); opacity: 0; }
-  #tower .fsweep .fbn { position: absolute; left: 6%; width: 88%; top: 50%; transform: translateY(-50%); }
-  #tower .fsweep .fbn img { display: block; width: 100%; height: auto; filter: drop-shadow(0 8px 16px rgba(0,0,0,.45)); }
+  /* flag sponsor sweep: the ticker's rows turn into the flag's colour one after another, top to bottom, the sponsor
+     banner pops up in the middle on a dark VSPEED plate, then the rows go back the same way, bottom to top */
+  #tower .fsweep { position: absolute; left: 0; width: 100%; z-index: 6; pointer-events: none; visibility: hidden;
+    --a: #27c24f; --b: #1fae45; }
+  #tower .fsweep.white { --a: #f4f4f5; --b: #e2e3e6; }
+  #tower .fsweep .fsl { position: absolute; left: 0; width: 100%; transform-origin: left center; transform: scaleX(0);
+    background: var(--a); box-shadow: inset 0 -1px 0 rgba(0,0,0,.12); }
+  #tower .fsweep .fsl:nth-child(even) { background: var(--b); }
+  #tower .fsweep .fbn { position: absolute; left: 50%; top: 50%; width: 94%; opacity: 0; transform: translate(-50%, -50%); }
+  #tower .fsweep .fpl { position: absolute; left: -2%; right: -2%; top: -22%; bottom: -22%; background: var(--black);
+    transform: skewX(-12deg); border-left: 5px solid var(--red); box-shadow: 0 10px 30px rgba(0,0,0,.45); }
+  #tower .fsweep .fbn img { position: relative; display: block; width: 100%; height: auto; }
   #tower .fshine { position: absolute; inset: 0; pointer-events: none; opacity: 0;
     background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,.75) 50%, transparent 65%) no-repeat;
     background-size: 250% 100%; -webkit-mask-size: 100% 100%; mask-size: 100% 100%; }
@@ -405,8 +407,8 @@
   <div class="cbar" id="tCbar"><span>Caution</span></div>
   <div class="rows" id="tRows"><div class="cwipe" id="tCwipe"></div></div>
   <div class="pits" id="tPits"></div>
-  <div class="fsweep" id="tFs"><div class="fbg"></div><div class="fst"></div><i class="fln"></i><i class="fln"></i><i class="fln"></i><i class="fln"></i>
-    <div class="fbn"><img id="tFsImg" alt=""><div class="fshine" id="tFsShine"></div></div></div>
+  <div class="fsweep" id="tFs"><div id="tFsSl"></div>
+    <div class="fbn"><div class="fpl"></div><img id="tFsImg" alt=""><div class="fshine" id="tFsShine"></div></div></div>
   <div id="pitrace" class="widget off"><div class="h"><span>Race off pit road</span><small id="prSub"></small></div><div id="prBody"></div></div>
   <div id="livepts" class="widget off"><div class="h"><span id="lpTitle">Live points</span><small id="lpSub"></small></div><div id="lpBody"></div></div>
 </div>
@@ -1267,40 +1269,46 @@ async function fsSweep(slot) {
   if (!file || LAYOUT_MODE || !(VIS.tower && VIS.tower.on)) return;
   const src = await fsCrop(file);
   if (!src || !(VIS.tower && VIS.tower.on)) return;
-  const box = $('tFs'), img = $('tFsImg'), sh = $('tFsShine'), rows = $('tRows');
+  const box = $('tFs'), img = $('tFsImg'), sh = $('tFsShine'), rows = $('tRows'), sl = $('tFsSl'), bn = box.querySelector('.fbn');
   box.getAnimations({ subtree: true }).forEach(x => x.cancel());
   img.src = src;
   sh.style.webkitMaskImage = sh.style.maskImage = `url("${src}")`;   // the shine only crosses the banner itself
   box.className = 'fsweep' + (slot === 'white' ? ' white' : '');
-  box.style.top = rows.offsetTop + 'px';
-  box.style.height = Math.max(120, rows.offsetHeight) + 'px';
+  const H = Math.max(120, rows.offsetHeight), first = rows.querySelector('.row');
+  const rh = Math.max(20, first ? first.offsetHeight : 34), n = Math.ceil(H / rh);
+  box.style.top = rows.offsetTop + 'px'; box.style.height = H + 'px';
+  if (sl.children.length !== n) sl.innerHTML = '<i class="fsl"></i>'.repeat(n);
+  [...sl.children].forEach((e, i) => { e.style.top = (i * rh) + 'px'; e.style.height = Math.min(rh, H - i * rh) + 'px'; });
   box.style.visibility = 'visible';
-  const IN = 550, HOLD = 3200, OUT = 550, ALL = IN + HOLD + OUT, at = ms => ms / ALL;
-  // the panel: a slanted edge sweeps in from the left, holds, then sweeps off to the right
-  const wipe = box.animate([
-    { clipPath: 'polygon(-30% 0, -30% 0, -45% 100%, -45% 100%)', offset: 0 },
-    { clipPath: 'polygon(-30% 0, 145% 0, 130% 100%, -45% 100%)', offset: at(IN) },
-    { clipPath: 'polygon(-30% 0, 145% 0, 130% 100%, -45% 100%)', offset: at(IN + HOLD) },
-    { clipPath: 'polygon(145% 0, 145% 0, 130% 100%, 130% 100%)', offset: 1 }
-  ], { duration: ALL, easing: 'cubic-bezier(.55,0,.35,1)' });
-  wipe.onfinish = () => { box.style.visibility = 'hidden'; };
-  box.querySelector('.fst').animate([{ transform: 'translateX(0)' }, { transform: 'translateX(160px)' }], { duration: ALL, easing: 'linear' });
-  // speed lines streaking left to right
-  box.querySelectorAll('.fln').forEach((ln, i) => {
-    ln.style.top = (12 + i * 23 + (i % 2) * 9) + '%';
-    ln.animate([{ opacity: 0, transform: 'translateX(-160px)' }, { opacity: 1, offset: .3 }, { opacity: 0, transform: 'translateX(420px)' }],
-               { duration: 900, delay: IN - 150 + i * 520, iterations: Math.max(1, Math.floor((HOLD - i * 520) / 1300)), easing: 'ease-in' });
+  const STEP = Math.min(30, 420 / n), ROW = 320, IN = ROW + STEP * n, HOLD = 3000, ALL = IN * 2 + HOLD;
+  // each row fills with the flag's colour from the left, top to bottom; at the end they empty again, bottom to top
+  // (easing goes on each keyframe: an easing on the whole animation would bend its entire 4.5 s timeline)
+  const E = 'cubic-bezier(.6,0,.3,1)';
+  [...sl.children].forEach((e, i) => {
+    const tin = i * STEP, tout = IN + HOLD + (n - 1 - i) * STEP;
+    e.animate([
+      { transform: 'scaleX(0)', offset: 0 }, { transform: 'scaleX(0)', offset: tin / ALL, easing: E },
+      { transform: 'scaleX(1)', offset: (tin + ROW) / ALL }, { transform: 'scaleX(1)', transformOrigin: 'right center', offset: tout / ALL, easing: E },
+      { transform: 'scaleX(0)', transformOrigin: 'right center', offset: (tout + ROW) / ALL },
+      { transform: 'scaleX(0)', offset: 1 }
+    ], { duration: ALL });
   });
-  // the banner: in from the left just behind the panel's edge, a shine across it, out to the right with the panel
-  box.querySelector('.fbn').animate([
-    { opacity: 0, transform: 'translateY(-50%) translateX(-60px)', offset: 0 },
-    { opacity: 0, transform: 'translateY(-50%) translateX(-60px)', offset: at(IN * .45) },
-    { opacity: 1, transform: 'translateY(-50%)', offset: at(IN + 150) },
-    { opacity: 1, transform: 'translateY(-50%)', offset: at(IN + HOLD) },
-    { opacity: 1, transform: 'translateY(-50%) translateX(60px)', offset: 1 }
-  ], { duration: ALL, easing: 'cubic-bezier(.3,.7,.3,1)' });
+  // the banner on its plate: pops up once the rows are mostly filled, drops away before they empty
+  const B = IN * .8;
+  bn.animate([
+    { opacity: 0, transform: 'translate(-50%, -50%) scale(.6)', offset: 0 },
+    { opacity: 0, transform: 'translate(-50%, -50%) scale(.6)', offset: B / ALL, easing: 'ease-out' },
+    { opacity: 1, transform: 'translate(-50%, -50%) scale(1.06)', offset: (B + 260) / ALL, easing: 'ease-in-out' },
+    { opacity: 1, transform: 'translate(-50%, -50%) scale(1)', offset: (B + 420) / ALL },
+    { opacity: 1, transform: 'translate(-50%, -50%) scale(1)', offset: (IN + HOLD) / ALL, easing: 'ease-in' },
+    { opacity: 0, transform: 'translate(-50%, -50%) scale(.85)', offset: (IN + HOLD + 250) / ALL },
+    { opacity: 0, transform: 'translate(-50%, -50%) scale(.85)', offset: 1 }
+  ], { duration: ALL });
+  bn.querySelector('.fpl').animate([{ clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0 0 0)' }],
+                                    { duration: 380, delay: IN * .8 + 60, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'backwards' });
   sh.animate([{ opacity: 1, backgroundPosition: '120% 0' }, { opacity: 1, backgroundPosition: '-20% 0' }],
-             { duration: 900, delay: IN + 250, easing: 'ease-in-out' });
+             { duration: 900, delay: IN * .8 + 450, easing: 'ease-in-out' });
+  setTimeout(() => { if (!box.getAnimations({ subtree: true }).some(a => a.playState === 'running')) box.style.visibility = 'hidden'; }, ALL + 50);
 }
 
 /* ---------- sponsor graphic: one of six loaded images, one on air at a time ---------- */
