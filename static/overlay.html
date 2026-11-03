@@ -1275,7 +1275,9 @@ function fsCrop(file) {   // the image without its see-through edges, as an imag
       } catch (e) { res(null); }
     };
     im.onerror = () => res(null);
-    im.src = '/sponsor/' + encodeURIComponent(file);
+    // the saved name carries a ?v= stamp so a new upload isn't cached: use it as is, like the sponsor reads do
+    // (encoding it turned the ? into part of the file name and the logo never loaded, Nov 3)
+    im.src = '/sponsor/' + file;
   });
   return FS.crops[file];
 }
