@@ -105,7 +105,7 @@ export async function currentUser(request, env) {
   const s = await env.DB.prepare(`SELECT * FROM sessions WHERE token_hash = ?`).bind(h).first();
   if (!s || s.expires < now) return null;
   let roles = JSON.parse(s.roles || "[]");
-  if (now - s.checked > RECHECK_MS) {
+  if (now - s.checked > RECHECK_MS || !roles.length) {   // no roles saved: a session from before series roles, ask Discord now
     let access = s.access_token;
     try {
       if (s.token_expires < now + 60000 && s.refresh_token) {
