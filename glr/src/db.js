@@ -46,6 +46,9 @@ const SCHEMA = [
      id INTEGER PRIMARY KEY AUTOINCREMENT, subsession_id INTEGER NOT NULL, cust_id INTEGER NOT NULL,
      points INTEGER NOT NULL, reason TEXT NOT NULL DEFAULT '', created_at TEXT, created_by TEXT)`,
   `CREATE INDEX IF NOT EXISTS adjustments_event ON adjustments (subsession_id)`,
+  `CREATE TABLE IF NOT EXISTS overlay_keys (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE,
+     created_at TEXT, created_by TEXT, last_used TEXT, uses INTEGER NOT NULL DEFAULT 0, revoked INTEGER NOT NULL DEFAULT 0)`,
 ];
 // columns added after the first version: [table, column, definition]
 const ADDED = [
@@ -57,7 +60,7 @@ const ADDED = [
 // short names for the GLR series (by iRacing league id); officials can change them on the site
 const SHORT = { 9310: "ARCA", 9309: "Grand National", 11390: "Foundation", 12070: "Sports Car", 11059: "Warrior", 6838: "Next Gen" };
 // words in the site's own addresses, which a series can't use as its address
-export const RESERVED = new Set(["api", "results", "drivers", "upload", "login", "logout", "auth", "health", "series", "edit", "admin"]);
+export const RESERVED = new Set(["api", "results", "drivers", "upload", "login", "logout", "auth", "health", "series", "edit", "admin", "keys"]);
 
 export const slugify = s => String(s || "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
 const shortFrom = (id, name) => SHORT[id] || String(name || "").replace(/^\s*GLR\s+/i, "").replace(/\s+SERIES\s*$/i, "").trim() || `Series ${id}`;
@@ -105,19 +108,20 @@ export async function importEvent(db, ev, by = "") {
   if (!race || !race.results.length) throw new Error("There are no race results in this file.");
   await ensureSchema(db);
   const now = new Date().toISOString(), when = ev.startTime || now, st = [];
+  const status = ev.status || "official";
   if (ev.league.id) st.push(db.prepare(`INSERT INTO series (id, name) VALUES (?1, ?2)
       ON CONFLICT(id) DO UPDATE SET name = CASE WHEN ?2 <> '' THEN ?2 ELSE name END`).bind(ev.league.id, ev.league.name));
   if (ev.season.id) st.push(db.prepare(`INSERT INTO seasons (id, series_id, name) VALUES (?1, ?2, ?3)
       ON CONFLICT(id) DO UPDATE SET series_id = COALESCE(?2, series_id), name = CASE WHEN ?3 <> '' THEN ?3 ELSE name END`)
       .bind(ev.season.id, ev.league.id, ev.season.name));
   st.push(db.prepare(`INSERT INTO events (subsession_id, series_id, season_id, track, start_time, laps, cautions, caution_laps,
-        lead_changes, sof, source, uploaded_at, uploaded_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13)
+        lead_changes, sof, source, uploaded_at, uploaded_by, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
       ON CONFLICT(subsession_id) DO UPDATE SET series_id = COALESCE(?2, series_id), season_id = COALESCE(?3, season_id),
         track = COALESCE(NULLIF(?4, ''), track), start_time = COALESCE(NULLIF(?5, ''), start_time), laps = COALESCE(?6, laps),
         cautions = COALESCE(?7, cautions), caution_laps = COALESCE(?8, caution_laps), lead_changes = COALESCE(?9, lead_changes),
-        sof = COALESCE(?10, sof), source = ?11, uploaded_at = ?12, uploaded_by = ?13`)
+        sof = COALESCE(?10, sof), source = ?11, uploaded_at = ?12, uploaded_by = ?13, status = ?14`)
     .bind(ev.subsessionId, ev.league.id, ev.season.id, ev.track, ev.startTime, ev.laps, ev.cautions, ev.cautionLaps,
-          ev.leadChanges, ev.sof, ev.source, now, by));
+          ev.leadChanges, ev.sof, ev.source, now, by, status));
   const seen = new Map();
   for (const s of ev.sessions) {
     st.push(db.prepare(`DELETE FROM results WHERE subsession_id = ? AND session = ?`).bind(ev.subsessionId, s.name));
@@ -324,4 +328,51 @@ export async function getDriver(db, cust) {
       LEFT JOIN series sr ON sr.id = e.series_id
       WHERE r.cust_id = ? AND r.session = 'race' ORDER BY e.start_time DESC`).bind(cust).all()).results;
   return d;
+}
+
+/*
+ * Results from a producer's overlay. They go in as provisional, under the series' current season, and never
+ * replace results already uploaded from iRacing's export (those are the official ones).
+ */
+export async function importOverlay(db, ev, by) {
+  await ensureSchema(db);
+  const sr = await db.prepare(`SELECT * FROM series WHERE id = ?`).bind(ev.league.id).first();
+  if (!sr) return { ok: false, status: 404, error: `iRacing league ${ev.league.id} isn't on the site yet. Upload one of its iRacing results files first.` };
+  const had = await db.prepare(`SELECT source, season_id FROM events WHERE subsession_id = ?`).bind(ev.subsessionId).first();
+  if (had && had.source !== "overlay") return { ok: true, skipped: true, series: sr.short_name, message: "Official results for this race are already on the site." };
+  const cur = had && had.season_id ? { season_id: had.season_id }
+    : await db.prepare(`SELECT season_id FROM events WHERE series_id = ? AND season_id IS NOT NULL ORDER BY start_time DESC LIMIT 1`).bind(sr.id).first();
+  const r = await importEvent(db, { ...ev, league: { id: sr.id, name: sr.name }, season: { id: cur ? cur.season_id : null, name: "" } }, by);
+  return { ok: true, ...r, series: sr.short_name, replaced: !!had };
+}
+
+const hex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
+const sha = async t => hex(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(t)));
+
+export async function listKeys(db) {
+  await ensureSchema(db);
+  return (await db.prepare(`SELECT id, name, created_at, created_by, last_used, uses, revoked FROM overlay_keys ORDER BY revoked, id DESC`).all()).results;
+}
+
+// a new key: shown once, only its hash is kept
+export async function createKey(db, name, by) {
+  await ensureSchema(db);
+  const n = String(name || "").trim().slice(0, 60);
+  if (!n) throw new Error("Give the key a name, like the producer's name.");
+  const key = "vsglr_" + hex(crypto.getRandomValues(new Uint8Array(24)));
+  await db.prepare(`INSERT INTO overlay_keys (name, key_hash, created_at, created_by) VALUES (?, ?, ?, ?)`).bind(n, await sha(key), new Date().toISOString(), by).run();
+  return key;
+}
+
+export async function revokeKey(db, id) {
+  await ensureSchema(db);
+  await db.prepare(`UPDATE overlay_keys SET revoked = 1 WHERE id = ?`).bind(id).run();
+}
+
+export async function checkKey(db, key) {
+  if (!/^vsglr_[0-9a-f]{48}$/.test(String(key || ""))) return null;
+  await ensureSchema(db);
+  const row = await db.prepare(`SELECT * FROM overlay_keys WHERE key_hash = ? AND revoked = 0`).bind(await sha(key)).first();
+  if (row) await db.prepare(`UPDATE overlay_keys SET last_used = ?, uses = uses + 1 WHERE id = ?`).bind(new Date().toISOString(), row.id).run();
+  return row;
 }

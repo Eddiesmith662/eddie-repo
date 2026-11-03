@@ -13,12 +13,16 @@
  *         /glr/api/drivers/<cust id>, /glr/api/standings/<series>?season=<id>   (the same, as JSON)
  *         /glr/health
  *         /glr/upload             officials upload iRacing result files (JSON or CSV)
+ *         /glr/keys               admins: overlay keys, for producers' overlays to send their race results
+ *         /glr/api/overlay/results  POST from an overlay (Authorization: Bearer <key>): provisional results
+ *         /glr/api/overlay/check    GET with the same header: is this key good?
  *         /glr/login, /glr/auth/callback, /glr/logout    Discord sign-in (auth.js)
  */
 import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, importEvent, setSeriesRole, seriesById, seasonsOf,
-  getRules, saveRules, seasonEvents, listAdjustments, addAdjustment, deleteAdjustment } from "./db.js";
+  getRules, saveRules, seasonEvents, listAdjustments, addAdjustment, deleteAdjustment,
+  importOverlay, listKeys, createKey, revokeKey, checkKey } from "./db.js";
 import { computeStandings, cleanRules, DEFAULT_RULES, GLR_PLAYOFFS } from "./standings.js";
-import { parseExport } from "./parse.js";
+import { parseExport, parseOverlay } from "./parse.js";
 import { configured, login, callback, currentUser, logout, canEdit } from "./auth.js";
 
 const BASE = "/glr";
@@ -57,6 +61,8 @@ header .me a{font-weight:400;letter-spacing:0;color:#7fb6ff}header form{margin:0
 .card{display:block;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;color:var(--text);text-decoration:none}
 .card:hover{border-color:#44444c}.card b{display:block;font-size:18px;border-left:3px solid var(--accent);padding-left:8px;margin-bottom:2px}
 .card .full{color:var(--dim);font-size:12px;padding-left:11px;margin-bottom:10px}.card .row{font-size:14px}.card .row span{color:var(--dim)}
+.prov{display:inline-block;font-size:11px;font-weight:700;padding:1px 6px;border-radius:4px;background:#4a3a12;color:#ffcf66;margin-left:6px;vertical-align:1px}
+code.key{display:block;padding:10px 12px;background:#000;border:1px solid var(--line);border-radius:6px;word-break:break-all;font-size:14px;margin:8px 0}
 .cls{display:inline-block;font-size:11px;font-weight:700;padding:1px 6px;border-radius:4px;background:#2c2c32;color:#ddd;margin-right:4px}
 label{display:block;margin:12px 0 4px;color:var(--dim);font-size:13px}
 .tabs{display:flex;gap:4px;margin:0 0 18px;border-bottom:1px solid var(--line);flex-wrap:wrap}.tabs a{padding:8px 14px;color:var(--dim);text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-1px}
@@ -67,7 +73,7 @@ fieldset{min-width:0;border:1px solid var(--line);border-radius:8px;margin:16px 
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:4px 16px}.chk{display:flex;gap:8px;align-items:center;margin:8px 0;color:var(--text);font-size:14px}
 .rules p{margin:6px 0}details{margin:14px 0}summary{cursor:pointer;color:var(--dim)}.btn.ghost{background:#2c2c32}input[type=text]{width:100%;max-width:360px;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
 </style></head><body><header><a href="${BASE}">VSPEED <span>GLR</span></a><div class="me">${user
-  ? `<a href="${BASE}/upload">Upload results</a><span class="tag">${esc(user.name)}</span><form method="post" action="${BASE}/logout"><button class="link">Sign out</button></form>`
+  ? `${user.admin ? `<a href="${BASE}/keys">Overlay keys</a>` : ""}<a href="${BASE}/upload">Upload results</a><span class="tag">${esc(user.name)}</span><form method="post" action="${BASE}/logout"><button class="link">Sign out</button></form>`
   : `<a href="${BASE}/login">Official sign-in</a>`}</div></header><main>${body}</main></body></html>`,
   { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
 
@@ -76,12 +82,13 @@ const driverLink = (id, name) => `<a href="${BASE}/drivers/${id}">${esc(name)}</
 const seriesLink = e => e.slug ? `<a href="${BASE}/${esc(e.slug)}">${esc(e.short_name)}</a>` : esc(e.series_name || "");
 const crumb = e => e.slug ? `<p class="crumb"><a href="${BASE}">GLR</a> › <a href="${BASE}/${esc(e.slug)}">${esc(e.short_name)}</a></p>` : "";
 const cls = c => c ? `<span class="cls">${esc(c)}</span>` : "";
+const prov = e => e.status === "provisional" ? `<span class="prov" title="Sent by a producer's overlay. Replaced by the iRacing results file when it's uploaded.">Provisional</span>` : "";
 // "Name" for one winner; "[LMP2] Name · [GT3] Name" for a multi-class race
 const winnersHtml = ws => ws.map(w => (ws.length > 1 ? cls(w.carClass) : "") + driverLink(w.custId, w.name)).join(" · ");
 
 function raceTable(events, { series = false } = {}) {
   return `<div class="wrap"><table><tr><th>Date</th>${series ? "<th>Series</th>" : ""}<th>Track</th><th>Winner</th><th class="n">Starters</th><th class="n">Laps</th></tr>` +
-    events.map(e => `<tr><td><a href="${BASE}/results/${e.subsession_id}">${day(e.start_time)}</a></td>${series ? `<td>${seriesLink(e)}</td>` : ""}
+    events.map(e => `<tr><td><a href="${BASE}/results/${e.subsession_id}">${day(e.start_time)}</a>${prov(e)}</td>${series ? `<td>${seriesLink(e)}</td>` : ""}
       <td>${esc(e.track)}</td><td>${winnersHtml(e.winners)}</td><td class="n">${e.starters}</td><td class="n">${e.laps ?? ""}</td></tr>`).join("") + `</table></div>`;
 }
 
@@ -135,7 +142,7 @@ function sessionTables(rows, race, label) {
 function resultPage(ev, user) {
   const facts = [ev.laps != null && `${ev.laps} laps`, ev.cautions != null && `${ev.cautions} caution${ev.cautions === 1 ? "" : "s"}${ev.caution_laps ? ` (${ev.caution_laps} laps)` : ""}`,
     ev.lead_changes != null && `${ev.lead_changes} lead changes`, ev.sof && `SOF ${ev.sof}`].filter(Boolean).join(" · ");
-  let body = crumb(ev) + `<h1>${esc(ev.track)}</h1><p class="sub">${day(ev.start_time)}${ev.season_name ? " · " + esc(ev.season_name) : ""}${facts ? " · " + facts : ""}</p>`;
+  let body = crumb(ev) + `<h1>${esc(ev.track)}${prov(ev)}</h1>${ev.status === "provisional" ? `<p class="hint" style="padding-left:14px">Provisional: sent by the broadcast overlay at the end of the race. It's replaced by the official iRacing results file when that's uploaded, which also adds league points, qualifying and practice.</p>` : ""}<p class="sub">${day(ev.start_time)}${ev.season_name ? " · " + esc(ev.season_name) : ""}${facts ? " · " + facts : ""}</p>`;
   const names = { race: "Race", qualify: "Qualifying", practice: "Practice", warmup: "Warmup" };
   for (const s of ["race", "qualify", "warmup", "practice", ...Object.keys(ev.sessions).filter(k => !names[k])])
     if (ev.sessions[s]) body += sessionTables(ev.sessions[s], s === "race", names[s] || s);
@@ -413,6 +420,19 @@ async function upload(request, env, user) {
 }
 
 const sameOrigin = (request, url) => request.headers.get("origin") === url.origin;
+const bearer = request => (/^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") || "") || [])[1] || "";
+
+function keysPage(keys, user, { newKey = "", msg = "" } = {}) {
+  let body = `<h1>Overlay keys</h1><p class="sub">A key lets a producer's overlay send its race results here when a race ends. They arrive as Provisional and the official iRacing results file replaces them when it's uploaded. A key can only send results: it can't change rules, penalties or anything else.</p>`;
+  if (newKey) body += `<div class="msg ok"><b>New key, shown only this once.</b> Paste it into the overlay: control panel › Setup › League site upload.<code class="key">${esc(newKey)}</code></div>`;
+  if (msg) body += `<div class="msg bad">${esc(msg)}</div>`;
+  body += `<form method="post"><label for="kn">Name (whose overlay is it?)</label><input type="text" id="kn" name="name" maxlength="60" required>
+    <p><button class="btn">Make a key</button></p></form>`;
+  body += keys.length ? `<h2>Keys</h2><div class="wrap"><table><tr><th>Name</th><th>Made</th><th>Last used</th><th class="n">Races sent</th><th></th></tr>` +
+    keys.map(k => `<tr><td>${esc(k.name)}${k.revoked ? ` <span class="tag">(turned off)</span>` : ""}</td><td>${day(k.created_at)}</td><td>${k.last_used ? day(k.last_used) : "Never"}</td>
+      <td class="n">${k.uses}</td><td>${k.revoked ? "" : `<form method="post"><input type="hidden" name="revoke" value="${k.id}"><button class="link" onclick="return confirm('Turn this key off? That overlay stops sending results until it gets a new key.')">Turn off</button></form>`}</td></tr>`).join("") + `</table></div>` : "";
+  return page("Overlay keys", body, { user });
+}
 
 export default {
   async fetch(request, env) {
@@ -444,6 +464,28 @@ export default {
         if (!user) return json({ ok: false, error: "Sign in as an official first." }, 401);
         if (!sameOrigin(request, url)) return json({ ok: false, error: "Upload from the site's upload page." }, 403);
         return upload(request, env, user);
+      }
+      if (path === `${BASE}/api/overlay/check` || path === `${BASE}/api/overlay/results`) {
+        const key = await checkKey(db, bearer(request));
+        if (!key) return json({ ok: false, error: "The site doesn't recognise this key. Make a new one on the site's Overlay keys page." }, 401);
+        if (path.endsWith("/check")) return json({ ok: true, name: key.name });
+        if (request.method !== "POST") return json({ ok: false, error: "Use POST." }, 405);
+        let ev;
+        try { ev = parseOverlay(await request.json()); } catch (e) { return json({ ok: false, error: e.message }, 400); }
+        const r = await importOverlay(db, ev, `overlay:${key.id}:${key.name}`);
+        return json(r, r.status || 200);
+      }
+      if (path === `${BASE}/keys`) {
+        if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/keys`, 302);
+        if (!user.admin) return notFound("Only admins can manage overlay keys.", user);
+        if (request.method === "POST") {
+          if (!sameOrigin(request, url)) return keysPage(await listKeys(db), user, { msg: "Do this from this page." });
+          const f = await request.formData();
+          if (f.get("revoke")) { await revokeKey(db, Number(f.get("revoke"))); return Response.redirect(`${url.origin}${BASE}/keys`, 303); }
+          try { const k = await createKey(db, f.get("name"), `discord:${user.id}:${user.name}`); return keysPage(await listKeys(db), user, { newKey: k }); }
+          catch (e) { return keysPage(await listKeys(db), user, { msg: e.message }); }
+        }
+        return keysPage(await listKeys(db), user);
       }
       if (path === `${BASE}/api/me`) return json({ ok: true, user, signIn: configured(env) });
       if (path === `${BASE}/api/events`) return json({ ok: true, events: await listEvents(db, { season: Number(url.searchParams.get("season")) || 0 }) });

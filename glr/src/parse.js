@@ -151,3 +151,33 @@ export function parseExport(text, filename = "") {
   const t = String(text || "").replace(/^﻿/, "").trimStart();
   return t.startsWith("{") || t.startsWith("[") ? parseJson(t) : parseCsv(t, filename);
 }
+
+/*
+ * Results sent by the VSPEED overlay at the end of a race (its "League site upload" switch). The sim knows the
+ * iRacing league but not the league season, so the site files it under that series' current season.
+ *   { type: "vspeed_overlay_result", version: 1, subsessionId, leagueId, track, startTime, laps, cautions, cautionLaps,
+ *     leadChanges, official, results: [{ custId, name, carNumber, car, carClass, finish, classPos, start, laps,
+ *     lapsLed, incidents, bestLapMs, bestLapNum, intervalMs, lapsDown, reasonOut }] }
+ */
+export function parseOverlay(obj) {
+  if (!obj || obj.type !== "vspeed_overlay_result" || !Array.isArray(obj.results)) throw new Error("That isn't a VSPEED overlay result.");
+  if (!num(obj.subsessionId) || !num(obj.leagueId)) throw new Error("The race has no iRacing session or league number (not a league race?).");
+  const results = obj.results.filter(r => num(r.custId) > 0).map(r => ({
+    custId: num(r.custId), name: String(r.name || "").slice(0, 80), carNumber: String(r.carNumber ?? "").slice(0, 8),
+    car: String(r.car || "").slice(0, 80), carClass: String(r.carClass || "").slice(0, 40),
+    finish: num(r.finish), classPos: num(r.classPos), start: num(r.start) > 0 ? num(r.start) : null,
+    laps: num(r.laps) || 0, lapsLed: num(r.lapsLed) || 0, incidents: num(r.incidents),
+    bestLapMs: num(r.bestLapMs) > 0 ? num(r.bestLapMs) : null, bestLapNum: num(r.bestLapNum) > 0 ? num(r.bestLapNum) : null,
+    avgLapMs: null, intervalMs: num(r.lapsDown) > 0 ? null : num(r.intervalMs), lapsDown: num(r.lapsDown) || 0,
+    reasonOut: String(r.reasonOut || "").slice(0, 40), leaguePoints: null,
+  })).sort((a, b) => (a.finish || 999) - (b.finish || 999));
+  if (!results.length) throw new Error("No drivers in the results.");
+  classify(results);
+  return {
+    source: "overlay", status: "provisional", official: !!obj.official, subsessionId: num(obj.subsessionId),
+    league: { id: num(obj.leagueId), name: "" }, season: { id: null, name: "" },
+    track: String(obj.track || "").slice(0, 120), startTime: String(obj.startTime || ""), laps: num(obj.laps),
+    cautions: num(obj.cautions), cautionLaps: num(obj.cautionLaps), leadChanges: num(obj.leadChanges), sof: null,
+    sessions: [{ name: "race", results }],
+  };
+}
