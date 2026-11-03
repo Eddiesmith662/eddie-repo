@@ -1,15 +1,18 @@
 /*
  * VSPEED GLR league site (vspeedlivetiming.app/glr).
  *
- * Pages:  /glr                    races, newest first
- *         /glr/results/<session>  one race (iRacing subsession id), with qualifying and practice when uploaded
- *         /glr/drivers/<cust id>  one driver: every name they've raced under, and their races
- * Data:   /glr/api/events, /glr/api/results/<session>, /glr/api/drivers/<cust id>   (the same, as JSON)
+ * Pages:  /glr                    every series with its latest race, then the latest races
+ *         /glr/<series>           one series (its short address, e.g. /glr/arca): seasons and races
+ *         /glr/<series>/edit      officials: the series' short name and address
+ *         /glr/results/<session>  one race (iRacing subsession id), split by class in a multi-class race
+ *         /glr/drivers/<cust id>  one driver: every name they've raced under, stats and races by series
+ * Data:   /glr/api/series, /glr/api/series/<series>, /glr/api/events, /glr/api/results/<session>,
+ *         /glr/api/drivers/<cust id>   (the same, as JSON)
  *         /glr/health
  *         /glr/upload             officials upload iRacing result files (JSON or CSV)
  *         /glr/login, /glr/auth/callback, /glr/logout    Discord sign-in (auth.js)
  */
-import { listEvents, getEvent, getDriver, importEvent } from "./db.js";
+import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, importEvent } from "./db.js";
 import { parseExport } from "./parse.js";
 import { configured, login, callback, currentUser, logout } from "./auth.js";
 
@@ -18,7 +21,12 @@ const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": 
 const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 
 const lap = ms => { if (!ms) return ""; const s = ms / 1000, m = Math.floor(s / 60); return m ? `${m}:${(s - m * 60).toFixed(3).padStart(6, "0")}` : s.toFixed(3); };
-const gap = r => r.laps_down ? `-${r.laps_down} L` : r.finish_pos === 1 ? "" : r.interval_ms != null ? `-${(r.interval_ms / 1000).toFixed(3)}` : "";
+// gap to the leader; in a multi-class race, to the class leader
+const gap = (r, inClass) => {
+  const pos = inClass ? r.class_pos ?? r.finish_pos : r.finish_pos;
+  const down = inClass ? r.class_laps_down ?? r.laps_down : r.laps_down, iv = inClass ? r.class_interval_ms : r.interval_ms;
+  return down ? `-${down} L` : pos === 1 ? "" : iv != null ? `-${(iv / 1000).toFixed(3)}` : "";
+};
 const day = t => { const d = new Date(t); return isNaN(d) ? esc(t) : d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "America/New_York" }); };
 
 const page = (title, body, { status = 200, user = null } = {}) => new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8">
@@ -39,6 +47,13 @@ header .me a{font-weight:400;letter-spacing:0;color:#7fb6ff}header form{margin:0
 .msg{margin:6px 0;padding:8px 12px;border-radius:6px;background:var(--card);border:1px solid var(--line)}.msg.bad{border-color:#a33}.msg.ok{border-color:#2a7}td.n,th.n{text-align:right}.stats{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 8px}
 .stat{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:8px 14px;min-width:90px}
 .stat b{display:block;font-size:20px}.stat small{color:var(--dim)}.tag{color:var(--dim);font-size:13px}
+.crumb{font-size:13px;margin:0 0 6px;padding-left:14px}.crumb a{color:var(--dim)}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
+.card{display:block;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;color:var(--text);text-decoration:none}
+.card:hover{border-color:#44444c}.card b{display:block;font-size:18px;border-left:3px solid var(--accent);padding-left:8px;margin-bottom:2px}
+.card .full{color:var(--dim);font-size:12px;padding-left:11px;margin-bottom:10px}.card .row{font-size:14px}.card .row span{color:var(--dim)}
+.cls{display:inline-block;font-size:11px;font-weight:700;padding:1px 6px;border-radius:4px;background:#2c2c32;color:#ddd;margin-right:4px}
+label{display:block;margin:12px 0 4px;color:var(--dim);font-size:13px}input[type=text]{width:100%;max-width:360px;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
 </style></head><body><header><a href="${BASE}">VSPEED <span>GLR</span></a><div class="me">${user
   ? `<a href="${BASE}/upload">Upload results</a><span class="tag">${esc(user.name)}</span><form method="post" action="${BASE}/logout"><button class="link">Sign out</button></form>`
   : `<a href="${BASE}/login">Official sign-in</a>`}</div></header><main>${body}</main></body></html>`,
@@ -46,56 +61,99 @@ header .me a{font-weight:400;letter-spacing:0;color:#7fb6ff}header form{margin:0
 
 const notFound = (what, user) => page("Not found", `<h1>Not found</h1><p class="sub">${esc(what)}</p>`, { status: 404, user });
 const driverLink = (id, name) => `<a href="${BASE}/drivers/${id}">${esc(name)}</a>`;
+const seriesLink = e => e.slug ? `<a href="${BASE}/${esc(e.slug)}">${esc(e.short_name)}</a>` : esc(e.series_name || "");
+const crumb = e => e.slug ? `<p class="crumb"><a href="${BASE}">GLR</a> › <a href="${BASE}/${esc(e.slug)}">${esc(e.short_name)}</a></p>` : "";
+const cls = c => c ? `<span class="cls">${esc(c)}</span>` : "";
+// "Name" for one winner; "[LMP2] Name · [GT3] Name" for a multi-class race
+const winnersHtml = ws => ws.map(w => (ws.length > 1 ? cls(w.carClass) : "") + driverLink(w.custId, w.name)).join(" · ");
 
-function homePage(events, user) {
-  if (!events.length) return page("VSPEED GLR", `<h1>Results</h1><p class="sub">No races uploaded yet.</p>`, { user });
-  const bySeason = new Map();
-  for (const e of events) { const k = e.season_name || e.series_name || "Other races"; if (!bySeason.has(k)) bySeason.set(k, []); bySeason.get(k).push(e); }
-  let body = `<h1>Results</h1><p class="sub">${events.length} race${events.length === 1 ? "" : "s"}</p>`;
-  for (const [season, list] of bySeason) {
-    body += `<h2>${esc(season)}</h2><div class="wrap"><table><tr><th>Date</th><th>Track</th><th>Winner</th><th class="n">Starters</th><th class="n">Laps</th></tr>` +
-      list.map(e => `<tr><td><a href="${BASE}/results/${e.subsession_id}">${day(e.start_time)}</a></td><td>${esc(e.track)}</td>
-        <td>${e.winner_id ? driverLink(e.winner_id, e.winner) : ""}</td><td class="n">${e.starters}</td><td class="n">${e.laps ?? ""}</td></tr>`).join("") +
-      `</table></div>`;
-  }
+function raceTable(events, { series = false } = {}) {
+  return `<div class="wrap"><table><tr><th>Date</th>${series ? "<th>Series</th>" : ""}<th>Track</th><th>Winner</th><th class="n">Starters</th><th class="n">Laps</th></tr>` +
+    events.map(e => `<tr><td><a href="${BASE}/results/${e.subsession_id}">${day(e.start_time)}</a></td>${series ? `<td>${seriesLink(e)}</td>` : ""}
+      <td>${esc(e.track)}</td><td>${winnersHtml(e.winners)}</td><td class="n">${e.starters}</td><td class="n">${e.laps ?? ""}</td></tr>`).join("") + `</table></div>`;
+}
+
+function homePage(series, recent, user) {
+  if (!series.length) return page("VSPEED GLR", `<h1>Results</h1><p class="sub">No races uploaded yet.</p>`, { user });
+  let body = `<h1>Series</h1><p class="sub">${series.length} series</p><div class="cards">` +
+    series.map(s => { const e = s.latestEvent; return `<a class="card" href="${BASE}/${esc(s.slug)}"><b>${esc(s.short_name)}</b><div class="full">${esc(s.name)}</div>
+      ${e ? `<div class="row"><span>Latest:</span> ${esc(e.track)}, ${day(e.start_time)}</div>
+        <div class="row"><span>Won by</span> ${e.winners.map(w => (e.winners.length > 1 ? cls(w.carClass) : "") + esc(w.name)).join(" · ")}</div>` : ""}
+      <div class="row"><span>${s.races} race${s.races === 1 ? "" : "s"} uploaded</span></div></a>`; }).join("") + `</div>`;
+  body += `<h2>Latest races</h2>` + raceTable(recent, { series: true });
   return page("VSPEED GLR results", body, { user });
 }
 
-function sessionTable(rows, race) {
-  return `<div class="wrap"><table><tr><th class="n">Pos</th><th>#</th><th>Driver</th>${race ? `<th class="n">Start</th><th class="n">Gap</th><th class="n">Laps</th><th class="n">Led</th>` : ""}
+function seriesPage(sr, user) {
+  let body = `<p class="crumb"><a href="${BASE}">GLR</a></p><h1>${esc(sr.short_name)}</h1><p class="sub">${esc(sr.name)}${user ? ` · <a href="${BASE}/${esc(sr.slug)}/edit">Edit</a>` : ""}</p>`;
+  if (!sr.seasons.length) body += `<p class="hint">No races uploaded yet.</p>`;
+  for (const se of sr.seasons) body += `<h2>${esc(se.name)}</h2>` + raceTable(se.events);
+  return page(`${sr.short_name} results`, body, { user });
+}
+
+function seriesEditPage(sr, user, err = "") {
+  return page(`Edit ${sr.short_name}`, `<p class="crumb"><a href="${BASE}">GLR</a> › <a href="${BASE}/${esc(sr.slug)}">${esc(sr.short_name)}</a></p>
+    <h1>Edit series</h1><p class="sub">${esc(sr.name)} · iRacing league ${sr.id}</p>${err ? `<div class="msg bad">${esc(err)}</div>` : ""}
+    <form method="post"><label for="sn">Short name (shown on the site)</label><input type="text" id="sn" name="short_name" value="${esc(sr.short_name)}" maxlength="40" required>
+    <label for="sl">Address: vspeedlivetiming.app/glr/…</label><input type="text" id="sl" name="slug" value="${esc(sr.slug)}" maxlength="40">
+    <p class="tag">Changing the address breaks old links to this series. Race and driver links aren't affected.</p>
+    <p><button class="btn">Save</button></p></form>`, { user });
+}
+
+function sessionTable(rows, race, inClass) {
+  return `<div class="wrap"><table><tr><th class="n">Pos</th>${inClass ? `<th class="n">Overall</th>` : ""}<th>#</th><th>Driver</th>${race ? `<th class="n">Start</th><th class="n">Gap</th><th class="n">Laps</th><th class="n">Led</th>` : ""}
     <th class="n">Best lap</th>${race ? `<th class="n">Avg lap</th>` : ""}<th class="n">Inc</th>${race ? `<th>Status</th><th class="n">Pts</th>` : ""}</tr>` +
-    rows.map(r => `<tr><td class="n">${r.finish_pos ?? ""}</td><td>${esc(r.car_number)}</td><td>${driverLink(r.cust_id, r.name)}</td>
-      ${race ? `<td class="n">${r.start_pos ?? ""}</td><td class="n">${gap(r)}</td><td class="n">${r.laps ?? ""}</td><td class="n">${r.laps_led || ""}</td>` : ""}
+    rows.map(r => `<tr><td class="n">${(inClass ? r.class_pos : r.finish_pos) ?? ""}</td>${inClass ? `<td class="n tag">${r.finish_pos ?? ""}</td>` : ""}
+      <td>${esc(r.car_number)}</td><td>${driverLink(r.cust_id, r.name)}</td>
+      ${race ? `<td class="n">${r.start_pos ?? ""}</td><td class="n">${gap(r, inClass)}</td><td class="n">${r.laps ?? ""}</td><td class="n">${r.laps_led || ""}</td>` : ""}
       <td class="n">${lap(r.best_lap_ms)}</td>${race ? `<td class="n">${lap(r.avg_lap_ms)}</td>` : ""}<td class="n">${r.incidents ?? ""}</td>
       ${race ? `<td>${esc(r.reason_out)}</td><td class="n">${r.league_points ?? ""}</td>` : ""}</tr>`).join("") + `</table></div>`;
+}
+
+// a session's rows, one table per class when there's more than one (classes in the order their best car finished)
+function sessionTables(rows, race, label) {
+  const classes = [...new Set(rows.map(r => r.car_class))];
+  if (classes.length < 2) return `<h2>${esc(label)}</h2>` + sessionTable(rows, race, false);
+  return classes.map(c => `<h2>${esc(label)} ${cls(c)}</h2>` + sessionTable(rows.filter(r => r.car_class === c), race, race)).join("");
 }
 
 function resultPage(ev, user) {
   const facts = [ev.laps != null && `${ev.laps} laps`, ev.cautions != null && `${ev.cautions} caution${ev.cautions === 1 ? "" : "s"}${ev.caution_laps ? ` (${ev.caution_laps} laps)` : ""}`,
     ev.lead_changes != null && `${ev.lead_changes} lead changes`, ev.sof && `SOF ${ev.sof}`].filter(Boolean).join(" · ");
-  let body = `<h1>${esc(ev.track)}</h1><p class="sub">${day(ev.start_time)}${ev.season_name ? " · " + esc(ev.season_name) : ""}${facts ? " · " + facts : ""}</p>`;
+  let body = crumb(ev) + `<h1>${esc(ev.track)}</h1><p class="sub">${day(ev.start_time)}${ev.season_name ? " · " + esc(ev.season_name) : ""}${facts ? " · " + facts : ""}</p>`;
   const names = { race: "Race", qualify: "Qualifying", practice: "Practice", warmup: "Warmup" };
   for (const s of ["race", "qualify", "warmup", "practice", ...Object.keys(ev.sessions).filter(k => !names[k])])
-    if (ev.sessions[s]) body += `<h2>${esc(names[s] || s)}</h2>` + sessionTable(ev.sessions[s], s === "race");
+    if (ev.sessions[s]) body += sessionTables(ev.sessions[s], s === "race", names[s] || s);
   body += `<p class="tag">iRacing session ${ev.subsession_id}</p>`;
   return page(`${ev.track} results`, body, { user });
 }
 
+// in a multi-class race a driver's finish is their place in class
+const place = x => x.class_count > 1 ? x.class_pos ?? x.finish_pos : x.finish_pos;
+function statCards(r) {
+  const fin = r.filter(x => place(x));
+  const avg = f => { const v = r.map(f).filter(Boolean); return v.length ? (v.reduce((s, x) => s + x, 0) / v.length).toFixed(1) : "–"; };
+  return `<div class="stats">${[["Starts", r.length], ["Wins", fin.filter(x => place(x) === 1).length], ["Top 5", fin.filter(x => place(x) <= 5).length],
+    ["Top 10", fin.filter(x => place(x) <= 10).length], ["Avg finish", avg(place)], ["Avg start", avg(x => x.start_pos)],
+    ["Laps led", r.reduce((s, x) => s + (x.laps_led || 0), 0)]].map(([k, v]) => `<div class="stat"><b>${v}</b><small>${k}</small></div>`).join("")}</div>`;
+}
+
 function driverPage(d, user) {
-  const r = d.races, n = r.length, fin = r.filter(x => x.finish_pos);
-  const avg = k => { const v = r.filter(x => x[k]); return v.length ? (v.reduce((s, x) => s + x[k], 0) / v.length).toFixed(1) : "–"; };
-  const stats = [["Starts", n], ["Wins", fin.filter(x => x.finish_pos === 1).length], ["Top 5", fin.filter(x => x.finish_pos <= 5).length],
-    ["Top 10", fin.filter(x => x.finish_pos <= 10).length], ["Avg finish", avg("finish_pos")], ["Avg start", avg("start_pos")],
-    ["Laps led", r.reduce((s, x) => s + (x.laps_led || 0), 0)]];
   const other = d.names.filter(x => x.name !== d.name).map(x => esc(x.name));
-  let body = `<h1>${esc(d.name)}</h1><p class="sub">iRacing ID ${d.cust_id}${other.length ? " · also raced as " + other.join(", ") : ""}</p>
-    <div class="stats">${stats.map(([k, v]) => `<div class="stat"><b>${v}</b><small>${k}</small></div>`).join("")}</div>`;
-  body += `<h2>Races</h2><div class="wrap"><table><tr><th>Date</th><th>Track</th><th class="n">Start</th><th class="n">Finish</th><th class="n">Laps</th>
-    <th class="n">Led</th><th class="n">Inc</th><th>Status</th><th class="n">Pts</th></tr>` +
-    r.map(x => `<tr><td><a href="${BASE}/results/${x.subsession_id}">${day(x.start_time)}</a></td><td>${esc(x.track)}</td><td class="n">${x.start_pos ?? ""}</td>
-      <td class="n">${x.finish_pos ?? ""}${x.starters ? `<span class="tag"> / ${x.starters}</span>` : ""}</td><td class="n">${x.laps ?? ""}</td>
-      <td class="n">${x.laps_led || ""}</td><td class="n">${x.incidents ?? ""}</td><td>${esc(x.reason_out)}</td><td class="n">${x.league_points ?? ""}</td></tr>`).join("") +
-    `</table></div>`;
+  const bySeries = new Map();
+  for (const x of d.races) { const k = x.series_id || 0; if (!bySeries.has(k)) bySeries.set(k, []); bySeries.get(k).push(x); }
+  let body = `<h1>${esc(d.name)}</h1><p class="sub">iRacing ID ${d.cust_id}${other.length ? " · also raced as " + other.join(", ") : ""}</p>`;
+  if (bySeries.size > 1) body += `<h2>Career</h2>` + statCards(d.races);
+  for (const races of bySeries.values()) {
+    const x0 = races[0];
+    body += `<h2>${x0.slug ? `<a href="${BASE}/${esc(x0.slug)}">${esc(x0.short_name)}</a>` : esc(x0.series_name || "Other races")}</h2>` + statCards(races) +
+      `<div class="wrap"><table><tr><th>Date</th><th>Track</th><th class="n">Start</th><th class="n">Finish</th><th class="n">Laps</th>
+      <th class="n">Led</th><th class="n">Inc</th><th>Status</th><th class="n">Pts</th></tr>` +
+      races.map(x => { const multi = x.class_count > 1; return `<tr><td><a href="${BASE}/results/${x.subsession_id}">${day(x.start_time)}</a></td><td>${esc(x.track)}</td>
+        <td class="n">${x.start_pos ?? ""}</td><td class="n">${multi ? cls(x.car_class) : ""}${place(x) ?? ""}<span class="tag"> / ${multi ? x.class_starters : x.starters}</span></td>
+        <td class="n">${x.laps ?? ""}</td><td class="n">${x.laps_led || ""}</td><td class="n">${x.incidents ?? ""}</td><td>${esc(x.reason_out)}</td>
+        <td class="n">${x.league_points ?? ""}</td></tr>`; }).join("") + `</table></div>`;
+  }
   return page(d.name, body, { user });
 }
 
@@ -165,11 +223,26 @@ export default {
       }
       if (path === `${BASE}/api/me`) return json({ ok: true, user, signIn: configured(env) });
       if (path === `${BASE}/api/events`) return json({ ok: true, events: await listEvents(db, { season: Number(url.searchParams.get("season")) || 0 }) });
+      if (path === `${BASE}/api/series`) return json({ ok: true, series: await listSeries(db) });
+      if ((m = path.match(/^\/glr\/api\/series\/([a-z0-9-]+)$/))) { const sr = await getSeries(db, m[1]); return sr ? json({ ok: true, series: sr }) : json({ ok: false, error: "No such series" }, 404); }
       if ((m = path.match(/^\/glr\/api\/results\/(\d+)$/))) { const ev = await getEvent(db, Number(m[1])); return ev ? json({ ok: true, event: ev }) : json({ ok: false, error: "No such race" }, 404); }
       if ((m = path.match(/^\/glr\/api\/drivers\/(\d+)$/))) { const d = await getDriver(db, Number(m[1])); return d ? json({ ok: true, driver: d }) : json({ ok: false, error: "No such driver" }, 404); }
-      if (path === BASE) return homePage(await listEvents(db), user);
+      if (path === BASE) return homePage(await listSeries(db), await listEvents(db, { limit: 15 }), user);
       if ((m = path.match(/^\/glr\/results\/(\d+)$/))) { const ev = await getEvent(db, Number(m[1])); return ev ? resultPage(ev, user) : notFound("No race with that session number has been uploaded.", user); }
       if ((m = path.match(/^\/glr\/drivers\/(\d+)$/))) { const d = await getDriver(db, Number(m[1])); return d ? driverPage(d, user) : notFound("No driver with that iRacing ID has raced here yet.", user); }
+      if ((m = path.match(/^\/glr\/([a-z0-9-]+)\/edit$/))) {
+        const sr = await getSeries(db, m[1]);
+        if (!sr) return notFound("No series at that address.", user);
+        if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${encodeURIComponent(path)}`, 302);
+        if (request.method === "POST") {
+          if (!sameOrigin(request, url)) return seriesEditPage(sr, user, "Save from this page.");
+          const f = await request.formData();
+          try { const r = await updateSeries(db, sr.id, { shortName: f.get("short_name"), slug: f.get("slug") }); return Response.redirect(`${url.origin}${BASE}/${r.slug}`, 303); }
+          catch (e) { return seriesEditPage({ ...sr, short_name: f.get("short_name") || sr.short_name, slug: f.get("slug") || sr.slug }, user, e.message); }
+        }
+        return seriesEditPage(sr, user);
+      }
+      if ((m = path.match(/^\/glr\/([a-z0-9-]+)$/))) { const sr = await getSeries(db, m[1]); if (sr) return seriesPage(sr, user); }
       return notFound("Check the link.", user);
     } catch (e) {
       console.error(e);
