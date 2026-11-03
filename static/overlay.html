@@ -89,17 +89,10 @@
   #tower.f-checkered .cbar span { background: #111; color: #fff; display: inline-block; line-height: 26px; }
   #tower .cwipe { position: absolute; inset: 0; background: var(--yellow); z-index: 3; opacity: 0; pointer-events: none; }
   #tower .cwipe.white { background: #fff; }
-  /* flag sponsor sweep: the ticker's rows fill with the flag's colour (one solid colour) one after another, top to bottom, the sponsor
-     banner pops up in the middle on a dark VSPEED plate, then the rows go back the same way, bottom to top */
-  #tower .fsweep { position: absolute; left: 0; width: 100%; z-index: 6; pointer-events: none; visibility: hidden;
-    --a: #22b84a; }
-  #tower .fsweep.white { --a: #f2f2f3; }
-  #tower .fsweep .fsl { position: absolute; left: 0; width: 100%; transform-origin: left center; transform: scaleX(0);
-    background: var(--a); }
-  #tower .fsweep .fbn { position: absolute; left: 50%; top: 50%; width: 94%; opacity: 0; transform: translate(-50%, -50%); }
-  #tower .fsweep .fpl { position: absolute; left: -2%; right: -2%; top: -22%; bottom: -22%; background: var(--black);
-    transform: skewX(-12deg); border-left: 5px solid var(--red); box-shadow: 0 10px 30px rgba(0,0,0,.45); }
-  #tower .fsweep .fbn img { position: relative; display: block; width: 100%; height: auto; }
+  #tower .cwipe.green { background: #22b84a; }
+  /* the flag's sponsor banner (Green Flag, Restart, White Flag sponsor slots) in the middle of the flash */
+  #tower .cban { position: absolute; left: 6%; width: 88%; top: 50%; transform: translateY(-50%); z-index: 4; opacity: 0; pointer-events: none; }
+  #tower .cban img { display: block; width: 100%; height: auto; filter: drop-shadow(0 8px 16px rgba(0,0,0,.45)); }
   #tower .fshine { position: absolute; inset: 0; pointer-events: none; opacity: 0;
     background: linear-gradient(105deg, transparent 35%, rgba(255,255,255,.75) 50%, transparent 65%) no-repeat;
     background-size: 250% 100%; -webkit-mask-size: 100% 100%; mask-size: 100% 100%; }
@@ -404,10 +397,8 @@
   <div class="head" id="tHead">VSPEED</div>
   <div class="sub"><span id="tSub"></span><span class="flag" id="tFlag"></span></div>
   <div class="cbar" id="tCbar"><span>Caution</span></div>
-  <div class="rows" id="tRows"><div class="cwipe" id="tCwipe"></div></div>
+  <div class="rows" id="tRows"><div class="cwipe" id="tCwipe"></div><div class="cban" id="tCban"><img id="tCbanImg" alt=""><div class="fshine" id="tCbanShine"></div></div></div>
   <div class="pits" id="tPits"></div>
-  <div class="fsweep" id="tFs"><div id="tFsSl"></div>
-    <div class="fbn"><div class="fpl"></div><img id="tFsImg" alt=""><div class="fshine" id="tFsShine"></div></div></div>
   <div id="pitrace" class="widget off"><div class="h"><span>Race off pit road</span><small id="prSub"></small></div><div id="prBody"></div></div>
   <div id="livepts" class="widget off"><div class="h"><span id="lpTitle">Live points</span><small id="lpSub"></small></div><div id="lpBody"></div></div>
 </div>
@@ -1196,19 +1187,41 @@ function flashFlag(f) {
   } else show('flag', true);
   flagTimer = setTimeout(() => show('flag', false), 6000);
 }
-/* flag wipe on the ticker (caution, white, checkered): the rows flicker to the flag, hold, then the order fades back through it */
+/* flag wipe on the ticker (caution, white, checkered, and green at the start and on restarts in a race): the rows
+   flicker to the flag, hold, then the order fades back through it. With a sponsor banner for that flag (Green Flag,
+   Restart, White Flag sponsor slots) the banner sits in the middle of the flash, which then holds a little longer. */
 const FLAG_BAND = { caution: 'Caution', white: 'White flag', checkered: 'Checkered' };
-function flagWipe(flag) {
+async function flagWipe(flag, slot) {
   if (!(VIS.tower && VIS.tower.on)) return;
-  const w = $('tCwipe');
+  const file = slot ? ((((S && S.sponsor) || {}).files || {})[slot] || '') : '';
+  const src = file ? await fsCrop(file) : null;
+  if (!(VIS.tower && VIS.tower.on)) return;
+  const w = $('tCwipe'), b = $('tCban');
   w.className = 'cwipe ' + flag;
   w.getAnimations().forEach(a => a.cancel());
+  b.getAnimations({ subtree: true }).forEach(a => a.cancel());
+  const dur = src ? 4200 : 3000;
   w.animate([
     { opacity: 0, offset: 0 },     { opacity: 1, offset: .05 },  { opacity: .35, offset: .09 },
     { opacity: 1, offset: .13 },   { opacity: .5, offset: .16 }, { opacity: 1, offset: .20 },
     { opacity: 1, offset: .78 },   { opacity: 0, offset: 1 }
-  ], { duration: 3000, easing: 'linear' });
+  ], { duration: dur, easing: 'linear' });
   anim(q('tower', '.cbar'), [{ filter: 'brightness(1.6)' }, { filter: 'none' }], { duration: 600, delay: 100 });
+  if (!src) return;
+  $('tCbanImg').src = src;
+  const sh = $('tCbanShine');
+  sh.style.webkitMaskImage = sh.style.maskImage = `url("${src}")`;   // the shine only crosses the banner itself
+  // in once the flicker settles, out as the flash fades
+  b.animate([
+    { opacity: 0, transform: 'translateY(-50%) scale(.9)', offset: 0 },
+    { opacity: 0, transform: 'translateY(-50%) scale(.9)', offset: .14, easing: 'cubic-bezier(.2,.8,.2,1)' },
+    { opacity: 1, transform: 'translateY(-50%) scale(1)', offset: .22 },
+    { opacity: 1, transform: 'translateY(-50%) scale(1)', offset: .78 },
+    { opacity: 0, transform: 'translateY(-50%) scale(1)', offset: .92 },
+    { opacity: 0, transform: 'translateY(-50%) scale(1)', offset: 1 }
+  ], { duration: dur });
+  sh.animate([{ opacity: 1, backgroundPosition: '120% 0' }, { opacity: 1, backgroundPosition: '-20% 0' }],
+             { duration: 900, delay: dur * .24, easing: 'ease-in-out' });
 }
 const FLAG_BANNERS = false;   // top-center flag pop-ups are switched off for now (set to true to bring them back)
 function renderFlag() {
@@ -1219,17 +1232,16 @@ function renderFlag() {
   if (L.flag !== lastFlag) {
     const first = lastFlag === null, prev = lastFlag;
     lastFlag = L.flag;
-    if (!first && L.connected && L.isRace && !L.isReplay) flagSponsor(prev, L.flag);
+    const slot = !first && L.connected && L.isRace && !L.isReplay ? flagSlot(prev, L.flag) : '';
     if (!first && FLAG_BANNERS && S.show.flags && L.connected && !L.isReplay) flashFlag(L.flag);
-    if (!first && FLAG_BAND[L.flag] && L.connected && !L.isReplay) flagWipe(L.flag);
+    if (!first && (FLAG_BAND[L.flag] || slot) && L.connected && !L.isReplay) flagWipe(L.flag, slot);
   }
 }
 
-/* ---------- flag sponsor sweep: on the first green of the race, every restart (green after a caution) and the
-   white flag, that sponsor slot's banner sweeps across the top of the ticker from left to right, holds, and sweeps out
-   to the right. The slots hold full-screen (1920x1080) frames with the banner somewhere on them: the banner is cut out
-   here (the see-through edges trimmed), so producers keep loading the same files. Only while the ticker is up. ---------- */
-const FS = { crops: {}, busy: false };
+/* ---------- flag sponsors: the Green Flag, Restart and White Flag sponsor slots hold full-screen (1920x1080) frames
+   with the banner somewhere on them. The banner is cut out here (the see-through edges trimmed) and shown in the
+   middle of the ticker's flag flash, so producers keep loading the same files. ---------- */
+const FS = { crops: {} };
 function fsCrop(file) {   // the banner without its see-through edges, as an image address (cached per file)
   if (!FS.crops[file]) FS.crops[file] = new Promise(res => {
     const im = new Image();
@@ -1253,62 +1265,14 @@ function fsCrop(file) {   // the banner without its see-through edges, as an ima
   });
   return FS.crops[file];
 }
-function fsPreload() {   // cut the banners out ahead of time, so the sweep starts on the flag
+function fsPreload() {   // cut the banners out ahead of time, so they're ready on the flag
   const files = ((S && S.sponsor) || {}).files || {};
   ['green', 'restart', 'white'].forEach(k => { if (files[k]) fsCrop(files[k]); });
 }
-function flagSponsor(prev, flag) {
-  const slot = flag === 'white' ? 'white'
+function flagSlot(prev, flag) {   // which sponsor slot a flag change in a race calls for ('' = none)
+  return flag === 'white' ? 'white'
     : flag === 'green' && (prev === 'caution' || prev === 'red') ? 'restart'
     : flag === 'green' && (L.lap || 0) <= 1 ? 'green' : '';
-  if (slot) fsSweep(slot);
-}
-async function fsSweep(slot) {
-  const file = (((S && S.sponsor) || {}).files || {})[slot];
-  if (!file || LAYOUT_MODE || !(VIS.tower && VIS.tower.on)) return;
-  const src = await fsCrop(file);
-  if (!src || !(VIS.tower && VIS.tower.on)) return;
-  const box = $('tFs'), img = $('tFsImg'), sh = $('tFsShine'), rows = $('tRows'), sl = $('tFsSl'), bn = box.querySelector('.fbn');
-  box.getAnimations({ subtree: true }).forEach(x => x.cancel());
-  img.src = src;
-  sh.style.webkitMaskImage = sh.style.maskImage = `url("${src}")`;   // the shine only crosses the banner itself
-  box.className = 'fsweep' + (slot === 'white' ? ' white' : '');
-  const H = Math.max(120, rows.offsetHeight), first = rows.querySelector('.row');
-  const rh = Math.max(20, first ? first.offsetHeight : 34), n = Math.ceil(H / rh);
-  box.style.top = rows.offsetTop + 'px'; box.style.height = H + 'px';
-  // one strip per ticker row, 1 px taller than the row so the colour is solid with no seams
-  if (sl.children.length !== n) sl.innerHTML = '<i class="fsl"></i>'.repeat(n);
-  [...sl.children].forEach((e, i) => { e.style.top = (i * rh) + 'px'; e.style.height = Math.min(rh + 1, H - i * rh) + 'px'; });
-  box.style.visibility = 'visible';
-  const STEP = Math.min(30, 420 / n), ROW = 320, IN = ROW + STEP * n, HOLD = 3000, ALL = IN * 2 + HOLD;
-  // each row fills with the flag's colour from the left, top to bottom; at the end they empty again, bottom to top
-  // (easing goes on each keyframe: an easing on the whole animation would bend its entire 4.5 s timeline)
-  const E = 'cubic-bezier(.6,0,.3,1)';
-  [...sl.children].forEach((e, i) => {
-    const tin = i * STEP, tout = IN + HOLD + (n - 1 - i) * STEP;
-    e.animate([
-      { transform: 'scaleX(0)', offset: 0 }, { transform: 'scaleX(0)', offset: tin / ALL, easing: E },
-      { transform: 'scaleX(1)', offset: (tin + ROW) / ALL }, { transform: 'scaleX(1)', transformOrigin: 'right center', offset: tout / ALL, easing: E },
-      { transform: 'scaleX(0)', transformOrigin: 'right center', offset: (tout + ROW) / ALL },
-      { transform: 'scaleX(0)', offset: 1 }
-    ], { duration: ALL });
-  });
-  // the banner on its plate: pops up once the rows are mostly filled, drops away before they empty
-  const B = IN * .8;
-  bn.animate([
-    { opacity: 0, transform: 'translate(-50%, -50%) scale(.6)', offset: 0 },
-    { opacity: 0, transform: 'translate(-50%, -50%) scale(.6)', offset: B / ALL, easing: 'ease-out' },
-    { opacity: 1, transform: 'translate(-50%, -50%) scale(1.06)', offset: (B + 260) / ALL, easing: 'ease-in-out' },
-    { opacity: 1, transform: 'translate(-50%, -50%) scale(1)', offset: (B + 420) / ALL },
-    { opacity: 1, transform: 'translate(-50%, -50%) scale(1)', offset: (IN + HOLD) / ALL, easing: 'ease-in' },
-    { opacity: 0, transform: 'translate(-50%, -50%) scale(.85)', offset: (IN + HOLD + 250) / ALL },
-    { opacity: 0, transform: 'translate(-50%, -50%) scale(.85)', offset: 1 }
-  ], { duration: ALL });
-  bn.querySelector('.fpl').animate([{ clipPath: 'inset(0 100% 0 0)' }, { clipPath: 'inset(0 0 0 0)' }],
-                                    { duration: 380, delay: IN * .8 + 60, easing: 'cubic-bezier(.2,.8,.2,1)', fill: 'backwards' });
-  sh.animate([{ opacity: 1, backgroundPosition: '120% 0' }, { opacity: 1, backgroundPosition: '-20% 0' }],
-             { duration: 900, delay: IN * .8 + 450, easing: 'ease-in-out' });
-  setTimeout(() => { if (!box.getAnimations({ subtree: true }).some(a => a.playState === 'running')) box.style.visibility = 'hidden'; }, ALL + 50);
 }
 
 /* ---------- sponsor graphic: one of six loaded images, one on air at a time ---------- */
