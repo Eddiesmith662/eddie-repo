@@ -10,7 +10,8 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS series (
      id INTEGER PRIMARY KEY,            -- iRacing league id
      name TEXT NOT NULL DEFAULT '',     -- iRacing's league name
-     short_name TEXT NOT NULL DEFAULT '', slug TEXT NOT NULL DEFAULT '')`,
+     short_name TEXT NOT NULL DEFAULT '', slug TEXT NOT NULL DEFAULT '',
+     role_id TEXT NOT NULL DEFAULT '')  -- Discord role whose members can edit this series`,
   `CREATE TABLE IF NOT EXISTS seasons (
      id INTEGER PRIMARY KEY,            -- iRacing league season id
      series_id INTEGER,
@@ -39,10 +40,16 @@ const SCHEMA = [
      reason_out TEXT, league_points INTEGER,
      PRIMARY KEY (subsession_id, session, cust_id))`,
   `CREATE INDEX IF NOT EXISTS results_driver ON results (cust_id, subsession_id)`,
+  `CREATE TABLE IF NOT EXISTS season_rules (
+     season_id INTEGER PRIMARY KEY, rules TEXT NOT NULL, updated_at TEXT, updated_by TEXT)`,
+  `CREATE TABLE IF NOT EXISTS adjustments (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, subsession_id INTEGER NOT NULL, cust_id INTEGER NOT NULL,
+     points INTEGER NOT NULL, reason TEXT NOT NULL DEFAULT '', created_at TEXT, created_by TEXT)`,
+  `CREATE INDEX IF NOT EXISTS adjustments_event ON adjustments (subsession_id)`,
 ];
 // columns added after the first version: [table, column, definition]
 const ADDED = [
-  ["series", "short_name", "TEXT NOT NULL DEFAULT ''"], ["series", "slug", "TEXT NOT NULL DEFAULT ''"],
+  ["series", "short_name", "TEXT NOT NULL DEFAULT ''"], ["series", "slug", "TEXT NOT NULL DEFAULT ''"], ["series", "role_id", "TEXT NOT NULL DEFAULT ''"],
   ["results", "car_class", "TEXT NOT NULL DEFAULT ''"], ["results", "class_pos", "INTEGER"],
   ["results", "class_interval_ms", "INTEGER"], ["results", "class_laps_down", "INTEGER"],
 ];
@@ -200,6 +207,81 @@ export async function getSeries(db, key) {
   }
   sr.seasons = [...seasons.values()];
   return sr;
+}
+
+export async function setSeriesRole(db, id, role) {
+  await ensureSchema(db);
+  const r = String(role || "").trim();
+  if (r && !/^\d{5,25}$/.test(r)) throw new Error("A Discord role ID is a long number. In Discord: Server Settings > Roles > right-click the role > Copy Role ID.");
+  await db.prepare(`UPDATE series SET role_id = ? WHERE id = ?`).bind(r, id).run();
+}
+
+export async function seriesRoles(db) {
+  await ensureSchema(db);
+  return (await db.prepare(`SELECT id, role_id FROM series WHERE role_id <> ''`).all()).results;
+}
+
+export async function seriesById(db, id) {
+  await ensureSchema(db);
+  return db.prepare(`SELECT * FROM series WHERE id = ?`).bind(id).first();
+}
+
+// a series' seasons, newest first, with how many races each has
+export async function seasonsOf(db, seriesId) {
+  await ensureSchema(db);
+  return (await db.prepare(`SELECT se.id, se.name, COUNT(e.subsession_id) AS races, MAX(e.start_time) AS last
+      FROM seasons se LEFT JOIN events e ON e.season_id = se.id WHERE se.series_id = ? GROUP BY se.id ORDER BY last DESC`).bind(seriesId).all()).results;
+}
+
+// a season's rules: its own, else the latest earlier season's in the same series, else none (null)
+export async function getRules(db, seasonId, seriesId) {
+  await ensureSchema(db);
+  const own = await db.prepare(`SELECT * FROM season_rules WHERE season_id = ?`).bind(seasonId).first();
+  if (own) return { rules: JSON.parse(own.rules), own: true, updatedAt: own.updated_at, updatedBy: own.updated_by };
+  const prev = await db.prepare(`SELECT sr.*, se.name FROM season_rules sr JOIN seasons se ON se.id = sr.season_id
+      WHERE se.series_id = ? AND se.id <> ? ORDER BY (SELECT MAX(start_time) FROM events e WHERE e.season_id = se.id) DESC LIMIT 1`).bind(seriesId, seasonId).first();
+  if (prev) return { rules: JSON.parse(prev.rules), own: false, from: prev.name };
+  return { rules: null, own: false };
+}
+
+export async function saveRules(db, seasonId, rules, by) {
+  await ensureSchema(db);
+  await db.prepare(`INSERT INTO season_rules (season_id, rules, updated_at, updated_by) VALUES (?1, ?2, ?3, ?4)
+      ON CONFLICT(season_id) DO UPDATE SET rules = ?2, updated_at = ?3, updated_by = ?4`).bind(seasonId, JSON.stringify(rules), new Date().toISOString(), by).run();
+}
+
+// a season's races with their race results, oldest first
+export async function seasonEvents(db, seasonId) {
+  await ensureSchema(db);
+  const evs = (await db.prepare(`SELECT subsession_id, start_time, track FROM events WHERE season_id = ? ORDER BY start_time`).bind(seasonId).all()).results;
+  const rows = (await db.prepare(`SELECT r.* FROM results r JOIN events e ON e.subsession_id = r.subsession_id
+      WHERE e.season_id = ? AND r.session = 'race'`).bind(seasonId).all()).results;
+  for (const e of evs) e.results = rows.filter(r => r.subsession_id === e.subsession_id);
+  return evs;
+}
+
+export async function listAdjustments(db, seasonId) {
+  await ensureSchema(db);
+  return (await db.prepare(`SELECT a.*, e.track, e.start_time, (SELECT name FROM results r WHERE r.subsession_id = a.subsession_id
+        AND r.cust_id = a.cust_id AND r.session = 'race') AS name
+      FROM adjustments a JOIN events e ON e.subsession_id = a.subsession_id WHERE e.season_id = ? ORDER BY e.start_time, a.id`).bind(seasonId).all()).results;
+}
+
+export async function addAdjustment(db, seasonId, { sub, cust, points, reason }, by) {
+  await ensureSchema(db);
+  const ok = await db.prepare(`SELECT 1 AS ok FROM results r JOIN events e ON e.subsession_id = r.subsession_id
+      WHERE e.season_id = ? AND r.subsession_id = ? AND r.cust_id = ? AND r.session = 'race'`).bind(seasonId, sub, cust).first();
+  if (!ok) throw new Error("That driver isn't in that race's results.");
+  const pts = Math.round(Number(points));
+  if (!Number.isFinite(pts) || pts === 0) throw new Error("Enter the points to add or take away, like -25.");
+  if (!String(reason || "").trim()) throw new Error("Give a reason. Drivers see it on the standings.");
+  await db.prepare(`INSERT INTO adjustments (subsession_id, cust_id, points, reason, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?)`)
+    .bind(sub, cust, pts, String(reason).trim().slice(0, 200), new Date().toISOString(), by).run();
+}
+
+export async function deleteAdjustment(db, seasonId, id) {
+  await ensureSchema(db);
+  await db.prepare(`DELETE FROM adjustments WHERE id = ? AND subsession_id IN (SELECT subsession_id FROM events WHERE season_id = ?)`).bind(id, seasonId).run();
 }
 
 export async function updateSeries(db, id, { shortName, slug }) {

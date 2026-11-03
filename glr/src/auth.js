@@ -1,15 +1,16 @@
 /*
- * Sign in with Discord. An official is anyone who has the chosen role in the league's Discord server, so access is
- * managed in Discord: give someone the role and they can sign in, take it away and they're out within 15 minutes.
+ * Sign in with Discord. Access is managed with roles in the league's Discord server: the admin role (DISCORD_ROLE_ID)
+ * can edit every series, and each series can name its own role whose members edit only that series. Give someone a
+ * role and they can sign in; take it away and they're out within 15 minutes.
  *
  * Cloudflare secrets on the vspeed-glr worker (never in the repo):
  *   DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET   from the Discord application (Developer Portal > OAuth2)
  *   DISCORD_GUILD_ID                           the league's Discord server
- *   DISCORD_ROLE_ID                            the role that makes someone an official
+ *   DISCORD_ROLE_ID                            the admin role (every series)
  *
  * Sessions live in the database; the browser only holds a random token (the database keeps its hash).
  */
-import { ensureSchema } from "./db.js";
+import { ensureSchema, seriesRoles } from "./db.js";
 
 const API = "https://discord.com/api/v10";
 const COOKIE = "glr_session", STATE = "glr_state";
@@ -23,7 +24,21 @@ const SCHEMA = `CREATE TABLE IF NOT EXISTS sessions (
   access_token TEXT, refresh_token TEXT, token_expires INTEGER,
   created INTEGER, expires INTEGER, checked INTEGER)`;
 let ready = null;
-async function schema(db) { await ensureSchema(db); if (!ready) ready = db.prepare(SCHEMA).run().catch(e => { ready = null; throw e; }); return ready; }
+async function schema(db) {
+  await ensureSchema(db);
+  if (!ready) ready = (async () => {
+    await db.prepare(SCHEMA).run();
+    const cols = (await db.prepare(`PRAGMA table_info(sessions)`).all()).results.map(c => c.name);
+    if (!cols.includes("roles")) await db.prepare(`ALTER TABLE sessions ADD COLUMN roles TEXT NOT NULL DEFAULT '[]'`).run();
+  })().catch(e => { ready = null; throw e; });
+  return ready;
+}
+
+// the roles that matter here: the admin role plus any series' role
+async function relevant(env, roles) {
+  const series = await seriesRoles(env.DB);
+  return roles.filter(r => r === env.DISCORD_ROLE_ID || series.some(s => s.role_id === r));
+}
 
 const hex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
 const randomToken = () => hex(crypto.getRandomValues(new Uint8Array(32)));
@@ -69,13 +84,14 @@ export async function callback(request, env, url) {
   const mem = await memberRoles(env, tok.access_token);
   if (mem === false) return { error: "Discord didn't answer. Try again in a minute.", name };
   if (!mem) return { error: "You're not in the league's Discord server.", name };
-  if (!mem.roles.includes(env.DISCORD_ROLE_ID)) return { error: "You don't have the officials role in the league's Discord server.", name };
   await schema(env.DB);
+  const roles = await relevant(env, mem.roles);
+  if (!roles.length) return { error: "You don't have an officials role in the league's Discord server.", name };
   const token = randomToken(), now = Date.now();
-  await env.DB.prepare(`INSERT INTO sessions (token_hash, discord_id, name, avatar, access_token, refresh_token, token_expires, created, expires, checked)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+  await env.DB.prepare(`INSERT INTO sessions (token_hash, discord_id, name, avatar, access_token, refresh_token, token_expires, created, expires, checked, roles)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .bind(await sha256(token), user.id, mem.nick || name, user.avatar || "", tok.access_token, tok.refresh_token || "",
-          now + (tok.expires_in || 0) * 1000, now, now + DAYS * 864e5, now).run();
+          now + (tok.expires_in || 0) * 1000, now, now + DAYS * 864e5, now, JSON.stringify(roles)).run();
   await env.DB.prepare(`DELETE FROM sessions WHERE expires < ?`).bind(now).run();
   return { response: redirect(decodeURIComponent(back || "/glr"), [setCookie(COOKIE, token, DAYS * 86400), setCookie(STATE, "", 0)]) };
 }
@@ -88,6 +104,7 @@ export async function currentUser(request, env) {
   const h = await sha256(token), now = Date.now();
   const s = await env.DB.prepare(`SELECT * FROM sessions WHERE token_hash = ?`).bind(h).first();
   if (!s || s.expires < now) return null;
+  let roles = JSON.parse(s.roles || "[]");
   if (now - s.checked > RECHECK_MS) {
     let access = s.access_token;
     try {
@@ -98,11 +115,13 @@ export async function currentUser(request, env) {
           .bind(t.access_token, t.refresh_token || s.refresh_token, now + (t.expires_in || 0) * 1000, h).run();
       }
       const mem = await memberRoles(env, access);
-      if (mem === null || (mem && !mem.roles.includes(env.DISCORD_ROLE_ID))) {
+      if (mem) roles = await relevant(env, mem.roles);
+      if (mem === null || (mem && !roles.length)) {
         await env.DB.prepare(`DELETE FROM sessions WHERE token_hash = ?`).bind(h).run();
         return null;
       }
-      if (mem) await env.DB.prepare(`UPDATE sessions SET checked = ?, name = COALESCE(NULLIF(?, ''), name) WHERE token_hash = ?`).bind(now, mem.nick, h).run();
+      if (mem) await env.DB.prepare(`UPDATE sessions SET checked = ?, roles = ?, name = COALESCE(NULLIF(?, ''), name) WHERE token_hash = ?`)
+        .bind(now, JSON.stringify(roles), mem.nick, h).run();
       // mem === false: Discord is down; keep the session and ask again next time
     } catch (e) {
       // refresh refused (the person disconnected the app in Discord): sign them out
@@ -110,7 +129,7 @@ export async function currentUser(request, env) {
       return null;
     }
   }
-  return { id: s.discord_id, name: s.name, avatar: s.avatar };
+  return { id: s.discord_id, name: s.name, avatar: s.avatar, roles, admin: roles.includes(env.DISCORD_ROLE_ID) };
 }
 
 // POST /glr/logout
@@ -119,3 +138,6 @@ export async function logout(request, env) {
   if (token && configured(env)) { await schema(env.DB); await env.DB.prepare(`DELETE FROM sessions WHERE token_hash = ?`).bind(await sha256(token)).run(); }
   return redirect("/glr", [setCookie(COOKIE, "", 0)]);
 }
+
+// may this signed-in person edit this series? (admins: every series)
+export const canEdit = (user, series) => !!user && (user.admin || (!!series && !!series.role_id && user.roles.includes(series.role_id)));
