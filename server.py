@@ -39,6 +39,7 @@ import livepoints
 import profiles
 import raceresults
 import announcer
+import leagueupload
 
 ROOT = datafiles.ROOT
 STATIC = os.path.join(ROOT, "static")
@@ -169,11 +170,20 @@ class State:
             self.live = live
             self.bump()
 
+    def public_settings(self):
+        """The settings for the control panel and other pages: the league site key itself stays on this PC."""
+        lu = self.settings.get("leagueUpload")
+        if not (lu and lu.get("key")):
+            return self.settings
+        s = dict(self.settings)
+        s["leagueUpload"] = dict(lu, key="saved")
+        return s
+
     def snapshot(self):
-        return json.dumps({"settings": self.settings, "live": self.live, "standings": standings.summary(), "app": APP,
+        return json.dumps({"settings": self.public_settings(), "live": self.live, "standings": standings.summary(), "app": APP,
                            "penalties": {"list": PEN["list"], "hide": PEN["hide"], "reasons": PEN_REASONS, "now": time.time()},
                            "incidentsVer": incidents.STATE["ver"], "pitrace": pitrace.snapshot(), "series": profiles.summary(),
-                           "announcer": announcer.status()})
+                           "announcer": announcer.status(), "leagueUpload": leagueupload.status()})
 
     def defaults(self):
         return copy.deepcopy(DEFAULT_SETTINGS)
@@ -569,6 +579,7 @@ class IRacingSource:
             # overtime: how many green-white-checkered attempts the race allows (iRacing's race settings)
             "gwcLimit": (lambda v: int(v) if str(v).isdigit() else None)((wi.get("WeekendOptions") or {}).get("GreenWhiteCheckeredLimit")),
             "subId": wi.get("SubSessionID"),
+            "leagueId": wi.get("LeagueID") or None,      # the iRacing league this session belongs to (0 = not a league race)
             "gridOrder": grid_order,
             "track": wi.get("TrackDisplayName", ""),
             "sessions": sessions,
@@ -761,7 +772,8 @@ class IRacingSource:
                 "t": time.time(),
             }
             if is_race and state >= 5 and not replaying:     # save this race's results (data/results/<series>/)
-                raceresults.update(live, sess, self.info, sess_num, log=diag.log)
+                raceresults.update(live, sess, self.info, sess_num, log=diag.log,
+                                   on_saved=lambda official: leagueupload.queue(live, sess, self.info, sess_num, official))
             return live
         finally:
             ir.unfreeze_var_buffer_latest()
@@ -1534,6 +1546,38 @@ def penalty_command(data):
     return {"ok": True}
 
 
+def league_upload_command(d):
+    """League site upload, from the control panel's Setup tab: key / on / off / test."""
+    cmd = str(d.get("cmd") or "")
+    with STATE.lock:
+        cur = dict(leagueupload.DEFAULTS, **(STATE.settings.get("leagueUpload") or {}))
+    if cmd == "key":
+        key = str(d.get("key") or "").strip()
+        if key and not re.match(r"^vsglr_[0-9a-f]{48}$", key):
+            return False, "That isn't an overlay key. It starts with vsglr_ (from the league site's Overlay keys page)."
+        if key:
+            ok, msg = leagueupload.check(key)
+            if not ok:
+                return False, msg
+        patch = {"key": key, "on": bool(key)}             # pasting a good key switches it on
+        STATE.update_settings({"leagueUpload": patch})
+        leagueupload.configure(dict(cur, **patch))
+        diag.log("League site upload: key %s" % ("saved" if key else "removed"))
+        return True, "Key saved: results go to the league site after each race" if key else "Key removed"
+    if cmd in ("on", "off"):
+        if cmd == "on" and not cur.get("key"):
+            return False, "Paste a key from the league site first"
+        STATE.update_settings({"leagueUpload": {"on": cmd == "on"}})
+        leagueupload.configure(dict(cur, on=cmd == "on"))
+        diag.log("League site upload: %s" % cmd)
+        return True, ""
+    if cmd == "test":
+        if not cur.get("key"):
+            return False, "Paste a key from the league site first"
+        return leagueupload.check(cur["key"])
+    return False, "Unknown command"
+
+
 def announcer_command(d):
     """Announcer page feed, from the control panel: code / on / off / newlink / notes."""
     cmd = str(d.get("cmd") or "")
@@ -1810,7 +1854,7 @@ class Handler(BaseHTTPRequestHandler):
             return self.stream_events()
         if path == "/api/state":
             with STATE.lock:
-                return self.send_json({"settings": STATE.settings, "live": STATE.live})
+                return self.send_json({"settings": STATE.public_settings(), "live": STATE.live})
         if path == "/api/incidents":
             return self.send_json(incidents.snapshot())
         if path == "/api/assets":
@@ -1956,6 +2000,10 @@ class Handler(BaseHTTPRequestHandler):
             return self.send_json({"ok": bool(ok)})
         if path == "/api/announcer":
             ok, msg = announcer_command(data)
+            return self.send_json({"ok": ok, "msg": msg})
+        if path == "/api/leagueupload":
+            ok, msg = league_upload_command(data)
+            STATE.notify()
             return self.send_json({"ok": ok, "msg": msg})
         if path == "/api/profile":
             ok, msg = profiles.command(data)
@@ -2734,6 +2782,7 @@ def main():
         diag.error("Series profiles could not start: %r" % (e,), e)
     threading.Thread(target=update_watch, daemon=True).start()
     announcer.start(STATE, on_air_now, diag.log)    # the announcer page feed (does nothing until it's set up)
+    leagueupload.start(STATE.settings.get("leagueUpload"), diag.log)   # league site upload (does nothing until it's switched on)
     threading.Thread(target=telemetry_loop, args=(args.demo, args.multiclass, args.qual), daemon=True).start()
     server = QuietServer(("0.0.0.0", args.port), Handler)
     ip = local_ip()

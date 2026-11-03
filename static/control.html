@@ -802,6 +802,17 @@
     <p class="hint">If a link gets passed around, press <b>New link</b> and send the new one: the old link stops working straight away.</p>
   </section>
 
+  <section class="wide" id="luSetup">
+    <h2><span class="t">League site upload</span><span class="pill" id="luPill">OFF</span></h2>
+    <p class="hint" style="margin-top:0">Sends each league race's results to the VSPEED league site (vspeedlivetiming.app/glr) when the race ends. They show there as Provisional until the iRacing results file is uploaded. If the internet drops, races wait on this PC and go once it's back.</p>
+    <label>Overlay key (from the league site: Overlay keys, admins only)</label>
+    <div class="url"><input id="luKey" type="password" placeholder="vsglr_…" spellcheck="false" autocomplete="off"><button id="luSave">Save</button><button id="luTest">Test</button></div>
+    <div class="grid2" style="margin-top:10px">
+      <div><label>Upload</label><div class="seg" id="luSeg"><button data-v="on">On</button><button data-v="off">Off</button></div></div>
+      <div><label>Status</label><div class="hint" id="luStatus" style="margin:6px 0 0">—</div></div>
+    </div>
+  </section>
+
   <section class="wide">
     <h2><span class="t">Diagnostics</span><span class="pill" id="dgPill">—</span></h2>
     <div class="dg" id="dgStatus"></div>
@@ -1756,6 +1767,26 @@ function anRender() {
   if (document.activeElement !== $('anNotes') && !anT) $('anNotes').value = a.notes || '';
 }
 
+/* ---------- league site upload (Setup tab) ---------- */
+let LU = {};
+async function luCmd(body) { const r = await post('/api/leagueupload', body); if (r.msg) toast(r.msg); return r; }
+$('luSave').onclick = async () => { const k = $('luKey').value.trim(); const r = await luCmd({ cmd: 'key', key: k }); if (r.ok) $('luKey').value = ''; };
+$('luKey').onkeydown = e => { if (e.key === 'Enter') $('luSave').click(); };
+$('luTest').onclick = () => luCmd({ cmd: 'test' });
+$('luSeg').onclick = e => { const b = e.target.closest('button'); if (b) luCmd({ cmd: b.dataset.v }); };
+function luRender() {
+  const a = S.leagueUpload || {}, st = LU || {};
+  const on = !!a.on && !!a.key;
+  const label = !on ? 'OFF' : { ok: 'ON', ready: 'ON', waiting: 'WAITING', error: 'PROBLEM', setup: 'SET UP' }[st.state] || 'ON';
+  $('luPill').textContent = label; $('luPill').classList.toggle('air', on && (st.state === 'ok' || st.state === 'ready'));
+  let info = !a.key ? 'Off. Paste a key from the league site to switch it on.' : !a.on ? 'Off. Races are not sent.' : (st.msg || 'On. Results go to the site when each race ends.');
+  if (on && st.last && st.state !== 'ok') info += ` · Last sent ${st.last}`;
+  if (on && st.waiting) info += ` · ${st.waiting} race${st.waiting === 1 ? '' : 's'} waiting`;
+  $('luStatus').textContent = info; $('luStatus').style.color = on && st.state === 'error' ? '#ff8da3' : '';
+  document.querySelectorAll('#luSeg button').forEach(b => b.classList.toggle('on', (b.dataset.v === 'on') === on));
+  $('luKey').placeholder = a.key ? 'Key saved (paste a new one to replace it)' : 'vsglr_…';
+}
+
 /* ---------- Getting started checklist (Prerace tab) ---------- */
 let LOGO_FILES = null;
 const GS_KEY = 'vsSetupHidden';
@@ -1902,6 +1933,7 @@ function render() {
   fillInputs();
   gsRender();
   anRender();
+  luRender();
   const st = SD ? SD.state : {};
   const virt = { '@standings': st.visible, '@info': st.analysis && st.analysis.visible, '@team': st.team && st.team.visible, '@track': trackOnAir(), '@grid': !!(S.gridw && S.gridw.visible) };
   document.querySelectorAll('.tile').forEach(t => t.classList.toggle('on', t.dataset.k in virt ? !!virt[t.dataset.k] : !!S.show[t.dataset.k]));
@@ -2054,7 +2086,7 @@ function connect() {
   es.onmessage = e => { const d = JSON.parse(e.data);
     const v = d.app && d.app.version;          // the program was updated: load the new page
     if (v) { if (window.__pageVer == null) window.__pageVer = v; else if (v !== window.__pageVer) return location.reload(); }
-    seriesUpdate(d.series); AN = d.announcer || AN; S = d.settings; PR = d.pitrace || PR; L = d.live; SD = d.standings; APP = d.app || APP; PEN = d.penalties || PEN; render(); if (SOLO && d.incidentsVer !== INC.ver) incFetch(); };
+    seriesUpdate(d.series); AN = d.announcer || AN; LU = d.leagueUpload || LU; S = d.settings; PR = d.pitrace || PR; L = d.live; SD = d.standings; APP = d.app || APP; PEN = d.penalties || PEN; render(); if (SOLO && d.incidentsVer !== INC.ver) incFetch(); };
   es.onerror = () => { es.close(); $('conn').textContent = 'Server offline'; $('dot').className = 'dot'; setTimeout(connect, 2000); };
 }
 connect();

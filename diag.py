@@ -541,7 +541,10 @@ def save_zip(settings):
         z.writestr("info.json", json.dumps({"saved": datetime.datetime.now().isoformat(timespec="seconds"),
                                             "python": sys.version, "platform": platform.platform(),
                                             "status": status()}, indent=2, default=str))
-        z.writestr("settings.json", json.dumps(settings, indent=2, default=str))
+        safe = json.loads(json.dumps(settings, default=str))
+        if (safe.get("leagueUpload") or {}).get("key"):          # the league site key never leaves this PC
+            safe["leagueUpload"]["key"] = "(set, not included)"
+        z.writestr("settings.json", json.dumps(safe, indent=2, default=str))
         try:
             for f in sorted(os.listdir(LOG_DIR)):
                 if f.endswith(".log") or f in ("blackbox.jsonl", "blackbox-previous.jsonl", "results.jsonl", "session.json", "usage.json"):

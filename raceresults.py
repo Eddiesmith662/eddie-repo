@@ -105,8 +105,9 @@ def _write(path, live, sess, official):
     return len(rows)
 
 
-def update(live, sess, info, sess_num, log=print):
-    """Called every reading while a race session is at the checkered or later (not during replays)."""
+def update(live, sess, info, sess_num, log=print, on_saved=None):
+    """Called every reading while a race session is at the checkered or later (not during replays).
+    on_saved(official) runs after each copy is written (the league site upload uses it)."""
     if not sess.get("ResultsPositions"):
         return
     official = bool(sess.get("ResultsOfficial"))
@@ -125,6 +126,11 @@ def update(live, sess, info, sess_num, log=print):
             st["official"] = official
             log("Race results saved%s: %s (%d drivers)" % (" (official)" if official else " (not official yet)",
                                                            os.path.relpath(st["path"], datafiles.DATA), n))
+            if on_saved:
+                try:
+                    on_saved(official)
+                except Exception as e:
+                    log("League site upload: couldn't queue the race: %r" % (e,))
         except Exception as e:
             st["official"] = True      # don't retry every reading
             log("Could not save the race results: %r" % (e,))

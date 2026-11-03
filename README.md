@@ -177,6 +177,21 @@ Each file has position, car number, driver, start, laps, laps led, gap, fastest 
 (Running, or why they're out). A first copy is saved a minute after the checkered flag and replaced when iRacing makes
 the results official. It goes into the folder of the series picked when the race ends.
 
+### Sending results to the league site
+
+The overlay can also send each league race's results to the VSPEED league site (vspeedlivetiming.app/glr) when the
+race ends. It's off until you switch it on:
+
+1. A site admin makes an **overlay key** on the site (sign in, then **Overlay keys**) and sends it to you.
+2. In the control panel, **Setup > League site upload**: paste the key and press **Save**. The overlay checks the key
+   with the site and switches the upload on. **Test** checks it again any time.
+
+Results go a minute after the checkered and again when iRacing makes them official. On the site they show as
+**Provisional** until a league official uploads the iRacing results file, which replaces them. Only league races are
+sent, and only to a series the site already has. If the internet drops or the site is down, races wait in
+`data\league-upload\` and go once it's back. The key is kept on this PC only: it isn't shown in the control panel
+and isn't included in diagnostics.
+
 ---
 
 ## Announcer page
@@ -260,15 +275,17 @@ data\                      YOUR files, never touched by updates:
   profiles\                  each series' standings, bracket, live points and branding
   standings\                 the current series' standings, bracket, logo, race info and team
   results\                   race results, one folder per series
+  league-upload\             races waiting to go to the league site (only if the upload is on)
   logos\  sponsors\          league logos; sponsor and Pole Award images
   demo-field.csv             optional: your own drivers for the demo (car number,name per line)
   logs\  diagnostics\        logs, the black box and saved diagnostics
   backup\                    the last few versions, for restore-previous.bat
 server.py                  reads iRacing and serves every page (port 8765)
-standings.py  livepoints.py  profiles.py  pitrace.py  incidents.py  raceresults.py  announcer.py
+standings.py  livepoints.py  profiles.py  pitrace.py  incidents.py  raceresults.py  announcer.py  leagueupload.py
 update.py  run.py  net.py  datafiles.py  diag.py
 static\                    the overlay, control panel and standings graphic pages
 relay\                     the announcer relay (Cloudflare Worker) and the announcer page
+glr\                       the league site (Cloudflare Worker at vspeedlivetiming.app/glr)
 ```
 
 The overlay uses the **Bahnschrift** font, which comes with Windows 10 and 11.
