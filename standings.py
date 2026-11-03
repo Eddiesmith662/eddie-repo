@@ -24,7 +24,7 @@ CONFIG_PATH = os.path.join(CONFIG_DIR, "config.json")
 DATA_PATH = os.path.join(CONFIG_DIR, "standings.json")
 BRACKET_PATH = os.path.join(CONFIG_DIR, "bracket.json")
 
-PULL_ROWS = 30          # drivers kept from the website (the graphic shows the top 20 of these)
+PULL_ROWS = 60          # drivers kept from the website (the graphic shows the top 20; live points needs everyone who races)
 MAX_CSV_ROWS = 50
 STALE_HOURS = 24        # data older than this is shown in red
 
@@ -324,7 +324,8 @@ def _clean_rounds(rounds):
         lst, seen = [], set()
         for e in (rounds[k] if isinstance(rounds, list) and k < len(rounds) else []):
             try:
-                ent = {"seed": int(e["seed"]), "num": str(e.get("num", "")), "name": str(e.get("name", "")), "won": bool(e.get("won"))}
+                ent = {"seed": int(e["seed"]), "num": str(e.get("num", "")), "name": str(e.get("name", "")), "won": bool(e.get("won")),
+                       "missed": bool(e.get("missed"))}
             except (KeyError, TypeError, ValueError, AttributeError):
                 continue
             if ent["seed"] in seen or len(lst) >= cap:
@@ -380,7 +381,7 @@ def bracket_advance(rounds, r, idx):
     rounds = copy.deepcopy(rounds)
     if r < 0 or r > 2 or idx < 0 or idx >= len(rounds[r]):
         return rounds, "Pick a driver first." if r <= 2 else "The champion has nowhere to advance to."
-    ent = dict(rounds[r][idx], won=False)      # a win only counts in the round it was in
+    ent = dict(rounds[r][idx], won=False, missed=False)      # a win (or a missed race) only counts in the round it was in
     nxt = rounds[r + 1]
     if any(e["seed"] == ent["seed"] for e in nxt):
         return rounds, "%s is already in the %s." % (ent["name"], BRACKET_NAMES[r + 1])
@@ -792,6 +793,15 @@ def command(cmd, d):
         rounds[r][idx]["won"] = bool(d.get("on"))
         set_bracket(rounds)
         log("%s %s a win in the %s." % (rounds[r][idx]["name"], "marked with" if d.get("on") else "no longer marked with", BRACKET_NAMES[r]))
+        return True, ""
+    if cmd == "bracketMissed":   # playoffs: this driver missed a race in this round, so only a win in the round moves them on
+        r, idx = _int(d.get("r"), -1, 9, -1), _int(d.get("idx"), -1, 99, -1)
+        rounds = bracket_snapshot()
+        if not (0 <= r <= 1 and 0 <= idx < len(rounds[r])):
+            return False, "Pick a driver in the Round of 12 or Round of 8."
+        rounds[r][idx]["missed"] = bool(d.get("on"))
+        set_bracket(rounds)
+        log("%s %s as missing a race in the %s." % (rounds[r][idx]["name"], "marked" if d.get("on") else "no longer marked", BRACKET_NAMES[r]))
         return True, ""
     if cmd == "bracketEdit":
         rounds, problem = bracket_edit(bracket_snapshot(), _int(d.get("seed"), 0, 999, 0), d.get("num", ""), d.get("name", ""))

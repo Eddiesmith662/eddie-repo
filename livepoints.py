@@ -127,7 +127,9 @@ def _score(live, cfg, header, srows, excluded, counted=False):
         p["race"], p["bonus"] = race, bonus
         p["pts"] = p["base"] + race + bonus
         p["leading"] = c is not None and racing and (c.get("pos") or 0) == 1
-        p["lock"] = p["wins"] > 0 or p["leading"]
+        # locked in: a win in the standings, or leading tonight. Only a driver in the standings can be locked in by
+        # leading: someone who isn't (e.g. not eligible, Nov 2) doesn't take a playoff spot for leading a few laps
+        p["lock"] = p["wins"] > 0 or (p["leading"] and bool(p["basePos"]))
 
     return people, racing
 
@@ -160,7 +162,9 @@ def compute(live, cfg, standings_data, bracket=None, excluded=None):
     people, racing = _score(live, cfg, header, srows, excluded, counted)
     out["counted"] = counted
 
-    # excluded drivers: matched above, now left out
+    # excluded drivers: matched above, now left out (drivers in this race who aren't in the standings and were left out
+    # by hand are listed, so the control panel can offer to put them back)
+    out["excludedNew"] = [{"num": p["num"], "name": p["name"]} for p in people if p.get("excl") and p["car"] is not None and not p["basePos"]]
     people = [p for p in people if not p.get("excl")]
     # positions in the standings without them (drivers level on points share one), for the moved-up / down arrows
     if excluded:
@@ -170,6 +174,7 @@ def compute(live, cfg, standings_data, bracket=None, excluded=None):
 
     # cars in this race that aren't in the standings (a first race in the series, or a name and number that don't match)
     out["unmatched"] = ["#%s %s" % (p["num"], p["name"]) for p in people if p["car"] is not None and not p["basePos"]]
+    out["unmatchedList"] = [{"num": p["num"], "name": p["name"]} for p in people if p["car"] is not None and not p["basePos"]]
     cut = max(1, int(cfg.get("cutoff") or 12))
     if playoff:
         rounds = (bracket or [[], [], [], []]) + [[]] * 4
@@ -187,6 +192,10 @@ def compute(live, cfg, standings_data, bracket=None, excluded=None):
                 continue
             p["wins"] = 0                                          # regular-season wins don't count any more
             p["lock"] = bool(e.get("won")) or p["leading"]         # won a race in this round, or leading this one
+            # missed a race in this round (marked in the bracket, or not in tonight's race): only a win in the round
+            # moves them on, so without one they're out whatever their points
+            p["missed"] = bool(e.get("missed")) or (racing and p["car"] is None)
+            p["forceOut"] = p["missed"] and not p["lock"]
             field.append(p)
         people = field
         out["title"] = ROUNDS[r]
@@ -211,22 +220,27 @@ def compute(live, cfg, standings_data, bracket=None, excluded=None):
     people.sort(key=lambda p: (-p["pts"], -p["wins"], p["basePos"] or 999, (p["car"] or {}).get("pos") or 999))
     for k, p in enumerate(people):
         p["ptsPos"] = k + 1
-    # playoff order: everyone locked in first (keeping points order), then the rest
+    # playoff order: everyone locked in first (keeping points order), then the rest; a playoff driver who missed a
+    # race in the round without a win goes to the bottom and takes no spot
     locked = [p for p in people if p["lock"]]
-    rest = [p for p in people if not p["lock"]]
+    rest = [p for p in people if not p["lock"] and not p.get("forceOut")] + [p for p in people if p.get("forceOut")]
     spots = max(0, cut - len(locked))
     for k, p in enumerate(rest):
-        p["status"] = "in" if k < spots else "out"
+        p["status"] = "in" if k < spots and not p.get("forceOut") else "out"
     for p in locked:
         p["status"] = "lock"
     order = locked + rest
-    last_in = next((p for p in reversed(rest[:spots])), None)
-    first_out = rest[spots] if spots < len(rest) else None
-    line_after = len(locked) + spots - 1 if (locked or spots) else -1
+    ok = [p for p in rest if not p.get("forceOut")]          # the ones still racing for a spot on points
+    last_in = next((p for p in reversed(ok[:spots])), None)
+    first_out = ok[spots] if spots < len(ok) else None
+    filled = min(spots, len(ok))
+    line_after = len(locked) + filled - 1 if (locked or filled) else -1
     rows = []
     for k, p in enumerate(order):
         if p["status"] == "lock":
             to_cut = "IN"
+        elif p.get("forceOut"):
+            to_cut = "MISSED"
         else:
             ref = first_out if p["status"] == "in" else last_in
             d = p["pts"] - ref["pts"] if ref else None

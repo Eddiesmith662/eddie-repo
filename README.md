@@ -145,10 +145,12 @@ All on the **Standings** tab. The full walkthrough, including a race-by-race pla
   twice without asking. It lasts until the next pull, which brings in the league's official numbers.
 - **⊘ Exclude** leaves a driver out of the standings graphic, live points and the bracket (e.g. not eligible for the
   playoffs). Everyone below moves up. **Include** puts them back.
+  A driver in the race who isn't in the standings at all gets a **⊘** under Live points on the Race tab.
 - **Live points** (Race tab): standings points + what each driver would score for where they're running now +
   bonuses (led a lap, most laps led, pole). Points per place and bonuses are on the Setup tab.
-- **Playoffs:** fill the bracket with **Load top 12**, advance drivers with **→**, mark round wins with 🏆, and switch
-  live points to **Playoffs: use this bracket**.
+- **Playoffs:** fill the bracket with **Load top 12**, advance drivers with **→**, mark round wins with 🏆 (a win moves
+  them on) and missed races with **MISS** (then only a win moves them on), and switch live points to **Playoffs: use this
+  bracket**.
 
 ---
 

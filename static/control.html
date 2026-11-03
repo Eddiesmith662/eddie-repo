@@ -154,6 +154,8 @@
   .bent .bwon { opacity: .35; filter: grayscale(1); }
   .bent .bwon.on { opacity: 1; filter: none; background: #3d3210; border-color: #f5c542; }
   .bent:has(.bwon.on) { border-color: #f5c542; }
+  .bent .bmiss { font-size: 10px; letter-spacing: .5px; padding: 2px 5px; opacity: .45; }
+  .bent .bmiss.on { opacity: 1; background: #3d1820; border-color: #ff5a6e; color: #ff8a96; }
   .empty { color: var(--dim); font-size: 13px; padding: 6px 0; }
   .log { font-family: Consolas, monospace; font-size: 12px; color: #bbb; background: #111; border-radius: 5px; padding: 8px; max-height: 170px; overflow: auto; white-space: pre-wrap; }
   .url { display: flex; gap: 6px; }
@@ -251,6 +253,11 @@
   .spcard .nm { font-size: 11px; letter-spacing: .4px; text-transform: uppercase; margin: 5px 0 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .spcard .bt { display: flex; gap: 4px; }
   .spcard .bt button { flex: 1; padding: 6px 4px; font-size: 13px; min-width: 0; }
+  .lpmiss { display: flex; flex-wrap: wrap; gap: 6px; margin: -4px 0 10px; }
+  .lpmiss .mi { display: inline-flex; align-items: center; gap: 6px; background: rgba(255,232,31,.08); border: 1px solid rgba(255,232,31,.35);
+    border-radius: 4px; padding: 2px 4px 2px 8px; font-size: 12px; color: var(--yellow); }
+  .lpmiss .mi.off { color: #888; border-color: #444; background: none; text-decoration: line-through; }
+  .lpmiss .mi button { padding: 2px 8px; font-size: 12px; }
   .spcard .spauto { flex: 1; padding: 6px 4px; font-size: 12px; text-align: center; color: #999; border: 1px dashed #444; border-radius: 4px; }
   .sptools { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
   .sptools input { width: 54px; padding: 6px 6px; }
@@ -510,6 +517,7 @@
   <section id="lpSec">
     <h2><span class="t">Live points</span><span class="pill" id="lpAir">HIDDEN</span></h2>
     <p class="hint" id="lpInfo" style="margin:0 0 10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">The championship if the race ended now.</p>
+    <div id="lpMiss" class="lpmiss" hidden></div>
     <div class="row"><button class="vis" data-vis="lpAir" data-vrole="show" id="lpShow">Show</button><button class="vis" data-vis="lpAir" data-vrole="hide" id="lpHide">Hide</button></div>
     <div class="lpset">
       <span class="lprow" title="Which places in the championship to show, e.g. 3 to 16 = 3rd to 16th (up to 15 drivers)"><span class="s">Places</span><input type="number" id="lpFrom" min="1" max="60"><span class="s">–</span><input type="number" id="lpTo" min="1" max="74"></span>
@@ -1075,6 +1083,7 @@ function renderBracket() {
   $('bracket').innerHTML = BNAMES.map((n, r) => `<div class="bcol"><h3>${n} (${rounds[r].length})</h3>` +
     (rounds[r].length ? rounds[r].map((e, i) => `<div class="bent"><span class="sd">${esc(e.seed)}</span><span class="cn">${esc(e.num)}</span><span class="nm" title="${esc(e.name)}">${esc(e.name)}</span>` +
       (r < 3 ? `<button data-b="bracketWon" data-r="${r}" data-i="${i}" class="bwon ${e.won ? 'on' : ''}" title="${e.won ? 'Won a race in this round (click to clear)' : 'Mark: won a race in this round'}">🏆</button>` : '') +
+      (r < 2 ? `<button data-b="bracketMissed" data-r="${r}" data-i="${i}" class="bmiss ${e.missed ? 'on' : ''}" title="${e.missed ? 'Missed a race in this round: only a win in the round moves them on (click to clear)' : 'Mark: missed a race in this round (then only a win moves them on)'}">MISS</button>` : '') +
       (r < 3 ? `<button data-b="bracketAdvance" data-r="${r}" data-i="${i}" title="Advance">→</button>` : '') +
       (r > 0 ? `<button data-b="bracketRemove" data-r="${r}" data-i="${i}" title="Remove">×</button>` : '') +
       `<button data-b="edit" data-r="${r}" data-i="${i}" title="Edit">✎</button></div>`).join('') : '<div class="empty">Empty</div>') + '</div>').join('');
@@ -1089,6 +1098,7 @@ $('bracket').onclick = e => {
     return std('bracketEdit', { seed: ent.seed, num, name });
   }
   if (b.dataset.b === 'bracketWon') return std('bracketWon', { r, idx: i, on: !SD.state.bracket.rounds[r][i].won });
+  if (b.dataset.b === 'bracketMissed') return std('bracketMissed', { r, idx: i, on: !SD.state.bracket.rounds[r][i].missed });
   std(b.dataset.b, { r, idx: i });
 };
 $('lpModeSeg').onclick = e => { const b = e.target.closest('button'); if (b) set({ livePoints: { playoff: b.dataset.v === 'playoff' } }); };
@@ -1364,6 +1374,7 @@ function livePointsRender() {
   const po = !!lp.playoff;
   segOn('lpModeSeg', po ? 'playoff' : 'season');
   $('lpCut').disabled = po; $('lpCut').title = po ? 'Playoff mode: the cutline is set by the round (8 go through from the Round of 12, 4 from the Round of 8)' : '';
+  if (!P.ok || P.champ4) $('lpMiss').hidden = true;
   if (!P.ok) { $('lpInfo').textContent = P.why || 'The championship if the race ended now.'; return; }
   if (P.champ4) { const a = (P.rows || [])[0]; $('lpInfo').textContent = 'Championship 4' + (a && a.status === 'champ' ? ` · ahead: #${a.num} ${a.name}` : ''); $('lpInfo').title = 'Playoffs: the highest finisher of the four takes the championship'; return; }
   const rows = P.rows || [], last = rows[P.lineAfter], next = rows[P.lineAfter + 1];
@@ -1377,7 +1388,16 @@ function livePointsRender() {
     (last ? `Last in: #${last.num} ${last.name}${last.cut && last.cut !== 'IN' ? ' (' + last.cut + ')' : ''}` : 'No cutoff line');
   $('lpInfo').style.color = miss.length ? 'var(--yellow)' : '';
   $('lpInfo').title = full;
+  // drivers in this race who aren't in the standings: ⊘ leaves one out (e.g. not eligible), kept for this series
+  const ml = (P.unmatchedList || []).map(d => ({ d, off: false })).concat((P.excludedNew || []).map(d => ({ d, off: true })));
+  const mk = JSON.stringify(ml);
+  if ($('lpMiss')._k !== mk) {
+    $('lpMiss')._k = mk; $('lpMiss').hidden = !ml.length;
+    $('lpMiss').innerHTML = ml.map(({ d, off }) => `<span class="mi ${off ? 'off' : ''}" title="${off ? 'Left out of live points (not eligible). Include puts them back.' : 'In tonight\'s race but not in the standings, so starting from 0. ⊘ leaves them out of live points (e.g. not eligible), kept for this series.'}">#${esc(d.num)} ${esc(d.name)}` +
+      `<button data-lpx="${esc(d.name)}" data-on="${off ? 0 : 1}">${off ? 'Include' : '⊘'}</button></span>`).join('');
+  }
 }
+$('lpMiss').onclick = e => { const b = e.target.closest('[data-lpx]'); if (b) std('exclude', { name: b.dataset.lpx, on: b.dataset.on === '1' }); };
 function pitraceRender() {
   const st = PR.status || 'idle', n = (PR.list || []).length;
   const pill = $('prState');

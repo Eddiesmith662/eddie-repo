@@ -76,12 +76,13 @@ Live points shows the championship as it would stand if the race ended right now
 | **Line after [12]** | Where the red cutoff line goes (12 = between 12th and 13th). Greyed out in playoff mode, where the round sets it |
 | **Hide all (Graphics box)** | Hide all also hides live points |
 
-**On the graphic:** green rows are above the line. **IN** = locked in: a driver with a win in the standings' Wins column, or the race leader. The right-hand column is each driver's points to the cutline (red when they're below it). A greyed name is in the standings but not in this race.
+**On the graphic:** green rows are above the line. **IN** = locked in: a driver with a win in the standings' Wins column, or the race leader (only a driver who is in the standings: someone who isn't can't take a spot by leading). The right-hand column is each driver's points to the cutline (red when they're below it). A greyed name is in the standings but not in this race.
 
 **The status line** (under the Live points title):
 
 - `Last in: #9 R. Carter (+4)` = the last driver above the line and their margin. Hover for more detail.
 - **Yellow** `Not in standings: #84 Jordan Mills` = a driver in the race who isn't in the standings, so they start from 0. A driver new to the series is expected here. Anyone else means their name *and* car number don't match Xtreme: they'll show up twice (once greyed with their real points, once from 0) until it's fixed. Hover to see everyone it found.
+- **Under it, each of those drivers has a ⊘ button:** it leaves them out of live points (e.g. not eligible for the playoffs), kept for this series like any exclusion. They then show crossed out with **Include** to put them back.
 
 Live points follows the running order, so it moves around during green-flag pit stops while cars cycle through.
 
@@ -95,7 +96,8 @@ The bracket holds who is in each round: Round of 12, Round of 8, Championship 4 
 | **→** | Advances that driver to the next round. From the Championship 4 it makes them Champion |
 | **×** | Takes a driver out of that round and every later one (Round of 8 onwards) |
 | **✎** | Fixes a driver's name or car number everywhere in the bracket |
-| **🏆** | Marks a driver who won a race *in that round* (lit up gold when on). Used by playoff live points; a win only counts in its own round, so it's not carried forward when you advance them |
+| **🏆** | Marks a driver who won a race *in that round* (lit up gold when on). A win moves them on, so playoff live points shows them IN; a win only counts in its own round, so it's not carried forward when you advance them |
+| **MISS** | Marks a driver who missed a race in that round (lit up red when on). They can then only move on with a win in the round: without 🏆, live points shows them OUT (MISSED) whatever their points. Cleared when they advance |
 | **Clear** | Empties the whole bracket (asks first) |
 
 ## Playoff live points
@@ -108,6 +110,7 @@ Switch it on once, on the Standings tab above the bracket: **Live points (Race t
 - The title shows the round: ROUND OF 12, ROUND OF 8 or CHAMPIONSHIP 4.
 - The line sets itself: after 8th in the Round of 12, after 4th in the Round of 8.
 - Regular-season wins no longer count. **IN** = a driver marked 🏆 for a win in this round, or a playoff driver leading the race. A non-playoff driver leading locks nobody.
+- **Missing a race** (no drop weeks in the playoffs): a driver who misses a race in the round only moves on with a win in the other one. A playoff driver who isn't in tonight's race is treated that way automatically; for a race they missed earlier in the round, press **MISS** on them in the bracket. Without a 🏆 they show **MISSED** at the bottom and take no spot.
 - Points still come from the pulled standings, which Xtreme resets for the playoffs, plus tonight's points and bonuses.
 - **Championship 4:** no points. The four are listed in running order with their position (P1, P2…) and the leader marked **CHAMP**, because the highest finisher of the four takes the title.
 
@@ -116,9 +119,9 @@ Switch it on once, on the Standings tab above the bracket: **Live points (Race t
 | Race | Round | Before the race | After the race |
 | --- | --- | --- | --- |
 | Last regular-season race | — | Normal race night | Once Xtreme has the final regular-season standings: pull, **⊘** anyone not eligible, **Load top 12**, switch Live points to **Playoffs** |
-| 1 | Round of 12, race 1 | Pull standings (everyone level after the reset) | If a playoff driver won: 🏆 on them |
+| 1 | Round of 12, race 1 | Pull standings (everyone level after the reset) | If a playoff driver won: 🏆 on them. Anyone who missed it: **MISS** on them |
 | 2 | Round of 12, race 2 | Pull standings (now includes race 1) | Advance the 8 who made it with **→** (round winners first, then the best on points, as Xtreme shows) |
-| 3 | Round of 8, race 1 | Pull standings (reset again) | If a playoff driver won: 🏆 on them |
+| 3 | Round of 8, race 1 | Pull standings (reset again) | If a playoff driver won: 🏆 on them. Anyone who missed it: **MISS** on them |
 | 4 | Round of 8, race 2 | Pull standings (includes race 3) | Advance the 4 who made it with **→** |
 | 5 | Championship 4 | Nothing extra (it runs on finishing order) | **→** on the champion; switch Live points back to **Regular season** for next season |
 

@@ -290,6 +290,7 @@
   #livepts .r .c5.lock { font-family: var(--semi); font-weight: 600; font-size: 12px; letter-spacing: .5px; }
   #livepts .r .c5.lock span { background: var(--green); color: #06280f; padding: 2px 6px; border-radius: 2px; }
   #livepts .r .c5.champ span { background: #f5c542; color: #2a1d00; padding: 2px 4px; font-size: 11px; }
+  #livepts .r .c5.missed span { background: #ff5a6e; color: #2a0006; padding: 2px 4px; font-size: 10px; }   /* missed a race in the round, no win: out */
   #livepts .champ4 .c4 { width: 40px; padding-right: 4px; }      /* Championship 4: whoever's ahead of the other three */
   #livepts .r.champ { background: #4a3a06; }
   #movers .h { background: var(--grey); font-size: 24px; padding: 10px 18px 12px; position: relative; overflow: hidden; text-transform: uppercase; letter-spacing: .5px; }
@@ -1156,6 +1157,7 @@ function renderLivePoints() {
     rows.map((r, i) => `<div class="r ${r.status === 'champ' ? 'champ' : r.status !== 'out' ? 'qual' : ''} ${i === lineAfter ? 'cutafter' : ''} ${i === 0 && lineAfter === -1 && P.lineAfter != null && P.lineAfter >= 0 ? 'cutbefore' : ''} ${r.racing ? '' : 'away'}">` +
       `<span class="c1">${r.pos}</span><span class="c2">${esc(r.num)}</span><span class="c3">${esc(tickerName(r.name))}</span><span class="c4">${esc(r.pts)}</span>` +
       (r.status === 'lock' ? '<span class="c5 lock"><span>IN</span></span>' : r.status === 'champ' ? '<span class="c5 lock champ"><span>CHAMP</span></span>'
+        : r.cut === 'MISSED' ? '<span class="c5 lock missed"><span>MISSED</span></span>'
         : `<span class="c5 ${/^-/.test(r.cut) ? 'neg' : ''}">${esc(r.cut)}</span>`) + '</div>').join('');
   if ($('lpBody').innerHTML !== html) $('lpBody').innerHTML = html;
 }
