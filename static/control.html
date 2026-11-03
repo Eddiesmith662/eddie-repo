@@ -682,8 +682,10 @@
 
   <section class="wide">
     <h2><span class="t">Standings</span>
+      <button id="raceAdd" style="flex:0 0 auto" disabled>Add tonight's race</button>
       <button id="editBtn" style="flex:0 0 auto">Edit by hand</button></h2>
     <div class="tablewrap"><table class="st" id="sTable"></table></div>
+    <p class="hint"><b>Add tonight's race</b> (once the checkered flag is out): the standings become what live points shows at the finish: tonight's points and bonuses, a win for the winner, new drivers added, re-sorted. It asks first. It stays until the next pull, which brings in the league's official numbers (stage points, penalties).</p>
     <p class="hint">⊘ leaves a driver out of the standings graphic, live points and Load top 12 (e.g. not eligible for the playoffs); everyone below moves up. It's kept for this series through every pull until you press <b>Include</b>.</p>
     <div id="editBar" style="display:none">
       <label style="display:flex;gap:8px;align-items:center;text-transform:none;letter-spacing:0;font-size:14px;color:#ddd">
@@ -1049,6 +1051,7 @@ $('sTable').addEventListener('click', e => {      // ⊘ / Include: leave a driv
   const b = e.target.closest('[data-excl]'); if (!b) return;
   std('exclude', { name: b.dataset.excl, on: b.dataset.on === '1' });
 });
+$('raceAdd').onclick = () => std('raceAdd');
 $('editBtn').onclick = () => {
   if (!SD || !(SD.allRows || SD.rows).length) return toast('Pull or load the standings first');
   editing = { ver: SD.state.dataVer, rows: (SD.allRows || SD.rows).map(r => r.slice()) };
@@ -1958,6 +1961,9 @@ function render() {
     const note = (SD.pullErr ? 'Last pull failed: ' + SD.pullErr + (SD.rows.length ? '. Showing the saved copy.' : '') + (SD.note ? '\n' : '') : '') + (SD.note || '');
     $('sNote').textContent = note; $('sNote').classList.toggle('err', !!SD.pullErr);
     if (!pullBusy) { $('pullBtn').disabled = !!SD.pulling; $('pullBtn').textContent = SD.pulling ? 'Pulling…' : 'Pull standings now'; }
+    const raceOver = !!(L && L.connected && L.isRace && (L.sessionState || 0) >= 5);
+    $('raceAdd').disabled = !raceOver || !SD.rows.length;
+    $('raceAdd').title = raceOver ? "Add tonight's points to the standings (asks first)" : 'Available in a race session once the checkered flag is out';
     const lg = SD.log.join('\n'); if ($('sLog')._v !== lg) { $('sLog')._v = lg; $('sLog').textContent = lg; $('sLog').scrollTop = 1e6; }
     renderTable(); renderBracket();
   }

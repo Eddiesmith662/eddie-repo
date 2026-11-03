@@ -109,7 +109,7 @@ def bump(key):
 # ----------------------------------------------------------------------------
 # Standings data: pulled from Xtreme Scoring, loaded from CSV, or edited by hand
 # ----------------------------------------------------------------------------
-DATA = {"header": [], "rows": [], "pulled_at": 0.0, "source": "", "edited_at": None}
+DATA = {"header": [], "rows": [], "pulled_at": 0.0, "source": "", "edited_at": None, "race_added": None}
 DATA_LOCK = threading.Lock()
 
 _TR = re.compile(r"<tr\b[^>]*>[\s\S]*?</tr>", re.I)
@@ -299,10 +299,12 @@ def save_data():
         pass
 
 
-def set_data(header, rows, source, pulled_at=None, edited_at=None, save=True):
+def set_data(header, rows, source, pulled_at=None, edited_at=None, save=True, race_added=None):
+    """race_added: the race added to these standings with 'Add tonight's race' (cleared by anything else, e.g. a pull)."""
     with DATA_LOCK:
         DATA["header"] = list(header)
         DATA["rows"] = [list(r) for r in rows]
+        DATA["race_added"] = race_added
         DATA["source"] = source
         DATA["pulled_at"] = time.time() if pulled_at is None else pulled_at
         DATA["edited_at"] = edited_at
@@ -427,11 +429,12 @@ def load_data():
         pulled = float(d.get("pulled_at") or 0)
         edited = float(d["edited_at"]) if d.get("edited_at") else None
         source = str(d.get("source") or "")
+        added = d.get("race_added") or None
     except (OSError, ValueError, KeyError, TypeError):
         return False
     if not header or not rows:
         return False
-    set_data(header, rows, source, pulled, edited, save=False)
+    set_data(header, rows, source, pulled, edited, save=False, race_added=added)
     return True
 
 
@@ -738,7 +741,8 @@ def command(cmd, d):
                 rows = recalc(snap["header"], rows)
             except ValueError as e:
                 msg = "Saved as typed (not re-sorted: %s)" % e
-        set_data(snap["header"], rows, snap["source"], pulled_at=snap["pulled_at"], edited_at=time.time())
+        set_data(snap["header"], rows, snap["source"], pulled_at=snap["pulled_at"], edited_at=time.time(),
+                 race_added=snap.get("race_added"))   # still knows tonight's race is in, if it was added
         log("Standings edited by hand."); return True, msg
     # ---- bracket ----
     if cmd == "bracketLoad":

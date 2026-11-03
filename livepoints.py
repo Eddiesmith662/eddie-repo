@@ -62,29 +62,19 @@ def _find(people, name, num):
     return p
 
 
-def compute(live, cfg, standings_data, bracket=None, excluded=None):
-    """Returns what the live points graphic and the control panel show (see the module notes).
-    excluded: name keys (letters only, lower case) of drivers left out by hand on the Standings tab, e.g. not eligible
-    for the playoffs. They're matched to their car as usual (so they don't come back as 'not in the standings'), then
-    left out: they're not listed and never take a spot above the line."""
-    excluded = set(excluded or ())
-    cfg = dict(DEFAULTS, **(cfg or {}))
-    playoff = bool(cfg.get("playoff"))
-    out = {"ok": False, "why": "", "rows": [], "cutoff": int(cfg.get("cutoff") or 12), "lap": live.get("lap"),
-           "mode": "playoff" if playoff else "season", "title": "LIVE POINTS"}
-    if not live.get("connected"):
-        out["why"] = "Waiting for iRacing"
-        return out
-    if not live.get("isRace"):
-        out["why"] = "Live points work in race sessions"
-        return out
-    header, srows = standings_data.get("header") or [], standings_data.get("rows") or []
+def race_key(live):
+    """Which race this is, so 'Add tonight's race' knows it's already in the standings."""
+    return "%s|%s|%s" % (live.get("subId") or "", live.get("track") or "", live.get("sessNum"))
+
+
+def _score(live, cfg, header, srows, excluded, counted=False):
+    """Match each car in the race to a standings row and work out tonight's points. Returns (people, racing):
+    every standings row in its own order, then the cars that aren't in the standings, each with base (standings
+    points), race (points for the running position), bonus, pts (the total), car (the car in this race, or None)
+    and excl (left out by hand). counted: tonight's race is already in the standings (added after the checkered
+    flag), so it isn't added again: everyone stays on their standings points."""
     di, ni, pi, wi, posi = (_col(header, "driver"), _col(header, "#", "no", "num", "car"), _col(header, "pts", "points"),
                            _col(header, "wins", "w"), _col(header, "pos"))
-    if not srows or di < 0:
-        out["why"] = "No standings loaded: pull or load them on the Standings tab before the race"
-        return out
-
     table = [_num(x) for x in (cfg.get("table") or DEFAULT_TABLE)]
     b_led, b_most, b_pole = _num(cfg.get("bonusLed")), _num(cfg.get("bonusMost")), _num(cfg.get("bonusPole"))
     racing = (live.get("sessionState") or 0) >= 4
@@ -118,16 +108,6 @@ def compute(live, cfg, standings_data, bracket=None, excluded=None):
             people.append(p)
         p["car"] = c
 
-    # excluded drivers: matched above, now left out
-    people = [p for p in people if not p.get("excl")]
-    # positions in the standings without them (drivers level on points share one), for the moved-up / down arrows
-    if excluded:
-        ranked = sorted((p for p in people if p["basePos"]), key=lambda p: p["basePos"])
-        for k, p in enumerate(ranked):
-            p["basePos"] = ranked[k - 1]["basePos"] if k and p["base"] == ranked[k - 1]["base"] else k + 1
-
-    # cars in this race that aren't in the standings (a first race in the series, or a name and number that don't match)
-    out["unmatched"] = ["#%s %s" % (p["num"], p["name"]) for p in people if p["car"] is not None and not p["basePos"]]
     for p in people:
         c = p["car"]
         race = bonus = 0.0
@@ -142,11 +122,54 @@ def compute(live, cfg, standings_data, bracket=None, excluded=None):
                     bonus += b_most
             if c.get("startPos") == 1:
                 bonus += b_pole
+        if counted:
+            race = bonus = 0.0
         p["race"], p["bonus"] = race, bonus
         p["pts"] = p["base"] + race + bonus
         p["leading"] = c is not None and racing and (c.get("pos") or 0) == 1
         p["lock"] = p["wins"] > 0 or p["leading"]
 
+    return people, racing
+
+
+def compute(live, cfg, standings_data, bracket=None, excluded=None):
+    """Returns what the live points graphic and the control panel show (see the module notes).
+    excluded: name keys (letters only, lower case) of drivers left out by hand on the Standings tab, e.g. not eligible
+    for the playoffs. They're matched to their car as usual (so they don't come back as 'not in the standings'), then
+    left out: they're not listed and never take a spot above the line."""
+    excluded = set(excluded or ())
+    cfg = dict(DEFAULTS, **(cfg or {}))
+    playoff = bool(cfg.get("playoff"))
+    out = {"ok": False, "why": "", "rows": [], "cutoff": int(cfg.get("cutoff") or 12), "lap": live.get("lap"),
+           "mode": "playoff" if playoff else "season", "title": "LIVE POINTS"}
+    if not live.get("connected"):
+        out["why"] = "Waiting for iRacing"
+        return out
+    if not live.get("isRace"):
+        out["why"] = "Live points work in race sessions"
+        return out
+    header, srows = standings_data.get("header") or [], standings_data.get("rows") or []
+    di, ni, pi, wi, posi = (_col(header, "driver"), _col(header, "#", "no", "num", "car"), _col(header, "pts", "points"),
+                           _col(header, "wins", "w"), _col(header, "pos"))
+    if not srows or di < 0:
+        out["why"] = "No standings loaded: pull or load them on the Standings tab before the race"
+        return out
+
+    cars = live.get("cars") or []
+    counted = bool(standings_data.get("race_added")) and standings_data.get("race_added") == race_key(live)
+    people, racing = _score(live, cfg, header, srows, excluded, counted)
+    out["counted"] = counted
+
+    # excluded drivers: matched above, now left out
+    people = [p for p in people if not p.get("excl")]
+    # positions in the standings without them (drivers level on points share one), for the moved-up / down arrows
+    if excluded:
+        ranked = sorted((p for p in people if p["basePos"]), key=lambda p: p["basePos"])
+        for k, p in enumerate(ranked):
+            p["basePos"] = ranked[k - 1]["basePos"] if k and p["base"] == ranked[k - 1]["base"] else k + 1
+
+    # cars in this race that aren't in the standings (a first race in the series, or a name and number that don't match)
+    out["unmatched"] = ["#%s %s" % (p["num"], p["name"]) for p in people if p["car"] is not None and not p["basePos"]]
     cut = max(1, int(cfg.get("cutoff") or 12))
     if playoff:
         rounds = (bracket or [[], [], [], []]) + [[]] * 4
@@ -217,3 +240,56 @@ def compute(live, cfg, standings_data, bracket=None, excluded=None):
                matched=sum(1 for p in people if p["car"] is not None and p["basePos"]),
                cars=sum(1 for p in people if p["car"] is not None) if playoff else len(cars))
     return out
+
+
+def race_result(live, cfg, standings_data):
+    """The standings with tonight's race added, for 'Add tonight's race to the standings' (Standings tab), once the
+    checkered flag is out. Each driver's Pts become their live points total (standings points + points for where they
+    finished + bonuses, the same as live points), the winner gets a win, drivers new to the series are added, and the
+    table is re-sorted the way live points orders it (Pos, To Ldr, To Nxt and Chg are worked out by the caller's
+    recalc; Chg here = places gained tonight). Excluded drivers keep their row and get their points too (they stay
+    hidden as before). Raises ValueError with the reason when it can't.
+    Returns (rows, summary): summary = {"winner": "#N Name", "new": [names], "moves": [(name, old, new)], "drivers": n}."""
+    cfg = dict(DEFAULTS, **(cfg or {}))
+    if not live.get("connected"):
+        raise ValueError("iRacing isn't connected.")
+    if not live.get("isRace"):
+        raise ValueError("This works in a race session, once the checkered flag is out.")
+    if (live.get("sessionState") or 0) < 5:
+        raise ValueError("The race isn't over yet: add it once the checkered flag is out.")
+    header, srows = list(standings_data.get("header") or []), [list(r) for r in standings_data.get("rows") or []]
+    di, ni, pi, wi, posi, ci = (_col(header, "driver"), _col(header, "#", "no", "num", "car"), _col(header, "pts", "points"),
+                               _col(header, "wins", "w"), _col(header, "pos"), _col(header, "chg", "change"))
+    if not srows or di < 0 or pi < 0:
+        raise ValueError("Pull or load the standings first (they need Driver and Pts columns).")
+    people, _ = _score(live, cfg, header, srows, set())
+    width = len(header)
+    out, summary = [], {"winner": "", "new": [], "moves": [], "drivers": 0}
+    for k, p in enumerate(people):
+        new = k >= len(srows)
+        r = (["" for _ in range(width)] if new else (srows[k] + [""] * width)[:width])
+        c = p["car"]
+        won = c is not None and (c.get("pos") or 0) == 1
+        if new:
+            r[di] = p["name"]
+            if ni >= 0:
+                r[ni] = p["num"]
+            summary["new"].append("#%s %s" % (p["num"], p["name"]))
+        r[pi] = _fmt(p["pts"])
+        if wi >= 0:
+            r[wi] = str(p["wins"] + (1 if won else 0))
+        if won:
+            summary["winner"] = "#%s %s" % (p["num"] or c.get("num", ""), p["name"])
+        if c is not None:
+            summary["drivers"] += 1
+        out.append((p, r, p["wins"] + (1 if won else 0)))
+    # the order live points uses: points, then wins, then the place before the race, then where they finished
+    out.sort(key=lambda x: (-x[0]["pts"], -x[2], x[0]["basePos"] or 999, (x[0]["car"] or {}).get("pos") or 999))
+    rows = []
+    for k, (p, r, _) in enumerate(out):
+        if ci >= 0:
+            r[ci] = str(p["basePos"] - (k + 1)) if p["basePos"] else ""
+        if p["basePos"] and p["basePos"] != k + 1:
+            summary["moves"].append((p["name"], p["basePos"], k + 1))
+        rows.append(r)
+    return rows, summary

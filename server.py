@@ -730,6 +730,7 @@ class IRacingSource:
                 "connected": True,
                 "source": "iracing",
                 "track": self.info.get("track", ""),
+                "subId": self.info.get("subId"),
                 "sessionName": (sess.get("SessionName") or "").upper(),
                 "sessionType": stype,
                 "isRace": is_race,
@@ -1655,6 +1656,45 @@ def telemetry_loop(demo, multiclass=False, qual=False):
         time.sleep(0.2)  # 5 updates per second
 
 
+def add_race_to_standings(d):
+    """Standings tab, 'Add tonight's race to the standings' (once the checkered flag is out): the standings become what
+    live points shows for the end of the race (points, the winner's win, drivers new to the series), re-sorted with
+    Pos, To Ldr, To Nxt and Chg worked out again. Kept like a hand edit: the next pull asks before replacing it.
+    Asks first with a summary, and again if this race was already added."""
+    with STATE.lock:
+        live = STATE.live or {}
+        cfg = copy.deepcopy(STATE.settings.get("livePoints") or {})
+    snap = standings.data_snapshot()
+    try:
+        rows, sm = livepoints.race_result(live, cfg, snap)
+    except ValueError as e:
+        return False, str(e)
+    key = livepoints.race_key(live)
+    force = bool(d.get("force"))
+    if not force:
+        if snap.get("race_added") == key:
+            return False, "CONFIRM:This race is already in the standings. Adding it again counts its points twice. Add it again?"
+        top = [r for r in sm["moves"] if r[2] <= 12][:4]
+        lines = ["Add tonight's race at %s to the standings?" % (live.get("track") or "this track"), ""]
+        if sm["winner"]:
+            lines.append("Winner: %s (+1 win)" % sm["winner"])
+        lines.append("%d drivers get tonight's points and bonuses, as in live points." % sm["drivers"])
+        if sm["new"]:
+            lines.append("New to the standings: %s" % ", ".join(sm["new"][:6]) + (" and %d more" % (len(sm["new"]) - 6) if len(sm["new"]) > 6 else ""))
+        if top:
+            lines.append("Moves: " + "; ".join("%s P%d to P%d" % m for m in top))
+        lines += ["", "It stays until the next Pull standings now, which asks before replacing it."]
+        return False, "CONFIRM:" + "\n".join(lines)
+    try:
+        rows = standings.recalc(snap["header"], rows)
+    except ValueError as e:
+        return False, "Couldn't re-sort the standings: %s" % e
+    standings.set_data(snap["header"], rows, snap["source"], pulled_at=snap["pulled_at"], edited_at=time.time(), race_added=key)
+    diag.log("Standings: tonight's race at %s added (winner %s, %d drivers%s)" % (
+        live.get("track") or "?", sm["winner"] or "?", sm["drivers"], (", %d new" % len(sm["new"])) if sm["new"] else ""))
+    return True, "Tonight's race added to the standings"
+
+
 # --------------------------------------------------------------------------
 # HTTP server
 # --------------------------------------------------------------------------
@@ -1922,7 +1962,7 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/standings":
             cmd = str(data.pop("cmd", ""))
             try:
-                ok, msg = standings.command(cmd, data)
+                ok, msg = add_race_to_standings(data) if cmd == "raceAdd" else standings.command(cmd, data)
             except Exception as e:
                 ok, msg = False, "Error: %s" % e
             STATE.notify()

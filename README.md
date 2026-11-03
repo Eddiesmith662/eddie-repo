@@ -48,8 +48,9 @@ Before the green flag:
 - [ ] **Announcer page:** send your announcers the link (Race tab → **Copy announcer link**).
 - [ ] **Show base package** (Race tab → Graphics) puts the logos, ticker and driver info up.
 
-After the race: **Podium** (Race tab), then **Save diagnostics** (Setup tab) if anything looked wrong, and send the
-zip to Claude. The race results save themselves.
+After the race: **Podium** (Race tab); **Standings tab → Add tonight's race** if you want to show the standings
+with tonight's points before the league posts them; then **Save diagnostics** (Setup tab) if anything looked wrong,
+and send the zip to Claude. The race results save themselves.
 
 ---
 
@@ -133,6 +134,9 @@ All on the **Standings** tab. The full walkthrough, including a race-by-race pla
   (columns Pos, #, Driver, Pts, Wins; **Example CSV** gives one to copy). It only pulls when you press the button;
   the last copy is saved with the series.
 - **Edit by hand** fixes a name, number or points.
+- **Add tonight's race** (once the checkered flag is out) puts tonight's live points into the standings: points and
+  bonuses, a win for the winner, drivers new to the series, re-sorted. It asks first, and won't add the same race
+  twice without asking. It lasts until the next pull, which brings in the league's official numbers.
 - **⊘ Exclude** leaves a driver out of the standings graphic, live points and the bracket (e.g. not eligible for the
   playoffs). Everyone below moves up. **Include** puts them back.
 - **Live points** (Race tab): standings points + what each driver would score for where they're running now +

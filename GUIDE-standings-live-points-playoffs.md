@@ -23,6 +23,7 @@ First, check the **Series** picker (top right of the control panel) shows tonigh
 - [ ] **Glance at the Live points box** on the Race tab. Plain text = every driver was found in the standings. **Yellow "Not in standings: …"** = check who it names (next sections).
 - [ ] **Playoffs only:** make sure Live points is set to **Playoffs** and the bracket is on the right round.
 - [ ] **During the race:** Show / Hide live points from the Race tab as you need it.
+- [ ] **After the checkered flag (optional):** **Add tonight's race** on the Standings tab puts tonight's points into the standings, so the standings graphic is up to date straight away. See *Adding tonight's race* below.
 
 ## The standings graphic
 
@@ -37,6 +38,7 @@ The championship table from the pulled standings, run from the Standings tab (or
 | **Playoff cutoff** | Turns on the green "in" block and red cutline: drivers with a win (Wins column) are LOCKED IN, the rest of the spots go on points, and the gap column becomes TO CUTOFF |
 | **Edit by hand** | Fix a name, number or points in the table; **Save edits** keeps them until the next pull |
 | **⊘ / Include** | Leaves a driver out, or puts them back (see *Excluding a driver*) |
+| **Add tonight's race** | After the checkered flag: adds tonight's points to the table (see *Adding tonight's race*) |
 
 The standings graphic's playoff cutoff is its own setting: changing it doesn't move the live points line, and the other way round.
 
@@ -49,6 +51,17 @@ For a driver who can't take a playoff spot, for example someone who hasn't start
 - **Load top 12** skips them, and so does the announcer page's standings.
 - **On the Standings tab** they stay in the table, greyed out and crossed through, with an **Include** button to put them back.
 - **It sticks:** the exclusion is kept by name for this series through every pull and restart until you press Include.
+
+## Adding tonight's race
+
+Once the checkered flag is out, **Add tonight's race** (Standings tab, above the table) turns the standings into what live points shows at the finish, so the standings graphic shows the new championship before the league posts it.
+
+- **What changes:** each driver's Pts become their live points total (standings points + points for where they finished + bonuses), the winner gets +1 in Wins, drivers new to the series are added, and the table is re-sorted with Pos, To Ldr and To Nxt worked out again. Chg shows the places each driver moved tonight.
+- **It asks first,** with the winner, any new drivers and the moves near the top. If this race is already in the standings it asks again, because adding it twice counts its points twice.
+- **Excluded drivers** get their points too and stay left out, as before. Hand edits made afterwards keep it.
+- **Live points** stops adding tonight's points once the race is in the standings, so it doesn't count them twice.
+- **It's kept like a hand edit:** the next **Pull standings now** asks before replacing it. Pull once the league has posted the race to get the official numbers, including stage points and penalties, which live points doesn't know about.
+- It's greyed out until a race session reaches the checkered flag.
 
 ## Live points (Race tab)
 
@@ -136,7 +149,8 @@ Multi-class series: live points scores overall finishing position and ignores cl
 | --- | --- | --- |
 | A driver appears twice, once greyed | Name and car number don't match Xtreme | Fix the name or number in Xtreme and pull again, or use **Edit by hand** on the Standings tab |
 | Yellow "Not in standings" names a new driver | First race in the series | Nothing: they start from 0, which is right |
-| Everyone's points look about one race too high | Standings pulled after Xtreme posted tonight's race | Pull before the race next time; for tonight, **Edit by hand** or carry on knowing the totals are high |
+| Everyone's points look about one race too high | Standings pulled after Xtreme posted tonight's race, or tonight's race added twice | Pull before the race next time; for tonight, **Edit by hand** or carry on knowing the totals are high. After the league posts the race, a pull puts everything right |
+| **Add tonight's race** is greyed out | Not a race session, or the checkered flag isn't out yet | Wait for the checkered flag; it works until you leave the race session |
 | Round of 12 shows regular-season totals | Xtreme hadn't applied the playoff reset when you pulled | Pull again once Xtreme shows the reset |
 | Live points still shows the previous round | The bracket wasn't advanced | Advance the drivers with **→** on the Standings tab |
 | A round winner isn't shown IN | 🏆 not ticked | Tick 🏆 on them in the bracket |
