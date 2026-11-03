@@ -930,10 +930,14 @@ def qual_track(cars, store, now, est_at, is_qual):
         if d:
             last = c.get("last") or 0
             official = last > 0 and abs(last - d["prev"]) > 0.0005 and (c.get("officialPos") or 0) > 0   # iRacing posted the time and position
-            if d["shown"] is None and (official or now - d["t"] > 3):      # (after 3 s: identical lap time, or none came)
+            # only iRacing's own time is shown: a lap it doesn't time (an invalid lap, Nov 2: our own timing went up
+            # as a lap time) shows nothing, and after 10 s it stops waiting
+            if d["shown"] is None and official:
                 d["shown"] = now
-            if d["shown"] is not None and now - d["shown"] < 6:
-                lt = round(last if official else d["time"], 3)
+            elif d["shown"] is None and now - d["t"] > 10:
+                st["done"] = d = None
+            if d and d["shown"] is not None and now - d["shown"] < 6:
+                lt = round(last, 3)
                 c["qualDone"] = {"time": lt, "improved": bool(c.get("best")) and lt <= c["best"] + 0.002}   # did it beat their best?
         if not (st["hot"] and st["start"] is not None):
             continue
