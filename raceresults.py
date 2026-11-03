@@ -86,7 +86,7 @@ def _write(path, live, sess, official):
     rows = sorted((r for r in sess.get("ResultsPositions") or [] if r.get("CarIdx") in cars),
                   key=lambda r: (r.get("Position") or 999))
     head = ["Pos"] + (["Class", "Class Pos"] if multi else []) + \
-           ["#", "Driver", "Start", "Laps", "Led", "Gap", "Fastest Lap", "Incidents", "Status"]
+           ["#", "Driver", "Start", "Laps", "Led", "Gap", "Fastest Lap", "Incidents", "Status", "Cust ID"]
     out = [head]
     for r in rows:
         c = cars[r["CarIdx"]]
@@ -96,7 +96,8 @@ def _write(path, live, sess, official):
                    ([c.get("cls", ""), (r.get("ClassPosition") or 0) + 1] if multi else []) +
                    [c.get("num", ""), c.get("name", ""), c.get("startPos") or "", r.get("LapsComplete", ""),
                     r.get("LapsLed", ""), "" if gap == "LEADER" else gap, _lap(r.get("FastestTime")),
-                    inc if isinstance(inc, int) and inc >= 0 else "", _status(r)])
+                    inc if isinstance(inc, int) and inc >= 0 else "", _status(r),
+                    c.get("custId", "")])          # iRacing customer ID: the same driver every week, whatever their name
     tmp = path + ".tmp"
     with open(tmp, "w", newline="", encoding="utf-8-sig") as f:      # -sig: Excel opens the names correctly
         csv.writer(f).writerows(out)
