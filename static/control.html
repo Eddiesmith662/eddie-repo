@@ -251,6 +251,7 @@
   .spcard .nm { font-size: 11px; letter-spacing: .4px; text-transform: uppercase; margin: 5px 0 5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .spcard .bt { display: flex; gap: 4px; }
   .spcard .bt button { flex: 1; padding: 6px 4px; font-size: 13px; min-width: 0; }
+  .spcard .spauto { flex: 1; padding: 6px 4px; font-size: 12px; text-align: center; color: #999; border: 1px dashed #444; border-radius: 4px; }
   .sptools { display: flex; align-items: center; gap: 6px; margin-top: 10px; }
   .sptools input { width: 54px; padding: 6px 6px; }
   .sptools .s { font-size: 12px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; }
@@ -615,7 +616,7 @@
       <span class="s">Auto-hide</span><input type="number" id="spHold" min="0" max="600" title="0 = stays up until you press Hide"><span class="s">s</span>
     </div>
     <input type="file" id="spFile" accept="image/png,image/jpeg,image/webp,image/gif,image/svg+xml" hidden>
-    <p class="hint tip">Click a picture to load a new one (1920 × 1080 PNG, transparent background). One sponsor on air at a time: its button turns red and says Hide (press it to take it off); Show on another swaps it in.</p>
+    <p class="hint tip">Click a picture to load a new one. <b>Green Flag, Restart and White Flag</b> take the sponsor's logo (PNG, transparent background): it plays by itself in the ticker's flag flash, under "presented by", on the first green, every restart and the white flag. <b>Sponsor reads</b> take a 1920 × 1080 PNG with a transparent background; one on air at a time: its button turns red and says Hide (press it to take it off); Show on another swaps it in.</p>
   </section>
 
   <section id="anSec">
@@ -1223,9 +1224,11 @@ $('grSite').onchange = () => set({ gridw: { site: $('grSite').value } });
 /* ---------- sponsors ---------- */
 const SPONSORS = [['green', 'Green Flag'], ['restart', 'Restart'], ['white', 'White Flag'], ['read1', 'Sponsor Read 1'], ['read2', 'Sponsor Read 2'], ['read3', 'Sponsor Read 3']];
 const SP_SHORT = { read1: 'Read 1', read2: 'Read 2', read3: 'Read 3' };
+const SP_FLAG = { green: 1, restart: 1, white: 1 };   // flag sponsors: their logo plays in the ticker's flag flash by itself, no Show button
 $('spRows').innerHTML = SPONSORS.map(([k, n]) => `<div class="spcard" data-sp="${k}"><div class="thumb" data-do="load" title="Click to load an image">no image</div>
   <div class="nm" title="${n}">${SP_SHORT[k] || n}</div>
-  <div class="bt"><button class="vis" data-vis="sp-${k}" data-vrole="show" data-do="toggle" title="Show this sponsor, or hide it while it's on air (red = on air)">Show</button></div></div>`).join('');
+  <div class="bt">${SP_FLAG[k] ? '<span class="spauto" title="Plays by itself in the ticker\'s flag flash: Green Flag on the first green, Restart on every green after a caution, White Flag on the white flag">On the flag</span>'
+    : `<button class="vis" data-vis="sp-${k}" data-vrole="show" data-do="toggle" title="Show this sponsor, or hide it while it's on air (red = on air)">Show</button>`}</div></div>`).join('');
 // (i) buttons for the folded help text on the Race tab
 document.querySelectorAll('main[data-tab="race"] section').forEach(sec => {
   const tip = sec.querySelector('p.hint.tip'), h = sec.querySelector('h2'); if (!tip || !h) return;
@@ -1295,7 +1298,7 @@ function sponsorRender() {
     row.classList.toggle('on', live && sp.active === k);
     vis('sp-' + k, live && sp.active === k);
     const tb = row.querySelector('[data-do="toggle"]'), label = live && sp.active === k ? 'Hide' : 'Show';
-    if (tb.textContent !== label) tb.textContent = label;
+    if (tb && tb.textContent !== label) tb.textContent = label;
     const bg = f ? `url("/sponsor/${f}")` : '';
     if (th.dataset.bg !== bg) { th.dataset.bg = bg; th.style.backgroundImage = bg; th.textContent = f ? '' : 'no image'; }
     let nm = ''; try { nm = localStorage.getItem('vsSpName_' + k) || ''; } catch (e) {}

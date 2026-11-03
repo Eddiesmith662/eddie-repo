@@ -95,7 +95,8 @@ package** brings back the logos, ticker and driver info.
 | **Broadcast team** | Bottom center | Up to 3 names with roles |
 | **Track graphic** | Anywhere | A ready-made image or video from a folder (e.g. Google Drive) |
 | **Next broadcast** | Bottom center | Event, date and time, with a logo |
-| **Sponsors** | Full screen | Six slots: Green Flag, Restart, White Flag, Sponsor Read 1–3 |
+| **Sponsor reads** | Full screen | Three slots: Sponsor Read 1–3 |
+| **Flag sponsors** | In the ticker | GREEN FLAG / RESTART ZONE / WHITE FLAG, "presented by" and the sponsor's logo, in the ticker's flag flash |
 
 When standings, race info or the broadcast team are on screen, any live graphic underneath steps aside by itself.
 
@@ -113,8 +114,12 @@ When standings, race info or the broadcast team are on screen, any live graphic 
 - **Grid:** **Show** starts at row 1. Next row is *Automatic* (every few seconds) or *Manual*. For the **Pole Award**,
   load the badge once (**Load…**), show the grid on row 1, then press **Show** next to the badge.
 - **Podium:** after the race, press **Winner**, **2nd place**, **3rd place**, then **Hide**.
-- **Sponsors:** click a slot's picture to load an image (1920 × 1080 PNG with a transparent background). Optional
-  auto-hide after a number of seconds.
+- **Sponsors:** click a slot's picture to load an image.
+  - **Green Flag, Restart, White Flag:** the sponsor's logo (PNG with a transparent background). It plays by itself in
+    the ticker's flag flash, under "presented by": Green Flag on the first green of the race, Restart on every green
+    after a caution (the ticker flashes green), White Flag on the white flag. Only in races, while the ticker is up.
+  - **Sponsor Read 1–3:** a 1920 × 1080 PNG with a transparent background, shown full screen with **Show**. Optional
+    auto-hide after a number of seconds.
 - **Track graphic:** Prerace tab → **Browse…** to pick the folder, then pick tonight's track and **Show track**.
   For a Google Drive folder, right-click it in File Explorer → *Available offline* so nothing downloads at the
   moment you press Show.
