@@ -77,6 +77,7 @@ const ADDED = [
   ["series", "short_name", "TEXT NOT NULL DEFAULT ''"], ["series", "slug", "TEXT NOT NULL DEFAULT ''"], ["series", "role_id", "TEXT NOT NULL DEFAULT ''"],
   ["series", "hook_results", "TEXT NOT NULL DEFAULT ''"], ["series", "hook_standings", "TEXT NOT NULL DEFAULT ''"], ["series", "hook_penalties", "TEXT NOT NULL DEFAULT ''"],
   ["results", "orig_cust_id", "INTEGER"],
+  ["overlay_keys", "kind", "TEXT NOT NULL DEFAULT 'overlay'"],
   ["events", "official_at", "TEXT"], ["events", "official_by", "TEXT"], ["events", "discord", "TEXT NOT NULL DEFAULT '{}'"],
   ["results", "car_class", "TEXT NOT NULL DEFAULT ''"], ["results", "class_pos", "INTEGER"],
   ["results", "class_interval_ms", "INTEGER"], ["results", "class_laps_down", "INTEGER"],
@@ -387,16 +388,16 @@ const sha = async t => hex(await crypto.subtle.digest("SHA-256", new TextEncoder
 
 export async function listKeys(db) {
   await ensureSchema(db);
-  return (await db.prepare(`SELECT id, name, created_at, created_by, last_used, uses, revoked FROM overlay_keys ORDER BY revoked, id DESC`).all()).results;
+  return (await db.prepare(`SELECT id, name, kind, created_at, created_by, last_used, uses, revoked FROM overlay_keys ORDER BY revoked, id DESC`).all()).results;
 }
 
 // a new key: shown once, only its hash is kept
-export async function createKey(db, name, by) {
+export async function createKey(db, name, by, kind = "overlay") {
   await ensureSchema(db);
   const n = String(name || "").trim().slice(0, 60);
   if (!n) throw new Error("Give the key a name, like the producer's name.");
   const key = "vsglr_" + hex(crypto.getRandomValues(new Uint8Array(24)));
-  await db.prepare(`INSERT INTO overlay_keys (name, key_hash, created_at, created_by) VALUES (?, ?, ?, ?)`).bind(n, await sha(key), new Date().toISOString(), by).run();
+  await db.prepare(`INSERT INTO overlay_keys (name, key_hash, created_at, created_by, kind) VALUES (?, ?, ?, ?, ?)`).bind(n, await sha(key), new Date().toISOString(), by, kind === "import" ? "import" : "overlay").run();
   return key;
 }
 
@@ -405,10 +406,10 @@ export async function revokeKey(db, id) {
   await db.prepare(`UPDATE overlay_keys SET revoked = 1 WHERE id = ?`).bind(id).run();
 }
 
-export async function checkKey(db, key) {
+export async function checkKey(db, key, kind = "overlay") {
   if (!/^vsglr_[0-9a-f]{48}$/.test(String(key || ""))) return null;
   await ensureSchema(db);
-  const row = await db.prepare(`SELECT * FROM overlay_keys WHERE key_hash = ? AND revoked = 0`).bind(await sha(key)).first();
+  const row = await db.prepare(`SELECT * FROM overlay_keys WHERE key_hash = ? AND revoked = 0 AND kind = ?`).bind(await sha(key), kind).first();
   if (row) await db.prepare(`UPDATE overlay_keys SET last_used = ?, uses = uses + 1 WHERE id = ?`).bind(new Date().toISOString(), row.id).run();
   return row;
 }
@@ -500,7 +501,7 @@ export async function setHook(db, id, kind, url) {
 /* ---------- change history ---------- */
 
 // who did it, from the "discord:<id>:<name>" / "overlay:<id>:<name>" stamps the site keeps
-export const whoName = by => { const m = /^(discord|overlay):[^:]*:(.*)$/.exec(by || ""); return m ? (m[1] === "overlay" ? `Overlay (${m[2]})` : m[2]) : by || ""; };
+export const whoName = by => { const m = /^(discord|overlay|import):[^:]*:(.*)$/.exec(by || ""); return m ? (m[1] === "overlay" ? `Overlay (${m[2]})` : m[1] === "import" ? `Import (${m[2]})` : m[2]) : by || ""; };
 
 export async function logChange(db, { by = "", seriesId = null, sub = null, kind, summary }) {
   try {

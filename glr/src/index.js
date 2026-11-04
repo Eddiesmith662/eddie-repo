@@ -22,6 +22,8 @@
  *         /glr/history            officials: who changed what (admins: every series; series officials: their own)
  *         /glr/api/overlay/results  POST from an overlay (Authorization: Bearer <key>): provisional results
  *         /glr/api/overlay/check    GET with the same header: is this key good?
+ *         /glr/api/import         POST official iRacing results (the results JSON) with an import key, from the iRacing
+ *                                 members site (CORS): for one-time backfills of past races
  *         /glr/login, /glr/auth/callback, /glr/logout    Discord sign-in (auth.js)
  */
 import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, importEvent, setSeriesRole, seriesById, seasonsOf,
@@ -718,14 +720,15 @@ const pub = ({ hook_results, hook_standings, hook_penalties, ...rest }) => rest;
 const sameOrigin = (request, url) => request.headers.get("origin") === url.origin;
 const bearer = request => (/^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") || "") || [])[1] || "";
 
-function keysPage(keys, user, { newKey = "", msg = "" } = {}) {
+function keysPage(keys, user, { newKey = "", newKind = "overlay", msg = "" } = {}) {
   let body = `<h1>Overlay keys</h1><p class="sub">A key lets a producer's overlay send its race results here when a race ends. They arrive as Provisional and the official iRacing results file replaces them when it's uploaded. A key can only send results: it can't change rules, penalties or anything else.</p>`;
-  if (newKey) body += `<div class="msg ok"><b>New key, shown only this once.</b> Paste it into the overlay: control panel › Setup › League site upload.<code class="key">${esc(newKey)}</code></div>`;
+  if (newKey) body += `<div class="msg ok"><b>New key, shown only this once.</b> ${newKind === "import" ? "Use it for the backfill, then turn it off below." : "Paste it into the overlay: control panel › Setup › League site upload."}<code class="key">${esc(newKey)}</code></div>`;
   if (msg) body += `<div class="msg bad">${esc(msg)}</div>`;
   body += `<form method="post"><label for="kn">Name (whose overlay is it?)</label><input type="text" id="kn" name="name" maxlength="60" required>
+    <label class="chk"><input type="checkbox" name="import"> Import key instead: official iRacing results from the iRacing members site, for a one-time backfill of past races. Turn it off when the backfill is done.</label>
     <p><button class="btn">Make a key</button></p></form>`;
   body += keys.length ? `<h2>Keys</h2><div class="wrap"><table><tr><th>Name</th><th>Made</th><th>Last used</th><th class="n">Races sent</th><th></th></tr>` +
-    keys.map(k => `<tr><td>${esc(k.name)}${k.revoked ? ` <span class="tag">(turned off)</span>` : ""}</td><td>${day(k.created_at)}</td><td>${k.last_used ? day(k.last_used) : "Never"}</td>
+    keys.map(k => `<tr><td>${esc(k.name)}${k.kind === "import" ? ` <span class="cls">Import</span>` : ""}${k.revoked ? ` <span class="tag">(turned off)</span>` : ""}</td><td>${day(k.created_at)}</td><td>${k.last_used ? day(k.last_used) : "Never"}</td>
       <td class="n">${k.uses}</td><td>${k.revoked ? "" : `<form method="post"><input type="hidden" name="revoke" value="${k.id}"><button class="link" onclick="return confirm('Turn this key off? That overlay stops sending results until it gets a new key.')">Turn off</button></form>`}</td></tr>`).join("") + `</table></div>` : "";
   return page("Overlay keys", body, { user });
 }
@@ -768,6 +771,23 @@ export default {
         kick();
         return res;
       }
+      if (path === `${BASE}/api/import`) {
+        const cors = { "access-control-allow-origin": "https://members-ng.iracing.com", "access-control-allow-headers": "authorization, content-type",
+          "access-control-allow-methods": "POST, OPTIONS", "access-control-max-age": "600", vary: "origin" };
+        const cj = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json", "cache-control": "no-store", ...cors } });
+        if (request.method === "OPTIONS") return new Response(null, { status: 204, headers: cors });
+        if (request.method !== "POST") return cj({ ok: false, error: "Use POST." }, 405);
+        const key = await checkKey(db, bearer(request), "import");
+        if (!key) return cj({ ok: false, error: "That isn't a working import key." }, 401);
+        let ev;
+        try { ev = parseExport(await request.text(), ""); } catch (e) { return cj({ ok: false, error: e.message }, 400); }
+        const had = await getEvent(db, ev.subsessionId || 0);
+        try {
+          const by = `import:${key.id}:${key.name}`, r = await importEvent(db, ev, by);
+          await logChange(db, { by, seriesId: ev.league.id, sub: r.subsessionId, kind: "upload", summary: `Results imported from iRacing: ${ev.track}${had ? " (replaced the earlier copy)" : ""}` });
+          return cj({ ok: true, subsessionId: r.subsessionId, track: ev.track, drivers: r.results, replaced: !!had });
+        } catch (e) { return cj({ ok: false, error: e.message }, 400); }
+      }
       if (path === `${BASE}/api/overlay/check` || path === `${BASE}/api/overlay/results`) {
         const key = await checkKey(db, bearer(request));
         if (!key) return json({ ok: false, error: "The site doesn't recognise this key. Make a new one on the site's Overlay keys page." }, 401);
@@ -794,9 +814,10 @@ export default {
             return Response.redirect(`${url.origin}${BASE}/keys`, 303);
           }
           try {
-            const k = await createKey(db, f.get("name"), who);
-            await logChange(db, { by: who, kind: "key", summary: `Overlay key made: ${String(f.get("name")).trim()}` });
-            return keysPage(await listKeys(db), user, { newKey: k });
+            const kind = f.get("import") ? "import" : "overlay";
+            const k = await createKey(db, f.get("name"), who, kind);
+            await logChange(db, { by: who, kind: "key", summary: `${kind === "import" ? "Import" : "Overlay"} key made: ${String(f.get("name")).trim()}` });
+            return keysPage(await listKeys(db), user, { newKey: k, newKind: kind });
           }
           catch (e) { return keysPage(await listKeys(db), user, { msg: e.message }); }
         }
