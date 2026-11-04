@@ -64,6 +64,10 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS roster (
      series_id INTEGER NOT NULL, cust_id INTEGER NOT NULL, name TEXT NOT NULL, car_number TEXT NOT NULL DEFAULT '',
      added_at TEXT, added_by TEXT, PRIMARY KEY (series_id, cust_id))`,
+  `CREATE TABLE IF NOT EXISTS schedule (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, series_id INTEGER NOT NULL, starts_at TEXT NOT NULL, track TEXT NOT NULL,
+     notes TEXT NOT NULL DEFAULT '', subsession_id INTEGER, created_at TEXT, created_by TEXT)`,
+  `CREATE INDEX IF NOT EXISTS schedule_series ON schedule (series_id, starts_at)`,
   `CREATE TABLE IF NOT EXISTS overlay_keys (
      id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE,
      created_at TEXT, created_by TEXT, last_used TEXT, uses INTEGER NOT NULL DEFAULT 0, revoked INTEGER NOT NULL DEFAULT 0)`,
@@ -81,7 +85,7 @@ const ADDED = [
 // short names for the GLR series (by iRacing league id); officials can change them on the site
 const SHORT = { 9310: "ARCA", 9309: "Grand National", 11390: "Foundation", 12070: "Sports Car", 11059: "Warrior", 6838: "Next Gen" };
 // words in the site's own addresses, which a series can't use as its address
-export const RESERVED = new Set(["api", "results", "drivers", "upload", "login", "logout", "auth", "health", "series", "edit", "admin", "keys", "history"]);
+export const RESERVED = new Set(["api", "results", "drivers", "upload", "login", "logout", "auth", "health", "series", "edit", "admin", "keys", "history", "schedule"]);
 
 export const slugify = s => String(s || "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
 const shortFrom = (id, name) => SHORT[id] || String(name || "").replace(/^\s*GLR\s+/i, "").replace(/\s+SERIES\s*$/i, "").trim() || `Series ${id}`;
@@ -652,4 +656,93 @@ export async function removeRoster(db, seriesId, cust) {
   const row = await db.prepare(`SELECT name FROM roster WHERE series_id = ? AND cust_id = ?`).bind(seriesId, cust).first();
   await db.prepare(`DELETE FROM roster WHERE series_id = ? AND cust_id = ?`).bind(seriesId, cust).run();
   return row && row.name;
+}
+
+/* ---------- schedule ---------- */
+
+// "2026-11-10" + "8:00 PM" in US Eastern time -> ISO UTC. Times are entered in Eastern; pages show each viewer's own time.
+export function easternToUtc(date, time) {
+  let y, mo, d;
+  const iso = /^\s*(\d{4})-(\d{1,2})-(\d{1,2})\s*$/.exec(date || ""), us = /^\s*(\d{1,2})\/(\d{1,2})\/(\d{2,4})\s*$/.exec(date || "");
+  if (iso) [y, mo, d] = [+iso[1], +iso[2], +iso[3]];
+  else if (us) [mo, d, y] = [+us[1], +us[2], +us[3] < 100 ? 2000 + +us[3] : +us[3]];
+  else throw new Error(`"${String(date || "").trim()}" isn't a date. Use 2026-11-10 or 11/10/2026.`);
+  const t = /^\s*(\d{1,2})(?::(\d{2}))?\s*([ap]\.?m\.?)?\s*$/i.exec(time || "8:00 PM");
+  if (!t) throw new Error(`"${String(time).trim()}" isn't a time. Use 8:00 PM or 20:00.`);
+  let h = +t[1]; const mi = +(t[2] || 0), ap = (t[3] || "").toLowerCase()[0];
+  if (ap === "p" && h < 12) h += 12; if (ap === "a" && h === 12) h = 0;
+  if (mo < 1 || mo > 12 || d < 1 || d > 31 || h > 23 || mi > 59) throw new Error("Check the date and time.");
+  // find the UTC moment whose Eastern wall clock reads y-mo-d h:mi (Eastern is UTC-4 or UTC-5)
+  for (const off of [4, 5]) {
+    const u = Date.UTC(y, mo - 1, d, h + off, mi);
+    const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hourCycle: "h23", year: "numeric", month: "numeric", day: "numeric", hour: "numeric", minute: "numeric" })
+      .formatToParts(new Date(u)).map(x => [x.type, x.value]));
+    if (+p.year === y && +p.month === mo && +p.day === d && +p.hour === h && +p.minute === mi) return new Date(u).toISOString();
+  }
+  return new Date(Date.UTC(y, mo - 1, d, h + 5, mi)).toISOString();
+}
+
+// attach uploaded races to schedule entries of the same series within a day and a half
+async function linkSchedule(db, seriesId) {
+  const open = (await db.prepare(`SELECT id, starts_at FROM schedule WHERE series_id = ? AND subsession_id IS NULL AND starts_at < ?`)
+    .bind(seriesId, new Date(Date.now() + 864e5).toISOString()).all()).results;
+  if (!open.length) return;
+  const evs = (await db.prepare(`SELECT subsession_id, start_time FROM events WHERE series_id = ? AND subsession_id NOT IN
+      (SELECT subsession_id FROM schedule WHERE subsession_id IS NOT NULL)`).bind(seriesId).all()).results;
+  for (const s of open) {
+    const t = Date.parse(s.starts_at);
+    const best = evs.map(e => ({ e, d: Math.abs(Date.parse(e.start_time) - t) })).filter(x => x.d < 36 * 3600e3).sort((a, b) => a.d - b.d)[0];
+    if (best) { await db.prepare(`UPDATE schedule SET subsession_id = ? WHERE id = ?`).bind(best.e.subsession_id, s.id).run(); evs.splice(evs.indexOf(best.e), 1); }
+  }
+}
+
+export async function listSchedule(db, seriesId) {
+  await ensureSchema(db);
+  await linkSchedule(db, seriesId);
+  return (await db.prepare(`SELECT s.*, e.season_id, se.name AS season_name, e.track AS result_track, e.status FROM schedule s
+      LEFT JOIN events e ON e.subsession_id = s.subsession_id LEFT JOIN seasons se ON se.id = e.season_id
+      WHERE s.series_id = ? ORDER BY s.starts_at`).bind(seriesId).all()).results;
+}
+
+// upcoming races in every series (the league calendar), and each series' next race
+export async function upcoming(db, days = 60) {
+  await ensureSchema(db);
+  const now = new Date(Date.now() - 4 * 3600e3).toISOString(), until = new Date(Date.now() + days * 864e5).toISOString();
+  return (await db.prepare(`SELECT s.*, sr.short_name, sr.slug FROM schedule s JOIN series sr ON sr.id = s.series_id
+      WHERE s.subsession_id IS NULL AND s.starts_at >= ? AND s.starts_at <= ? ORDER BY s.starts_at`).bind(now, until).all()).results;
+}
+
+export async function addSchedule(db, seriesId, { date, time, track, notes }, by) {
+  await ensureSchema(db);
+  const tr = String(track || "").trim().slice(0, 100);
+  if (!tr) throw new Error("Enter the track.");
+  const at = easternToUtc(date, time);
+  await db.prepare(`INSERT INTO schedule (series_id, starts_at, track, notes, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?)`)
+    .bind(seriesId, at, tr, String(notes || "").trim().slice(0, 120), new Date().toISOString(), by).run();
+  return { at, track: tr };
+}
+
+// a pasted season: one race per line, "date, time, track, notes" (time and notes optional)
+export async function addScheduleLines(db, seriesId, text, by) {
+  const lines = String(text || "").split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+  if (!lines.length) throw new Error("Paste at least one line.");
+  if (lines.length > 60) throw new Error("That's more than 60 races. Paste a season at a time.");
+  const rows = lines.map((l, i) => {
+    const parts = l.split(/\s*[,\t]\s*/);
+    let [date, time, ...rest] = parts;
+    if (time && !/\d/.test(time)) { rest = [time, ...rest]; time = ""; }        // no time given: the second part is the track
+    if (!rest.length) throw new Error(`Line ${i + 1}: needs at least a date and a track ("${l}").`);
+    try { return { date, time: time || "8:00 PM", track: rest[0], notes: rest.slice(1).join(", ") }; }
+    catch (e) { throw new Error(`Line ${i + 1}: ${e.message}`); }
+  });
+  rows.forEach((r, i) => { try { easternToUtc(r.date, r.time); } catch (e) { throw new Error(`Line ${i + 1}: ${e.message}`); } });
+  for (const r of rows) await addSchedule(db, seriesId, r, by);
+  return rows.length;
+}
+
+export async function deleteSchedule(db, seriesId, id) {
+  await ensureSchema(db);
+  const row = await db.prepare(`SELECT track, starts_at FROM schedule WHERE id = ? AND series_id = ?`).bind(id, seriesId).first();
+  await db.prepare(`DELETE FROM schedule WHERE id = ? AND series_id = ?`).bind(id, seriesId).run();
+  return row;
 }

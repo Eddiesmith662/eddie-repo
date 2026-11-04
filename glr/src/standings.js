@@ -202,7 +202,7 @@ export function computeStandings(rawRules, events, adjustments = []) {
   const groups = (perClass ? classes : [""]).map(cls => {
     const races = scoreRaces(rules, counted, adjustments, perClass, cls);
     return { carClass: cls, ...standingsFor(rules, races), races: races.map(r => ({ subsession_id: r.ev.subsession_id, start_time: r.ev.start_time, track: r.ev.track,
-      points: Object.fromEntries([...r.by].map(([id, x]) => [id, { pos: x.pos, pts: x.pts, bonus: x.bonus, adj: x.adj, reasons: x.adjReasons }])) })) };
+      points: Object.fromEntries([...r.by].map(([id, x]) => [id, { pos: x.pos, pts: x.pts, bonus: x.bonus, adj: x.adj, reasons: x.adjReasons, out: x.row.reason_out || "" }])) })) };
   });
   return { rules, counted: counted.length, skipped: events.length - counted.length, groups };
 }

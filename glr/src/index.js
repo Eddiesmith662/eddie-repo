@@ -4,6 +4,8 @@
  * Pages:  /glr                    every series with its latest race, then the latest races
  *         /glr/<series>           one series (its short address, e.g. /glr/arca): seasons and races
  *         /glr/<series>/standings  standings for a season (?season=<id>, newest by default), by class when multi-class
+ *         /glr/<series>/schedule  the series' races: upcoming, and completed ones linked to their results
+ *         /glr/schedule           the league calendar: every series' upcoming races
  *         /glr/<series>/stats     driver stats for a season or all seasons (?season=<id>|all)
  *         /glr/<series>/drivers   everyone who has raced in the series, plus drivers its officials have added
  *         /glr/drivers            the league driver list: every driver in every series
@@ -26,7 +28,7 @@ import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, i
   getRules, saveRules, seasonEvents, listAdjustments, addAdjustment, deleteAdjustment,
   importOverlay, listKeys, createKey, revokeKey, checkKey, deleteEvent, listFixes, fixResult, FIX_FIELDS, markOfficial, setHook, HOOKS,
   logChange, listChanges, whoName, mergeDrivers, separateDriver, aliasesOf, findDrivers,
-  seriesEvents, allSeriesEvents, listRoster, addRoster, removeRoster } from "./db.js";
+  seriesEvents, allSeriesEvents, listRoster, addRoster, removeRoster, listSchedule, upcoming, addSchedule, addScheduleLines, deleteSchedule } from "./db.js";
 import { resultsPost, standingsPost, penaltyPost, fixPost, enqueue, processQueue, queueFor, retryQueued, discardQueued, isRecent } from "./discord.js";
 import { computeStandings, cleanRules, DEFAULT_RULES, GLR_PLAYOFFS } from "./standings.js";
 import { computeStats, leaders, COLUMNS } from "./stats.js";
@@ -76,7 +78,7 @@ code.key{display:block;padding:10px 12px;background:#000;border:1px solid var(--
 label{display:block;margin:12px 0 4px;color:var(--dim);font-size:13px}
 .tabs{display:flex;gap:4px;margin:0 0 18px;border-bottom:1px solid var(--line);flex-wrap:wrap}.tabs a{padding:8px 14px;color:var(--dim);text-decoration:none;border-bottom:2px solid transparent;margin-bottom:-1px}
 .tabs a.on{color:var(--text);border-bottom-color:var(--accent)}.tabs .season{margin-left:auto;align-self:center}
-select,input[type=number]{padding:7px 9px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
+select,input[type=number],input[type=date],input[type=time]{color-scheme:dark;padding:7px 9px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
 input[type=number]{width:90px}tr.cut td{border-top:2px solid var(--accent)!important}.st{font-size:12px;font-weight:600;color:#ffb84d}.st.good{color:#4fd18b}.st.bad{color:#ff6b6b}
 fieldset{min-width:0;border:1px solid var(--line);border-radius:8px;margin:16px 0;padding:6px 16px 14px}legend{padding:0 6px;font-weight:600}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:4px 16px}.chk{display:flex;gap:8px;align-items:center;margin:8px 0;color:var(--text);font-size:14px}
@@ -85,8 +87,13 @@ header{flex-wrap:wrap;row-gap:6px}header .me{flex-wrap:wrap;justify-content:flex
 .lead{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin:0 0 18px}.lead div{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
 .lead small{display:block;color:var(--dim);font-size:12px}.lead b{font-size:18px}.lead span{display:block;font-size:14px}
 th.sort{cursor:pointer;user-select:none}th.sort:hover{color:var(--text)}th.sort.on{color:var(--text)}th.sort.on::after{content:" ▾"}th.sort.on.asc::after{content:" ▴"}
+.grid-r td,.grid-r th{padding:5px 6px;text-align:center}.grid-r td.d{text-align:left;position:sticky;left:0;background:var(--card);z-index:1}
+.grid-r .c{border-radius:4px;display:inline-block;min-width:26px;padding:1px 3px}.grid-r .w{background:#6b5313;color:#ffe08a;font-weight:700}
+.grid-r .t5{background:#1f4630}.grid-r .t10{background:#1f3550}.grid-r .dnf{color:#ff8a8a}.grid-r .p{display:none}.grid-r.pts .p{display:inline}.grid-r.pts .f{display:none}
+.seg2{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;margin:0 0 10px}.seg2 button{background:none;border:0;color:var(--dim);padding:6px 12px;font:inherit;cursor:pointer}
+.seg2 button.on{background:#2c2c32;color:var(--text)}time{white-space:nowrap}
 input.search{width:100%;max-width:360px;margin:0 0 12px;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
-</style></head><body><header><a href="${BASE}">VSPEED <span>GLR</span></a><div class="me"><a href="${BASE}/drivers">Drivers</a>${user
+</style></head><body><header><a href="${BASE}">VSPEED <span>GLR</span></a><div class="me"><a href="${BASE}/schedule">Schedule</a><a href="${BASE}/drivers">Drivers</a>${user
   ? `<a href="${BASE}/history">History</a>${user.admin ? `<a href="${BASE}/keys">Overlay keys</a>` : ""}<a href="${BASE}/upload">Upload results</a><span class="tag">${esc(user.name)}</span><form method="post" action="${BASE}/logout"><button class="link">Sign out</button></form>`
   : `<a href="${BASE}/login">Official sign-in</a>`}</div></header><main>${body}</main></body></html>`,
   { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
@@ -106,15 +113,23 @@ function raceTable(events, { series = false } = {}) {
       <td>${esc(e.track)}</td><td>${winnersHtml(e.winners)}</td><td class="n">${e.starters}</td><td class="n">${e.laps ?? ""}</td></tr>`).join("") + `</table></div>`;
 }
 
-function homePage(series, recent, user) {
+// a time in the viewer's own time zone (Eastern until the page's script runs)
+const when = (iso, withDay = true) => { const d = new Date(iso); if (isNaN(d)) return "";
+  const et = d.toLocaleString("en-US", { ...(withDay ? { weekday: "short", month: "short", day: "numeric" } : {}), hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) + " ET";
+  return `<time datetime="${d.toISOString()}" data-day="${withDay ? 1 : 0}">${et}</time>`; };
+const LOCAL_JS = `<script>document.querySelectorAll('time[datetime]').forEach(t=>{try{const d=new Date(t.getAttribute('datetime'));
+t.textContent=d.toLocaleString(undefined,Object.assign(t.dataset.day==='1'?{weekday:'short',month:'short',day:'numeric'}:{},{hour:'numeric',minute:'2-digit',timeZoneName:'short'}));}catch(e){}});</script>`;
+
+function homePage(series, recent, user, next = new Map()) {
   if (!series.length) return page("VSPEED GLR", `<h1>Results</h1><p class="sub">No races uploaded yet.</p>`, { user });
   let body = `<h1>Series</h1><p class="sub">${series.length} series</p><div class="cards">` +
     series.map(s => { const e = s.latestEvent; return `<a class="card" href="${BASE}/${esc(s.slug)}"><b>${esc(s.short_name)}</b><div class="full">${esc(s.name)}</div>
       ${e ? `<div class="row"><span>Latest:</span> ${esc(e.track)}, ${day(e.start_time)}</div>
         <div class="row"><span>Won by</span> ${e.winners.map(w => (e.winners.length > 1 ? cls(w.carClass) : "") + esc(w.name)).join(" · ")}</div>` : ""}
+      ${next.get(s.id) ? `<div class="row"><span>Next:</span> ${esc(next.get(s.id).track)}, ${when(next.get(s.id).starts_at)}</div>` : ""}
       <div class="row"><span>${s.races} race${s.races === 1 ? "" : "s"} uploaded</span></div></a>`; }).join("") + `</div>`;
   body += `<h2>Latest races</h2>` + raceTable(recent, { series: true });
-  return page("VSPEED GLR results", body, { user });
+  return page("VSPEED GLR results", body + LOCAL_JS, { user });
 }
 
 function seriesPage(sr, user) {
@@ -260,12 +275,12 @@ function driverPage(d, user, { aliases = [], all = [], msg = "" } = {}) {
 
 function seriesTabs(sr, on, seasons, seasonId, user) {
   const q = seasonId && seasonId !== "all" && seasons.length > 1 ? `?season=${seasonId}` : "";
-  const t = (k, label, href) => `<a class="${on === k ? "on" : ""}" href="${BASE}/${esc(sr.slug)}${href}${k === "results" || k === "drivers" ? "" : q}">${label}</a>`;
+  const t = (k, label, href) => `<a class="${on === k ? "on" : ""}" href="${BASE}/${esc(sr.slug)}${href}${["results", "drivers", "schedule"].includes(k) ? "" : q}">${label}</a>`;
   const opts = on === "stats" && seasons.length > 1 ? [...seasons, { id: "all", name: "All seasons" }] : seasons;
-  const pick = !["results", "drivers"].includes(on) && opts.length > 1 ? `<form class="season" method="get"><select name="season" onchange="this.form.submit()">${opts.map(se =>
+  const pick = !["results", "drivers", "schedule"].includes(on) && opts.length > 1 ? `<form class="season" method="get"><select name="season" onchange="this.form.submit()">${opts.map(se =>
     `<option value="${se.id}"${se.id === seasonId ? " selected" : ""}>${esc(se.name)}</option>`).join("")}</select></form>` : "";
   return `<p class="crumb"><a href="${BASE}">GLR</a></p><h1>${esc(sr.short_name)}</h1><p class="sub">${esc(sr.name)}${canEdit(user, sr) ? ` · <a href="${BASE}/${esc(sr.slug)}/edit">Edit series</a>` : ""}</p>
-    <nav class="tabs">${t("results", "Results", "")}${t("standings", "Standings", "/standings")}${t("stats", "Stats", "/stats")}${t("drivers", "Drivers", "/drivers")}${t("rules", "Rules", "/rules")}${t("penalties", "Penalties", "/penalties")}${pick}</nav>`;
+    <nav class="tabs">${t("results", "Results", "")}${t("schedule", "Schedule", "/schedule")}${t("standings", "Standings", "/standings")}${t("stats", "Stats", "/stats")}${t("drivers", "Drivers", "/drivers")}${t("rules", "Rules", "/rules")}${t("penalties", "Penalties", "/penalties")}${pick}</nav>`;
 }
 
 // a table whose columns sort when their heading is clicked (numbers from data-v)
@@ -275,6 +290,63 @@ hs.forEach(x=>x.classList.remove('on','asc'));h.classList.add('on');if(asc)h.cla
 const rows=[...t.querySelectorAll('tr')].slice(1),v=r=>{const c=r.children[i],d=c&&c.dataset.v;return d===undefined||d===''?null:isNaN(+d)?d.toLowerCase():+d;};
 rows.sort((a,b)=>{const x=v(a),y=v(b);if(x===null)return 1;if(y===null)return -1;return (x<y?-1:x>y?1:0)*(asc?1:-1);});rows.forEach(r=>t.appendChild(r));});});
 document.querySelectorAll('input.search').forEach(s=>s.oninput=()=>{const q=s.value.trim().toLowerCase();document.querySelectorAll(s.dataset.rows).forEach(r=>r.hidden=q&&!r.textContent.toLowerCase().includes(q));});</script>`;
+
+function schedulePage(sr, rows, winners, user, msg = "") {
+  let body = seriesTabs(sr, "schedule", [], null, user);
+  const edit = canEdit(user, sr), now = Date.now() - 4 * 3600e3;
+  if (msg) body += `<div class="msg ${/^(Added|Removed)/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>`;
+  const up = rows.filter(r => !r.subsession_id && Date.parse(r.starts_at) >= now);
+  const done = rows.filter(r => !up.includes(r)).reverse();
+  const del = r => edit ? `<td><form method="post" onsubmit="return confirm('Remove ${esc(String(r.track).replace(/['"\\]/g, ""))} from the schedule?')"><input type="hidden" name="remove" value="${r.id}"><button class="link">Remove</button></form></td>` : "";
+  body += `<h2>Upcoming</h2>` + (up.length ? `<div class="wrap"><table><tr><th>When</th><th>Track</th><th>Notes</th>${edit ? "<th></th>" : ""}</tr>` +
+    up.map(r => `<tr><td>${when(r.starts_at)}</td><td>${esc(r.track)}</td><td style="white-space:normal">${esc(r.notes)}</td>${del(r)}</tr>`).join("") + `</table></div>`
+    : `<p class="hint">No upcoming races on the schedule.${edit ? " Add them below." : ""}</p>`);
+  if (done.length) {
+    const table = list => `<div class="wrap"><table><tr><th>When</th><th>Track</th><th>Winner</th><th>Notes</th>${edit ? "<th></th>" : ""}</tr>` + list.map(r => `<tr>
+      <td>${r.subsession_id ? `<a href="${BASE}/results/${r.subsession_id}">${when(r.starts_at)}</a>` : when(r.starts_at)}</td><td>${esc(r.track)}</td>
+      <td>${r.subsession_id ? winnersHtml(winners.get(r.subsession_id) || []) + prov(r) : `<span class="tag">Results not in yet</span>`}</td>
+      <td style="white-space:normal">${esc(r.notes)}</td>${del(r)}</tr>`).join("") + `</table></div>`;
+    const recent = done.filter(r => Date.parse(r.starts_at) > Date.now() - 150 * 864e5), older = done.filter(r => !recent.includes(r));
+    if (recent.length) body += `<h2>Completed</h2>` + table(recent);
+    if (older.length) body += `<details><summary>Earlier races (${older.length})</summary>${table(older)}</details>`;
+  }
+  if (edit) body += `<h2>Add races</h2><form method="post"><div class="grid"><label>Date<br><input type="date" name="date" required></label>
+      <label>Start (Eastern)<br><input type="time" name="time" value="20:00" required></label></div>
+      <label for="st">Track</label><input type="text" id="st" name="track" maxlength="100" required>
+      <label for="sn2">Notes (optional, e.g. Playoffs: Round of 12)</label><input type="text" id="sn2" name="notes" maxlength="120">
+      <p><button class="btn">Add race</button></p></form>
+    <form method="post"><label for="bulk">Or paste a whole season, one race per line: date, start time (Eastern), track, notes</label>
+      <textarea id="bulk" name="bulk" rows="6" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit"
+        placeholder="2026-11-10, 8:00 PM, Kansas Speedway&#10;11/17/2026, 8:00 PM, Martinsville Speedway, Short track night&#10;2026-11-24, Phoenix Raceway, Playoffs: Round of 12"></textarea>
+      <p class="tag">The time can be left out (8:00 PM Eastern). When a race's results are uploaded they join up with its date here.</p>
+      <p><button class="btn">Add these races</button></p></form>`;
+  return page(`${sr.short_name} schedule`, body + LOCAL_JS, { user });
+}
+
+function leagueSchedulePage(rows, user) {
+  let body = `<h1>Schedule</h1><p class="sub">Upcoming races in every GLR series, in your time zone.</p>`;
+  if (!rows.length) return page("GLR schedule", body + `<p class="hint">No upcoming races on the schedule yet.</p>`, { user });
+  body += `<div class="wrap"><table><tr><th>When</th><th>Series</th><th>Track</th><th>Notes</th></tr>` + rows.map(r => `<tr><td>${when(r.starts_at)}</td>
+    <td><a href="${BASE}/${esc(r.slug)}/schedule">${esc(r.short_name)}</a></td><td>${esc(r.track)}</td><td style="white-space:normal">${esc(r.notes)}</td></tr>`).join("") + `</table></div>`;
+  return page("GLR schedule", body + LOCAL_JS, { user });
+}
+
+// each driver's finish and points in every race of the season, in the order the standings show them
+function raceGrid(g, order) {
+  if (!g.races.length) return "";
+  const rows = order.filter(o => g.races.some(r => r.points[o.custId]));
+  const short = t => String(t || "").replace(/\s*-\s*.*$/, "").replace(/\b(Speedway|Raceway|International|Motor|Superspeedway|Circuit)\b/gi, "").replace(/\s+/g, " ").trim().slice(0, 10);
+  const cell = x => { if (!x) return `<td class="tag">–</td>`;
+    const c = x.pos === 1 ? "w" : x.pos <= 5 ? "t5" : x.pos <= 10 ? "t10" : "", dnf = x.out && !/^running$/i.test(x.out);
+    const tip = `P${x.pos} · ${x.pts} pts${x.bonus ? ` (incl. ${x.bonus} bonus)` : ""}${x.adj ? ` · ${x.adj > 0 ? "+" : ""}${x.adj} ${x.reasons.join("; ")}` : ""}${dnf ? ` · ${x.out}` : ""}`;
+    return `<td title="${esc(tip)}"><span class="c ${c}${dnf ? " dnf" : ""}"><span class="f">${x.pos}</span><span class="p">${x.pts}</span></span>${x.adj ? "*" : ""}</td>`; };
+  return `<h2>Race by race</h2><div class="seg2" onclick="const b=event.target.closest('button');if(!b)return;this.querySelectorAll('button').forEach(x=>x.classList.toggle('on',x===b));this.nextElementSibling.querySelector('table').classList.toggle('pts',b.dataset.v==='p')">
+    <button class="on" data-v="f">Finish</button><button data-v="p">Points</button></div>
+    <div class="wrap"><table class="grid-r"><tr><th class="d" style="text-align:left">Driver</th>${g.races.map((r, i) => `<th title="${esc(r.track)}, ${day(r.start_time)}"><a href="${BASE}/results/${r.subsession_id}">${i + 1}</a><br><span class="tag">${esc(short(r.track))}</span></th>`).join("")}
+    <th>Race pts</th></tr>` + rows.map(o => `<tr><td class="d">${driverLink(o.custId, o.name)}</td>${g.races.map(r => cell(r.points[o.custId])).join("")}
+    <td><b>${g.races.reduce((s, r) => s + ((r.points[o.custId] || {}).pts || 0), 0)}</b></td></tr>`).join("") + `</table></div>
+    <p class="tag">Gold: win · green: top 5 · blue: top 10 · red number: didn't finish · *: penalty or adjustment. Hover a result for its points. Race pts adds up every race (before drop weeks and playoff resets).</p>`;
+}
 
 const fmt = (v, dp) => v == null ? "–" : dp ? v.toFixed(dp) : String(v);
 
@@ -423,12 +495,14 @@ function standingsBody(st) {
       }
       if (p.others.length) body += `<h2>Rest of the field</h2>` + regularTable(p.others, rules);
       body += `<details><summary>Regular season</summary>${regularTable(g.regular, rules, { playoffNote: true })}</details>`;
+      body += raceGrid(g, [...cur.rows, ...p.eliminated, ...p.others]);
     } else {
       const inField = g.regular.filter(s => s.inField).length;
       const cutAfter = po.enabled ? g.regular.findIndex((s, i) => i > 0 && !s.inField && g.regular.slice(0, i).filter(x => x.inField).length === inField) : 0;
       body += `<h2>${po.enabled ? "Regular season" : "Standings"} · ${g.regularRan} of ${po.enabled ? g.regularRaces : g.races.length} race${g.regularRan === 1 ? "" : "s"}</h2>`;
       if (po.enabled) body += `<p class="tag">Top ${po.field}${po.minStarts ? ` with at least ${po.minStarts} starts` : ""} make the playoffs${g.regularComplete ? "" : " (as things stand)"}.</p>`;
       body += regularTable(g.regular, rules, { cutAfter: cutAfter > 0 ? cutAfter : 0, playoffNote: po.enabled });
+      body += raceGrid(g, g.regular);
     }
   }
   if (st.adj.length) body += `<p class="tag">Includes ${st.adj.length} penalt${st.adj.length === 1 ? "y or adjustment" : "ies or adjustments"} — see Penalties.</p>`;
@@ -606,7 +680,7 @@ async function upload(request, env, user) {
 }
 
 const KIND = { upload: "Upload", overlay: "Overlay", official: "Official", fix: "Fix", remove: "Removed", penalty: "Penalty", unpenalty: "Penalty removed",
-  rules: "Rules", series: "Series", roster: "Drivers", webhook: "Discord", key: "Overlay key", merge: "Merge", separate: "Separate", note: "" };
+  rules: "Rules", series: "Series", roster: "Drivers", schedule: "Schedule", webhook: "Discord", key: "Overlay key", merge: "Merge", separate: "Separate", note: "" };
 function historyPage(rows, user) {
   const when = t => { const d = new Date(t); return isNaN(d) ? "" : d.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) + " ET"; };
   let body = `<h1>History</h1><p class="sub">Who changed what on the site, newest first${user.admin ? "" : " (your series)"}.</p>`;
@@ -712,7 +786,11 @@ export default {
       if ((m = path.match(/^\/glr\/api\/series\/([a-z0-9-]+)$/))) { const sr = await getSeries(db, m[1]); return sr ? json({ ok: true, series: pub(sr) }) : json({ ok: false, error: "No such series" }, 404); }
       if ((m = path.match(/^\/glr\/api\/results\/(\d+)$/))) { const ev = await getEvent(db, Number(m[1])); return ev ? json({ ok: true, event: ev }) : json({ ok: false, error: "No such race" }, 404); }
       if ((m = path.match(/^\/glr\/api\/drivers\/(\d+)$/))) { const d = await getDriver(db, Number(m[1])); return d ? json({ ok: true, driver: d }) : json({ ok: false, error: "No such driver" }, 404); }
-      if (path === BASE) return homePage(await listSeries(db), await listEvents(db, { limit: 15 }), user);
+      if (path === BASE) {
+        const next = new Map();
+        for (const r of await upcoming(db, 120)) if (!next.has(r.series_id)) next.set(r.series_id, r);
+        return homePage(await listSeries(db), await listEvents(db, { limit: 15 }), user, next);
+      }
       if ((m = path.match(/^\/glr\/results\/(\d+)$/))) {
         const sub = Number(m[1]);
         let ev = await getEvent(db, sub);
@@ -794,6 +872,36 @@ export default {
         if (!season) return json({ ok: true, series: sr.short_name, season: null, groups: [] });
         const st = await seasonStandings(db, sr, season);
         return json({ ok: true, series: sr.short_name, season: { id: season.id, name: season.name }, rules: st.rules, groups: st.groups, adjustments: st.adj });
+      }
+      if (path === `${BASE}/schedule`) return leagueSchedulePage(await upcoming(db), user);
+      if (path === `${BASE}/api/schedule`) return json({ ok: true, races: (await upcoming(db)).map(r => ({ series: r.short_name, slug: r.slug, startsAt: r.starts_at, track: r.track, notes: r.notes })) });
+      if ((m = path.match(/^\/glr\/(?:api\/series\/)?([a-z0-9-]+)\/schedule$/))) {
+        const sr = await getSeries(db, m[1]), api = path.startsWith(`${BASE}/api/`);
+        if (!sr) return api ? json({ ok: false, error: "No such series" }, 404) : notFound("No series at that address.", user);
+        let msg = "";
+        if (request.method === "POST" && !api) {
+          if (!canEdit(user, sr) || !sameOrigin(request, url)) return notFound("You can't change this series.", user);
+          const f = await request.formData(), who = `discord:${user.id}:${user.name}`;
+          try {
+            if (f.get("remove")) {
+              const r = await deleteSchedule(db, sr.id, Number(f.get("remove")));
+              if (r) await logChange(db, { by: who, seriesId: sr.id, kind: "schedule", summary: `Removed from the schedule: ${r.track}, ${day(r.starts_at)}` });
+              msg = "Removed.";
+            } else if (f.has("bulk")) {
+              const n = await addScheduleLines(db, sr.id, f.get("bulk"), who);
+              await logChange(db, { by: who, seriesId: sr.id, kind: "schedule", summary: `${n} race${n === 1 ? "" : "s"} added to the schedule` });
+              msg = `Added ${n} race${n === 1 ? "" : "s"}.`;
+            } else {
+              const r = await addSchedule(db, sr.id, { date: f.get("date"), time: f.get("time"), track: f.get("track"), notes: f.get("notes") }, who);
+              await logChange(db, { by: who, seriesId: sr.id, kind: "schedule", summary: `Added to the schedule: ${r.track}, ${day(r.at)}` });
+              msg = `Added ${r.track}.`;
+            }
+          } catch (e) { msg = e.message; }
+        }
+        const rows = await listSchedule(db, sr.id);
+        if (api) return json({ ok: true, series: sr.short_name, races: rows.map(r => ({ startsAt: r.starts_at, track: r.track, notes: r.notes, subsessionId: r.subsession_id || null })) });
+        const w = new Map((await listEvents(db, { series: sr.id })).map(e => [e.subsession_id, e.winners]));
+        return schedulePage(sr, rows, w, user, msg);
       }
       if (path === `${BASE}/drivers`) return leagueDriversPage(await leagueDrivers(db), user);
       if (path === `${BASE}/api/drivers`) return json({ ok: true, drivers: await leagueDrivers(db) });
