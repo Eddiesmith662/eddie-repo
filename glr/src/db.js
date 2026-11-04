@@ -11,7 +11,8 @@ const SCHEMA = [
      id INTEGER PRIMARY KEY,            -- iRacing league id
      name TEXT NOT NULL DEFAULT '',     -- iRacing's league name
      short_name TEXT NOT NULL DEFAULT '', slug TEXT NOT NULL DEFAULT '',
-     role_id TEXT NOT NULL DEFAULT '')  -- Discord role whose members can edit this series`,
+     role_id TEXT NOT NULL DEFAULT '',  -- Discord role whose members can edit this series
+     hook_results TEXT NOT NULL DEFAULT '', hook_standings TEXT NOT NULL DEFAULT '', hook_penalties TEXT NOT NULL DEFAULT '')`,
   `CREATE TABLE IF NOT EXISTS seasons (
      id INTEGER PRIMARY KEY,            -- iRacing league season id
      series_id INTEGER,
@@ -22,7 +23,8 @@ const SCHEMA = [
      track TEXT, start_time TEXT, laps INTEGER,
      cautions INTEGER, caution_laps INTEGER, lead_changes INTEGER, sof INTEGER,
      status TEXT NOT NULL DEFAULT 'official',
-     source TEXT, uploaded_at TEXT, uploaded_by TEXT)`,
+     source TEXT, uploaded_at TEXT, uploaded_by TEXT,
+     official_at TEXT, official_by TEXT, discord TEXT NOT NULL DEFAULT '{}')`,
   `CREATE INDEX IF NOT EXISTS events_season ON events (season_id, start_time)`,
   `CREATE TABLE IF NOT EXISTS drivers (
      cust_id INTEGER PRIMARY KEY,
@@ -49,6 +51,10 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS result_fixes (
      id INTEGER PRIMARY KEY AUTOINCREMENT, subsession_id INTEGER NOT NULL, cust_id INTEGER NOT NULL, name TEXT,
      changes TEXT NOT NULL, reason TEXT NOT NULL, created_at TEXT, created_by TEXT)`,
+  `CREATE TABLE IF NOT EXISTS discord_queue (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, series_id INTEGER NOT NULL, hook TEXT NOT NULL, kind TEXT NOT NULL,
+     subsession_id INTEGER, body TEXT NOT NULL, edit_of TEXT, attempts INTEGER NOT NULL DEFAULT 0, next_try INTEGER NOT NULL DEFAULT 0,
+     last_error TEXT, created_at TEXT, sent_at TEXT)`,
   `CREATE TABLE IF NOT EXISTS overlay_keys (
      id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE,
      created_at TEXT, created_by TEXT, last_used TEXT, uses INTEGER NOT NULL DEFAULT 0, revoked INTEGER NOT NULL DEFAULT 0)`,
@@ -56,6 +62,8 @@ const SCHEMA = [
 // columns added after the first version: [table, column, definition]
 const ADDED = [
   ["series", "short_name", "TEXT NOT NULL DEFAULT ''"], ["series", "slug", "TEXT NOT NULL DEFAULT ''"], ["series", "role_id", "TEXT NOT NULL DEFAULT ''"],
+  ["series", "hook_results", "TEXT NOT NULL DEFAULT ''"], ["series", "hook_standings", "TEXT NOT NULL DEFAULT ''"], ["series", "hook_penalties", "TEXT NOT NULL DEFAULT ''"],
+  ["events", "official_at", "TEXT"], ["events", "official_by", "TEXT"], ["events", "discord", "TEXT NOT NULL DEFAULT '{}'"],
   ["results", "car_class", "TEXT NOT NULL DEFAULT ''"], ["results", "class_pos", "INTEGER"],
   ["results", "class_interval_ms", "INTEGER"], ["results", "class_laps_down", "INTEGER"],
 ];
@@ -118,14 +126,18 @@ export async function importEvent(db, ev, by = "") {
       ON CONFLICT(id) DO UPDATE SET series_id = COALESCE(?2, series_id), name = CASE WHEN ?3 <> '' THEN ?3 ELSE name END`)
       .bind(ev.season.id, ev.league.id, ev.season.name));
   st.push(db.prepare(`INSERT INTO events (subsession_id, series_id, season_id, track, start_time, laps, cautions, caution_laps,
-        lead_changes, sof, source, uploaded_at, uploaded_by, status) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14)
+        lead_changes, sof, source, uploaded_at, uploaded_by, status, official_at, official_by)
+        VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, CASE WHEN ?14 = 'official' THEN ?12 END, CASE WHEN ?14 = 'official' THEN ?13 END)
       ON CONFLICT(subsession_id) DO UPDATE SET series_id = COALESCE(?2, series_id), season_id = COALESCE(?3, season_id),
         track = COALESCE(NULLIF(?4, ''), track), start_time = COALESCE(NULLIF(?5, ''), start_time), laps = COALESCE(?6, laps),
         cautions = COALESCE(?7, cautions), caution_laps = COALESCE(?8, caution_laps), lead_changes = COALESCE(?9, lead_changes),
-        sof = COALESCE(?10, sof), source = ?11, uploaded_at = ?12, uploaded_by = ?13, status = ?14`)
+        sof = COALESCE(?10, sof), source = ?11, uploaded_at = ?12, uploaded_by = ?13, status = ?14,
+        official_at = CASE WHEN ?14 = 'official' THEN COALESCE(official_at, ?12) ELSE NULL END,
+        official_by = CASE WHEN ?14 = 'official' THEN COALESCE(official_by, ?13) ELSE NULL END`)
     .bind(ev.subsessionId, ev.league.id, ev.season.id, ev.track, ev.startTime, ev.laps, ev.cautions, ev.cautionLaps,
           ev.leadChanges, ev.sof, ev.source, now, by, status));
   const fixes = (await db.prepare(`SELECT COUNT(*) AS n FROM result_fixes WHERE subsession_id = ?`).bind(ev.subsessionId).first()).n;
+  const before = await db.prepare(`SELECT status FROM events WHERE subsession_id = ?`).bind(ev.subsessionId).first();
   st.push(db.prepare(`DELETE FROM result_fixes WHERE subsession_id = ?`).bind(ev.subsessionId));   // the new results replace any fixes
   const seen = new Map();
   for (const s of ev.sessions) {
@@ -154,6 +166,7 @@ export async function importEvent(db, ev, by = "") {
   await db.batch(st);
   await nameSeries(db);
   return { subsessionId: ev.subsessionId, drivers: seen.size, results: race.results.length, fixesCleared: fixes,
+           nowOfficial: status === "official" && (!before || before.status !== "official"), wasOfficial: !!before && before.status === "official",
            sessions: ev.sessions.map(s => s.name) };
 }
 
@@ -343,8 +356,8 @@ export async function importOverlay(db, ev, by) {
   await ensureSchema(db);
   const sr = await db.prepare(`SELECT * FROM series WHERE id = ?`).bind(ev.league.id).first();
   if (!sr) return { ok: false, status: 404, error: `iRacing league ${ev.league.id} isn't on the site yet. Upload one of its iRacing results files first.` };
-  const had = await db.prepare(`SELECT source, season_id FROM events WHERE subsession_id = ?`).bind(ev.subsessionId).first();
-  if (had && had.source !== "overlay") return { ok: true, skipped: true, series: sr.short_name, message: "Official results for this race are already on the site." };
+  const had = await db.prepare(`SELECT source, season_id, status FROM events WHERE subsession_id = ?`).bind(ev.subsessionId).first();
+  if (had && (had.source !== "overlay" || had.status === "official")) return { ok: true, skipped: true, series: sr.short_name, message: "Official results for this race are already on the site." };
   const cur = had && had.season_id ? { season_id: had.season_id }
     : await db.prepare(`SELECT season_id FROM events WHERE series_id = ? AND season_id IS NOT NULL ORDER BY start_time DESC LIMIT 1`).bind(sr.id).first();
   const r = await importEvent(db, { ...ev, league: { id: sr.id, name: sr.name }, season: { id: cur ? cur.season_id : null, name: "" } }, by);
@@ -445,3 +458,23 @@ export async function fixResult(db, sub, cust, want, reason, by) {
   return Object.entries(changes).map(([k, [a, b]]) => `${FIX_FIELDS[k]} ${a ?? "–"} → ${b}`).join(", ");
 }
 export { FIX_FIELDS };
+
+export async function markOfficial(db, sub, by) {
+  await ensureSchema(db);
+  const ev = await db.prepare(`SELECT status FROM events WHERE subsession_id = ?`).bind(sub).first();
+  if (!ev) throw new Error("No such race.");
+  if (ev.status === "official") return false;
+  await db.prepare(`UPDATE events SET status = 'official', official_at = ?, official_by = ? WHERE subsession_id = ?`).bind(new Date().toISOString(), by, sub).run();
+  return true;
+}
+
+// a webhook link: only Discord's own; stored like a password, never shown back in full
+export const HOOK_RE = /^https:\/\/(?:(?:canary|ptb)\.)?discord(?:app)?\.com\/api\/webhooks\/(\d{5,25})\/([\w-]{20,200})$/;
+export const HOOKS = ["results", "standings", "penalties"];
+export async function setHook(db, id, kind, url) {
+  if (!HOOKS.includes(kind)) throw new Error("Unknown post type.");
+  const u = String(url || "").trim();
+  if (u && !HOOK_RE.test(u)) throw new Error("That isn't a Discord webhook link. In Discord: channel settings › Integrations › Webhooks › Copy Webhook URL.");
+  await ensureSchema(db);
+  await db.prepare(`UPDATE series SET hook_${kind} = ? WHERE id = ?`).bind(u, id).run();
+}

@@ -1,0 +1,164 @@
+/*
+ * Discord posts through each series' webhooks (set on the series' Edit page): results and standings when a race
+ * becomes official, penalties and result fixes when an official adds them.
+ *
+ * Posts wait in the discord_queue table and are sent straight away, then retried every few minutes (the cron
+ * trigger) if Discord is down or asks us to slow down. A correction to a race that's already posted edits the
+ * original results post instead of adding another. Only races from the last RECENT_DAYS days post, so uploading an
+ * old season fills the archive without flooding the channels.
+ */
+import { ensureSchema } from "./db.js";
+
+const COLOR = 0xFF0D40, RECENT_DAYS = 7, GIVE_UP = 12;
+const MEDAL = ["🥇", "🥈", "🥉"];
+const md = s => String(s ?? "").replace(/([\\*_~`|>])/g, "\\$1");          // names as plain text in Discord (no stray bold/italics)
+const day = t => { const d = new Date(t); return isNaN(d) ? "" : d.toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric", timeZone: "America/New_York" }); };
+const car = r => (r.car_number ? `#${md(r.car_number)} ` : "");
+const gap = r => r.laps_down ? `−${r.laps_down} L` : r.finish_pos === 1 ? "" : r.interval_ms != null ? `−${(r.interval_ms / 1000).toFixed(3)}` : "";
+
+export const isRecent = ev => { const t = Date.parse(ev.start_time); return !isNaN(t) && Date.now() - t < RECENT_DAYS * 864e5 && t - Date.now() < 864e5; };
+
+export function resultsPost(ev, origin, fixes = []) {
+  const race = (ev.sessions.race || []).slice().sort((a, b) => a.finish_pos - b.finish_pos);
+  const classes = [...new Set(race.map(r => r.car_class || ""))];
+  const multi = classes.length > 1;
+  const pos = r => (multi ? r.class_pos ?? r.finish_pos : r.finish_pos);
+  let desc = `${day(ev.start_time)}${ev.season_name ? ` · ${md(ev.season_name)}` : ""}\n\n`;
+  for (const c of classes) {
+    const rows = race.filter(r => (r.car_class || "") === c).sort((a, b) => pos(a) - pos(b));
+    if (multi) desc += `**${md(c)}**\n`;
+    desc += rows.slice(0, 3).map((r, i) => `${MEDAL[i]} ${car(r)}**${md(r.name)}**${r.laps_led ? ` · led ${r.laps_led}` : ""}`).join("\n") + "\n\n";
+  }
+  const facts = [ev.laps != null && `${ev.laps} laps`, ev.cautions != null && `${ev.cautions} caution${ev.cautions === 1 ? "" : "s"}`,
+    ev.lead_changes != null && `${ev.lead_changes} lead changes`, `${race.length} starters`].filter(Boolean).join(" · ");
+  const fields = [];
+  if (!multi) fields.push({ name: "Top 10", value: race.slice(0, 10).map(r => `${r.finish_pos}. ${car(r)}${md(r.name)}${gap(r) ? ` (${gap(r)})` : ""}`).join("\n").slice(0, 1024) });
+  const led = race.filter(r => r.laps_led > 0).sort((a, b) => b.laps_led - a.laps_led)[0];
+  if (led) fields.push({ name: "Most laps led", value: `${car(led)}${md(led.name)} (${led.laps_led})`, inline: true });
+  const fast = race.filter(r => r.best_lap_ms > 0).sort((a, b) => a.best_lap_ms - b.best_lap_ms)[0];
+  if (fast) fields.push({ name: "Fastest lap", value: `${car(fast)}${md(fast.name)} (${(fast.best_lap_ms / 1000).toFixed(3)})`, inline: true });
+  if (fixes.length) fields.push({ name: "Corrected", value: fixes.map(f => `${md(f.name)}: ${md(f.reason)}`).join("\n").slice(0, 1024) });
+  return { embeds: [{ title: `${ev.short_name || "Results"}: ${ev.track}`, url: `${origin}/glr/results/${ev.subsession_id}`, color: COLOR,
+    description: (desc + facts).slice(0, 4000), fields, footer: { text: "Official results · VSPEED GLR" } }] };
+}
+
+// standings after a race: the current playoff round with its cut line, or the top of the regular season
+export function standingsPost(sr, season, st, ev, origin) {
+  const url = `${origin}/glr/${sr.slug}/standings`;
+  const embeds = st.groups.slice(0, 9).map(g => {
+    const p = g.playoffs, po = st.rules.playoffs;
+    let title, lines;
+    if (po.enabled && p && p.started) {
+      const cur = p.current;
+      title = `${cur.name}${cur.finale && cur.complete ? " · final" : ` · after race ${cur.ran} of ${cur.races}`}`;
+      const cutAt = !cur.finale && cur.spots < cur.rows.length ? cur.rows.findIndex(r => !r.through) : -1;
+      lines = [];
+      cur.rows.forEach((r, i) => {
+        if (i === cutAt) lines.push("── cut line ──");
+        const tag = r.status === "Champion" ? " 🏆 Champion" : /win/.test(r.status) ? " ✅ advanced (win)" : r.status === "Must win" ? " ⚠️ must win" : r.status ? ` · ${r.status.toLowerCase()}` : "";
+        lines.push(`${r.pos}. ${r.number ? `#${md(r.number)} ` : ""}${md(r.name)}: **${r.points}**${!cur.finale && r.toCut != null && !/win/.test(r.status) ? ` (${r.toCut > 0 ? "+" : ""}${r.toCut})` : ""}${tag}`);
+      });
+    } else {
+      title = `${po.enabled ? "Regular season" : "Standings"} · ${g.regularRan} race${g.regularRan === 1 ? "" : "s"}`;
+      const field = g.regular.filter(s => s.inField).length;
+      lines = [];
+      g.regular.slice(0, 15).forEach((s, i) => {
+        if (po.enabled && i > 0 && !s.inField && g.regular.slice(0, i).filter(x => x.inField).length === field && !lines.includes("── playoff cut ──")) lines.push("── playoff cut ──");
+        lines.push(`${s.pos}. ${s.number ? `#${md(s.number)} ` : ""}${md(s.name)}: **${s.points}**${s.behind ? ` (−${s.behind})` : ""}`);
+      });
+      if (g.regular.length > 15) lines.push(`…and ${g.regular.length - 15} more`);
+    }
+    return { title: `${sr.short_name}${g.carClass && st.groups.length > 1 ? ` ${g.carClass}` : ""} · ${title}`, url, color: COLOR,
+      description: lines.join("\n").slice(0, 4000), footer: { text: `${season.name} · after ${ev.track}` } };
+  });
+  return { embeds };
+}
+
+export function penaltyPost(sr, ev, a, origin) {
+  return { embeds: [{ title: `${sr.short_name}: ${a.points < 0 ? "penalty" : "points adjustment"}`, url: `${origin}/glr/${sr.slug}/penalties`, color: COLOR,
+    description: `${a.car_number ? `#${md(a.car_number)} ` : ""}**${md(a.name)}**: ${a.points > 0 ? "+" : "−"}${Math.abs(a.points)} points\n${md(ev.track)}, ${day(ev.start_time)}\n\n${md(a.reason)}`,
+    footer: { text: "VSPEED GLR" } }] };
+}
+
+export function fixPost(sr, ev, name, change, reason, origin) {
+  return { embeds: [{ title: `${sr.short_name}: result corrected`, url: `${origin}/glr/results/${ev.subsession_id}`, color: COLOR,
+    description: `**${md(name)}** at ${md(ev.track)}, ${day(ev.start_time)}\n${md(change)}\n\n${md(reason)}`, footer: { text: "VSPEED GLR" } }] };
+}
+
+export async function enqueue(db, seriesId, hook, kind, sub, body, editOf = null) {
+  await ensureSchema(db);
+  await db.prepare(`INSERT INTO discord_queue (series_id, hook, kind, subsession_id, body, edit_of, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
+    .bind(seriesId, hook, kind, sub, JSON.stringify(body), editOf, new Date().toISOString()).run();
+}
+
+async function sendOne(db, q, url) {
+  const body = JSON.stringify({ ...JSON.parse(q.body), allowed_mentions: { parse: [] }, username: "VSPEED GLR" });
+  const editing = !!q.edit_of;
+  let res;
+  try {
+    res = await fetch(editing ? `${url}/messages/${q.edit_of}` : `${url}?wait=true`, { method: editing ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body });
+  } catch (e) { res = null; }
+  const now = Date.now();
+  if (res && res.ok) {
+    const msg = await res.json().catch(() => ({}));
+    await db.prepare(`UPDATE discord_queue SET sent_at = ?, last_error = NULL WHERE id = ?`).bind(new Date().toISOString(), q.id).run();
+    if (q.kind === "results" && q.subsession_id && msg.id)       // remember the post, so corrections can edit it
+      await db.prepare(`UPDATE events SET discord = json_set(COALESCE(discord, '{}'), '$.results', ?) WHERE subsession_id = ?`).bind(msg.id, q.subsession_id).run();
+    return "sent";
+  }
+  if (res && res.status === 404 && editing) {                     // the post was deleted in Discord: post it again
+    await db.prepare(`UPDATE discord_queue SET edit_of = NULL WHERE id = ?`).bind(q.id).run();
+    return sendOne(db, { ...q, edit_of: null }, url);
+  }
+  if (res && res.status === 429) {                                // Discord says wait: wait exactly that long
+    const j = await res.json().catch(() => ({}));
+    const wait = Math.ceil((Number(j.retry_after) || Number(res.headers.get("retry-after")) || 5) * 1000) + 250;
+    await db.prepare(`UPDATE discord_queue SET next_try = ?, last_error = ? WHERE id = ?`).bind(now + wait, "Discord asked to slow down; trying again shortly", q.id).run();
+    return "wait";
+  }
+  if (res && [401, 403, 404].includes(res.status))
+    return fail(db, q, "Discord doesn't know this webhook any more (deleted?). Paste a new one on the series' Edit page.", true);
+  if (res && res.status === 400) {
+    const j = await res.json().catch(() => ({}));
+    return fail(db, q, "Discord refused the post: " + JSON.stringify(j).slice(0, 200), true);
+  }
+  return fail(db, q, res ? `Discord had a problem (${res.status})` : "Couldn't reach Discord", false);
+}
+
+async function fail(db, q, why, permanent) {
+  const attempts = q.attempts + 1;
+  const stop = permanent || attempts >= GIVE_UP;
+  await db.prepare(`UPDATE discord_queue SET attempts = ?, next_try = ?, last_error = ? WHERE id = ?`)
+    .bind(attempts, stop ? 8.64e15 : Date.now() + Math.min(3600e3, 60e3 * 2 ** attempts), why, q.id).run();
+  return stop ? "failed" : "retry";
+}
+
+// send what's due, oldest first, one at a time (Discord allows a few posts a second per webhook)
+export async function processQueue(db, limit = 15) {
+  await ensureSchema(db);
+  const due = (await db.prepare(`SELECT * FROM discord_queue WHERE sent_at IS NULL AND next_try <= ? ORDER BY id LIMIT ?`).bind(Date.now(), limit).all()).results;
+  const out = [];
+  for (const q of due) {
+    const sr = await db.prepare(`SELECT hook_results, hook_standings, hook_penalties FROM series WHERE id = ?`).bind(q.series_id).first();
+    const url = sr && sr[`hook_${q.hook}`];
+    if (!url) { out.push(await fail(db, q, "No webhook set for this post", true)); continue; }
+    out.push(await sendOne(db, q, url));
+    if (out[out.length - 1] === "wait") break;
+  }
+  // keep the table small: sent posts older than 30 days go
+  await db.prepare(`DELETE FROM discord_queue WHERE sent_at IS NOT NULL AND sent_at < ?`).bind(new Date(Date.now() - 30 * 864e5).toISOString()).run();
+  return out;
+}
+
+export async function queueFor(db, seriesId) {
+  await ensureSchema(db);
+  return (await db.prepare(`SELECT id, hook, kind, subsession_id, attempts, next_try, last_error, created_at FROM discord_queue
+      WHERE series_id = ? AND sent_at IS NULL ORDER BY id`).bind(seriesId).all()).results;
+}
+
+export async function retryQueued(db, seriesId, id) {
+  await db.prepare(`UPDATE discord_queue SET next_try = 0, attempts = 0 WHERE id = ? AND series_id = ? AND sent_at IS NULL`).bind(id, seriesId).run();
+}
+export async function discardQueued(db, seriesId, id) {
+  await db.prepare(`DELETE FROM discord_queue WHERE id = ? AND series_id = ? AND sent_at IS NULL`).bind(id, seriesId).run();
+}

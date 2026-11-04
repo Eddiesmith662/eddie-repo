@@ -16,5 +16,9 @@ binding = "DB"
 database_name = "vspeed-glr"
 database_id = "a35dfdd8-fb45-411c-a3c8-d81c725df849"
 
+# every 5 minutes: retry Discord posts that are waiting (Discord down, or asked us to slow down)
+[triggers]
+crons = ["*/5 * * * *"]
+
 [observability]
 enabled = true

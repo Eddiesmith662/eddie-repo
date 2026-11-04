@@ -20,7 +20,8 @@
  */
 import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, importEvent, setSeriesRole, seriesById, seasonsOf,
   getRules, saveRules, seasonEvents, listAdjustments, addAdjustment, deleteAdjustment,
-  importOverlay, listKeys, createKey, revokeKey, checkKey, deleteEvent, listFixes, fixResult, FIX_FIELDS } from "./db.js";
+  importOverlay, listKeys, createKey, revokeKey, checkKey, deleteEvent, listFixes, fixResult, FIX_FIELDS, markOfficial, setHook, HOOKS } from "./db.js";
+import { resultsPost, standingsPost, penaltyPost, fixPost, enqueue, processQueue, queueFor, retryQueued, discardQueued, isRecent } from "./discord.js";
 import { computeStandings, cleanRules, DEFAULT_RULES, GLR_PLAYOFFS } from "./standings.js";
 import { parseExport, parseOverlay } from "./parse.js";
 import { configured, login, callback, currentUser, logout, canEdit } from "./auth.js";
@@ -61,6 +62,7 @@ header .me a{font-weight:400;letter-spacing:0;color:#7fb6ff}header form{margin:0
 .card{display:block;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;color:var(--text);text-decoration:none}
 .card:hover{border-color:#44444c}.card b{display:block;font-size:18px;border-left:3px solid var(--accent);padding-left:8px;margin-bottom:2px}
 .card .full{color:var(--dim);font-size:12px;padding-left:11px;margin-bottom:10px}.card .row{font-size:14px}.card .row span{color:var(--dim)}
+.row2{display:flex;gap:8px;flex-wrap:wrap}.row2 input{flex:1 1 260px;max-width:none}form.hook{margin:0 0 6px}
 .prov{display:inline-block;font-size:11px;font-weight:700;padding:1px 6px;border-radius:4px;background:#4a3a12;color:#ffcf66;margin-left:6px;vertical-align:1px}
 code.key{display:block;padding:10px 12px;background:#000;border:1px solid var(--line);border-radius:6px;word-break:break-all;font-size:14px;margin:8px 0}
 .cls{display:inline-block;font-size:11px;font-weight:700;padding:1px 6px;border-radius:4px;background:#2c2c32;color:#ddd;margin-right:4px}
@@ -110,7 +112,22 @@ function seriesPage(sr, user) {
   return page(`${sr.short_name} results`, body, { user });
 }
 
-function seriesEditPage(sr, user, err = "") {
+const HOOK_LABEL = { results: "Results (when a race is official: podium, class winners, top 10)", standings: "Standings (after each official race)", penalties: "Penalties and result fixes (when an official adds one)" };
+function hooksHtml(sr, queue, note) {
+  const masked = u => { const m = /\/webhooks\/(\d+)\/([\w-]+)$/.exec(u || ""); return m ? `Saved (…${esc(m[2].slice(-4))})` : ""; };
+  return `<h2 id="discord">Discord posts</h2>${note ? `<div class="msg ${/^(Saved|Removed|Test sent)/.test(note) ? "ok" : "bad"}">${esc(note)}</div>` : ""}
+  <p class="tag">Paste a webhook link for each channel to post to (in Discord: the channel's settings › Integrations › Webhooks › New Webhook › Copy Webhook URL). The same link can go in more than one box. Anyone with the link can post in that channel, so it's kept like a password and never shown again. Only races from the last 7 days post, so uploading an old season stays quiet.</p>
+  ${HOOKS.map(k => `<form method="post" action="#discord" class="hook"><input type="hidden" name="action" value="hook"><input type="hidden" name="kind" value="${k}">
+    <label for="h_${k}">${HOOK_LABEL[k]}${sr[`hook_${k}`] ? ` · <b>${masked(sr[`hook_${k}`])}</b>` : ""}</label>
+    <div class="row2"><input type="text" id="h_${k}" name="url" placeholder="${sr[`hook_${k}`] ? "Paste a new link to replace it" : "https://discord.com/api/webhooks/…"}" autocomplete="off" spellcheck="false">
+    <button class="btn">Save</button>${sr[`hook_${k}`] ? `<button class="btn ghost" name="test" value="1">Send test</button><button class="btn ghost" name="clear" value="1" onclick="return confirm('Stop posting these?')">Remove</button>` : ""}</div></form>`).join("")}
+  ${queue.length ? `<h2>Waiting to post</h2><div class="wrap"><table><tr><th>Post</th><th>Race</th><th>Problem</th><th></th></tr>` + queue.map(q => `<tr><td>${esc(q.kind)}</td>
+    <td>${q.subsession_id ? `<a href="${BASE}/results/${q.subsession_id}">${q.subsession_id}</a>` : ""}</td><td style="white-space:normal">${esc(q.last_error || (q.attempts ? "" : "Sending…"))}${q.next_try > 8e15 ? " <b>(stopped)</b>" : ""}</td>
+    <td><form method="post" action="#discord" style="display:inline"><input type="hidden" name="action" value="retry"><input type="hidden" name="id" value="${q.id}"><button class="link">Try again</button></form> ·
+    <form method="post" action="#discord" style="display:inline"><input type="hidden" name="action" value="discard"><input type="hidden" name="id" value="${q.id}"><button class="link">Discard</button></form></td></tr>`).join("") + `</table></div>` : ""}`;
+}
+
+function seriesEditPage(sr, user, err = "", queue = [], note = "") {
   return page(`Edit ${sr.short_name}`, `<p class="crumb"><a href="${BASE}">GLR</a> › <a href="${BASE}/${esc(sr.slug)}">${esc(sr.short_name)}</a></p>
     <h1>Edit series</h1><p class="sub">${esc(sr.name)} · iRacing league ${sr.id}</p>${err ? `<div class="msg bad">${esc(err)}</div>` : ""}
     <form method="post"><label for="sn">Short name (shown on the site)</label><input type="text" id="sn" name="short_name" value="${esc(sr.short_name)}" maxlength="40" required>
@@ -119,7 +136,7 @@ function seriesEditPage(sr, user, err = "") {
     ${user && user.admin ? `<label for="rl">Discord role for this series' officials (role ID; leave empty for admins only)</label>
     <input type="text" id="rl" name="role_id" value="${esc(sr.role_id || "")}" maxlength="25" inputmode="numeric">
     <p class="tag">People with this role can sign in and change only this series: its rules, penalties, results uploads and this page. In Discord: Server Settings › Roles › right-click the role › Copy Role ID.</p>` : ""}
-    <p><button class="btn">Save</button></p></form>`, { user });
+    <p><button class="btn">Save</button></p></form>${hooksHtml(sr, queue, note)}`, { user });
 }
 
 function sessionTable(rows, race, inClass) {
@@ -151,7 +168,10 @@ function officialsPanel(ev, msg) {
   if (!race.length) return "";
   const D = race.map(r => ({ id: r.cust_id, t: `P${r.finish_pos} #${r.car_number} ${r.name}`, pos: r.finish_pos, laps: r.laps, led: r.laps_led, inc: r.incidents, st: r.reason_out, pts: r.league_points }));
   const n = (name, label, extra = "") => `<label>${label}<br><input type="number" name="${name}" id="fx_${name}" ${extra}></label>`;
-  return `<h2 id="fix">Officials</h2>${msg ? `<div class="msg ${/^Fixed/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>` : ""}
+  return `<h2 id="fix">Officials</h2>${msg ? `<div class="msg ${/^(Fixed|Marked)/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>` : ""}
+  ${ev.status === "provisional" ? `<fieldset><legend>Official results</legend><form method="post" action="#fix"><input type="hidden" name="action" value="official">
+    <p class="tag">These results came from the broadcast overlay. Check them (fix anything below first), then mark them official. That posts them to the series' Discord channels if they're set up. Uploading the iRacing results file also makes them official.</p>
+    <p><button class="btn">Mark results official</button></p></form></fieldset>` : ""}
   <fieldset><legend>Fix a result</legend>
   <form method="post" action="#fix"><input type="hidden" name="action" value="fix">
     <label for="fx_d">Driver</label><select id="fx_d" name="cust">${D.map(d => `<option value="${d.id}">${esc(d.t)}</option>`).join("")}</select>
@@ -227,6 +247,28 @@ async function seasonStandings(db, sr, season) {
   const rules = cleanRules(r.rules || DEFAULT_RULES);
   const [events, adj] = await Promise.all([seasonEvents(db, season.id), listAdjustments(db, season.id)]);
   return { info: r, rules, adj, events, ...computeStandings(rules, events, adj) };
+}
+
+// a race just became official: its results and the standings go to the series' Discord channels (recent races only)
+async function postOfficial(db, sub, origin) {
+  const ev = await getEvent(db, sub);
+  if (!ev || ev.status !== "official" || !isRecent(ev)) return 0;
+  const sr = await seriesById(db, ev.series_id);
+  let n = 0;
+  if (sr.hook_results) { await enqueue(db, sr.id, "results", "results", sub, resultsPost(ev, origin, await listFixes(db, sub)), JSON.parse(ev.discord || "{}").results || null); n++; }
+  if (sr.hook_standings && ev.season_id) {
+    const season = { id: ev.season_id, name: ev.season_name || "" };
+    await enqueue(db, sr.id, "standings", "standings", sub, standingsPost(sr, season, await seasonStandings(db, sr, season), ev, origin)); n++;
+  }
+  return n;
+}
+
+// a correction to an official race: the posted results are edited (when they were posted)
+async function updatePosted(db, sub, origin) {
+  const ev = await getEvent(db, sub);
+  if (!ev || ev.status !== "official") return;
+  const sr = await seriesById(db, ev.series_id), msg = JSON.parse(ev.discord || "{}").results;
+  if (sr.hook_results && msg) await enqueue(db, sr.id, "results", "results", sub, resultsPost(ev, origin, await listFixes(db, sub)), msg);
 }
 
 const num = v => (v > 0 ? `+${v}` : `${v}`);
@@ -447,10 +489,15 @@ async function upload(request, env, user) {
   const had = await getEvent(env.DB, ev.subsessionId || 0);
   try {
     const r = await importEvent(env.DB, ev, `discord:${user.id}:${user.name}`);
-    return json({ ok: true, ...r, track: ev.track, replaced: !!had });
+    const origin = new URL(request.url).origin;
+    const posts = r.nowOfficial ? await postOfficial(env.DB, r.subsessionId, origin) : 0;
+    if (r.wasOfficial) await updatePosted(env.DB, r.subsessionId, origin);
+    return json({ ok: true, ...r, track: ev.track, replaced: !!had, posts });
   } catch (e) { return json({ ok: false, error: e.message }, 400); }
 }
 
+// series as the public sees them: never the webhook links
+const pub = ({ hook_results, hook_standings, hook_penalties, ...rest }) => rest;
 const sameOrigin = (request, url) => request.headers.get("origin") === url.origin;
 const bearer = request => (/^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") || "") || [])[1] || "";
 
@@ -467,8 +514,13 @@ function keysPage(keys, user, { newKey = "", msg = "" } = {}) {
 }
 
 export default {
-  async fetch(request, env) {
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(processQueue(env.DB));       // retry Discord posts that are waiting
+  },
+
+  async fetch(request, env, ctx) {
     const url = new URL(request.url);
+    const kick = () => { if (ctx) ctx.waitUntil(processQueue(env.DB).catch(e => console.error(e))); };
     const path = url.pathname.replace(/\/+$/, "") || "/";
     const db = env.DB;
     try {
@@ -495,7 +547,9 @@ export default {
         if (request.method !== "POST") return json({ ok: false, error: "Use POST." }, 405);
         if (!user) return json({ ok: false, error: "Sign in as an official first." }, 401);
         if (!sameOrigin(request, url)) return json({ ok: false, error: "Upload from the site's upload page." }, 403);
-        return upload(request, env, user);
+        const res = await upload(request, env, user);
+        kick();
+        return res;
       }
       if (path === `${BASE}/api/overlay/check` || path === `${BASE}/api/overlay/results`) {
         const key = await checkKey(db, bearer(request));
@@ -521,8 +575,8 @@ export default {
       }
       if (path === `${BASE}/api/me`) return json({ ok: true, user, signIn: configured(env) });
       if (path === `${BASE}/api/events`) return json({ ok: true, events: await listEvents(db, { season: Number(url.searchParams.get("season")) || 0 }) });
-      if (path === `${BASE}/api/series`) return json({ ok: true, series: await listSeries(db) });
-      if ((m = path.match(/^\/glr\/api\/series\/([a-z0-9-]+)$/))) { const sr = await getSeries(db, m[1]); return sr ? json({ ok: true, series: sr }) : json({ ok: false, error: "No such series" }, 404); }
+      if (path === `${BASE}/api/series`) return json({ ok: true, series: (await listSeries(db)).map(pub) });
+      if ((m = path.match(/^\/glr\/api\/series\/([a-z0-9-]+)$/))) { const sr = await getSeries(db, m[1]); return sr ? json({ ok: true, series: pub(sr) }) : json({ ok: false, error: "No such series" }, 404); }
       if ((m = path.match(/^\/glr\/api\/results\/(\d+)$/))) { const ev = await getEvent(db, Number(m[1])); return ev ? json({ ok: true, event: ev }) : json({ ok: false, error: "No such race" }, 404); }
       if ((m = path.match(/^\/glr\/api\/drivers\/(\d+)$/))) { const d = await getDriver(db, Number(m[1])); return d ? json({ ok: true, driver: d }) : json({ ok: false, error: "No such driver" }, 404); }
       if (path === BASE) return homePage(await listSeries(db), await listEvents(db, { limit: 15 }), user);
@@ -539,10 +593,26 @@ export default {
             await deleteEvent(db, sub);
             return Response.redirect(`${url.origin}${BASE}/${ev.slug || ""}`, 303);
           }
-          try {
-            msg = "Fixed: " + await fixResult(db, sub, Number(f.get("cust")), { finish_pos: f.get("finish_pos"), laps: f.get("laps"), laps_led: f.get("laps_led"),
-              incidents: f.get("incidents"), league_points: f.get("league_points"), reason_out: f.get("reason_out") }, f.get("reason"), who);
+          if (f.get("action") === "official") {
+            if (await markOfficial(db, sub, who)) {
+              const n = await postOfficial(db, sub, url.origin);
+              msg = "Marked official." + (n ? " Posting to Discord." : "");
+              kick();
+            }
             ev = await getEvent(db, sub);
+            return resultPage(ev, user, { fixes: await listFixes(db, sub), edit, msg });
+          }
+          try {
+            const cust = Number(f.get("cust")), change = await fixResult(db, sub, cust, { finish_pos: f.get("finish_pos"), laps: f.get("laps"), laps_led: f.get("laps_led"),
+              incidents: f.get("incidents"), league_points: f.get("league_points"), reason_out: f.get("reason_out") }, f.get("reason"), who);
+            msg = "Fixed: " + change;
+            ev = await getEvent(db, sub);
+            if (ev.status === "official") {
+              const sr = await seriesById(db, ev.series_id), name = (ev.sessions.race.find(r => r.cust_id === cust) || {}).name || "";
+              if (sr.hook_penalties) await enqueue(db, sr.id, "penalties", "fix", sub, fixPost(sr, ev, name, change, f.get("reason"), url.origin));
+              await updatePosted(db, sub, url.origin);
+              kick();
+            }
           } catch (e) { msg = e.message; }
         }
         return resultPage(ev, user, { fixes: await listFixes(db, sub), edit, msg });
@@ -581,7 +651,15 @@ export default {
           const f = await request.formData();
           try {
             if (f.get("delete")) await deleteAdjustment(db, season.id, Number(f.get("delete")));
-            else await addAdjustment(db, season.id, { sub: Number(f.get("sub")), cust: Number(f.get("cust")), points: f.get("points"), reason: f.get("reason") }, `discord:${user.id}:${user.name}`);
+            else {
+              await addAdjustment(db, season.id, { sub: Number(f.get("sub")), cust: Number(f.get("cust")), points: f.get("points"), reason: f.get("reason") }, `discord:${user.id}:${user.name}`);
+              if (sr.hook_penalties) {
+                const a = await db.prepare(`SELECT a.*, r.name, r.car_number FROM adjustments a JOIN results r ON r.subsession_id = a.subsession_id AND r.cust_id = a.cust_id
+                    AND r.session = 'race' WHERE a.subsession_id = ? ORDER BY a.id DESC LIMIT 1`).bind(Number(f.get("sub"))).first();
+                const ev = await getEvent(db, Number(f.get("sub")));
+                if (a && ev) { await enqueue(db, sr.id, "penalties", "penalty", ev.subsession_id, penaltyPost(sr, ev, a, url.origin)); kick(); }
+              }
+            }
             return back();
           } catch (e) { return penaltiesPage(sr, seasons, season, await listAdjustments(db, season.id), events, user, e.message); }
         }
@@ -594,13 +672,33 @@ export default {
         if (!canEdit(user, sr)) return notFound("You can't change this series.", user);
         if (request.method === "POST") {
           if (!sameOrigin(request, url)) return seriesEditPage(sr, user, "Save from this page.");
-          const f = await request.formData();
+          const f = await request.formData(), act = f.get("action");
+          if (act === "hook" || act === "retry" || act === "discard") {
+            let note = "";
+            try {
+              const kind = String(f.get("kind") || "");
+              if (act === "retry") { await retryQueued(db, sr.id, Number(f.get("id"))); await processQueue(db); }
+              else if (act === "discard") await discardQueued(db, sr.id, Number(f.get("id")));
+              else if (f.get("clear")) { await setHook(db, sr.id, kind, ""); note = "Removed."; }
+              else if (f.get("test")) {
+                await enqueue(db, sr.id, kind, "test", null, { embeds: [{ title: `${sr.short_name}: test post`, color: 0xFF0D40,
+                  description: `This channel will get the ${sr.short_name} ${kind} posts from the VSPEED GLR site.`, url: `${url.origin}${BASE}/${sr.slug}` }] });
+                const out = await processQueue(db);
+                note = out.includes("sent") ? "Test sent. Check the channel." : "The test didn't go through; see Waiting to post below.";
+              } else {
+                const u = String(f.get("url") || "").trim();
+                if (!u) throw new Error("Paste the webhook link first.");
+                await setHook(db, sr.id, kind, u); note = "Saved. Press Send test to check it.";
+              }
+            } catch (e) { note = e.message; }
+            return seriesEditPage(await getSeries(db, sr.slug), user, "", await queueFor(db, sr.id), note);
+          }
           try {
             if (user.admin && f.has("role_id")) await setSeriesRole(db, sr.id, f.get("role_id"));
             const r = await updateSeries(db, sr.id, { shortName: f.get("short_name"), slug: f.get("slug") }); return Response.redirect(`${url.origin}${BASE}/${r.slug}`, 303); }
-          catch (e) { return seriesEditPage({ ...sr, short_name: f.get("short_name") || sr.short_name, slug: f.get("slug") || sr.slug }, user, e.message); }
+          catch (e) { return seriesEditPage({ ...sr, short_name: f.get("short_name") || sr.short_name, slug: f.get("slug") || sr.slug }, user, e.message, await queueFor(db, sr.id)); }
         }
-        return seriesEditPage(sr, user);
+        return seriesEditPage(sr, user, "", await queueFor(db, sr.id));
       }
       if ((m = path.match(/^\/glr\/([a-z0-9-]+)$/))) { const sr = await getSeries(db, m[1]); if (sr) return seriesPage(sr, user); }
       return notFound("Check the link.", user);
