@@ -746,3 +746,16 @@ export async function deleteSchedule(db, seriesId, id) {
   await db.prepare(`DELETE FROM schedule WHERE id = ? AND series_id = ?`).bind(id, seriesId).run();
   return row;
 }
+
+// attach a race's results to a schedule line by hand (e.g. a race run on a different night than planned)
+export async function scheduleEntry(db, id) {
+  await ensureSchema(db);
+  return db.prepare(`SELECT * FROM schedule WHERE id = ?`).bind(id).first();
+}
+export async function linkScheduleTo(db, id, sub) {
+  await ensureSchema(db);
+  const other = await db.prepare(`SELECT id, track FROM schedule WHERE subsession_id = ? AND id <> ?`).bind(sub, id).first();
+  if (other) return { ok: false, error: `Those results are already on the schedule (${other.track}).` };
+  await db.prepare(`UPDATE schedule SET subsession_id = ? WHERE id = ?`).bind(sub, id).run();
+  return { ok: true };
+}

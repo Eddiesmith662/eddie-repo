@@ -28,7 +28,8 @@ import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, i
   getRules, saveRules, seasonEvents, listAdjustments, addAdjustment, deleteAdjustment,
   importOverlay, listKeys, createKey, revokeKey, checkKey, deleteEvent, listFixes, fixResult, FIX_FIELDS, markOfficial, setHook, HOOKS,
   logChange, listChanges, whoName, mergeDrivers, separateDriver, aliasesOf, findDrivers,
-  seriesEvents, allSeriesEvents, listRoster, addRoster, removeRoster, listSchedule, upcoming, addSchedule, addScheduleLines, deleteSchedule } from "./db.js";
+  seriesEvents, allSeriesEvents, listRoster, addRoster, removeRoster, listSchedule, upcoming, addSchedule, addScheduleLines, deleteSchedule,
+  scheduleEntry, linkScheduleTo } from "./db.js";
 import { resultsPost, standingsPost, penaltyPost, fixPost, enqueue, processQueue, queueFor, retryQueued, discardQueued, isRecent } from "./discord.js";
 import { computeStandings, cleanRules, DEFAULT_RULES, GLR_PLAYOFFS } from "./standings.js";
 import { computeStats, leaders, COLUMNS } from "./stats.js";
@@ -87,6 +88,7 @@ header{flex-wrap:wrap;row-gap:6px}header .me{flex-wrap:wrap;justify-content:flex
 .lead{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin:0 0 18px}.lead div{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
 .lead small{display:block;color:var(--dim);font-size:12px}.lead b{font-size:18px}.lead span{display:block;font-size:14px}
 th.sort{cursor:pointer;user-select:none}th.sort:hover{color:var(--text)}th.sort.on{color:var(--text)}th.sort.on::after{content:" ▾"}th.sort.on.asc::after{content:" ▴"}
+label.up{margin:0 0 0 10px;display:inline;color:#7fb6ff;font-size:13px;cursor:pointer;text-decoration:underline}.ups{font-size:13px;color:var(--dim)}.ups.bad{color:#ff8a8a}
 .grid-r td,.grid-r th{padding:5px 6px;text-align:center}.grid-r td.d{text-align:left;position:sticky;left:0;background:var(--card);z-index:1}
 .grid-r .c{border-radius:4px;display:inline-block;min-width:26px;padding:1px 3px}.grid-r .w{background:#6b5313;color:#ffe08a;font-weight:700}
 .grid-r .t5{background:#1f4630}.grid-r .t10{background:#1f3550}.grid-r .dnf{color:#ff8a8a}.grid-r .p{display:none}.grid-r.pts .p{display:inline}.grid-r.pts .f{display:none}
@@ -304,7 +306,8 @@ function schedulePage(sr, rows, winners, user, msg = "") {
   if (done.length) {
     const table = list => `<div class="wrap"><table><tr><th>When</th><th>Track</th><th>Winner</th><th>Notes</th>${edit ? "<th></th>" : ""}</tr>` + list.map(r => `<tr>
       <td>${r.subsession_id ? `<a href="${BASE}/results/${r.subsession_id}">${when(r.starts_at)}</a>` : when(r.starts_at)}</td><td>${esc(r.track)}</td>
-      <td>${r.subsession_id ? winnersHtml(winners.get(r.subsession_id) || []) + prov(r) : `<span class="tag">Results not in yet</span>`}</td>
+      <td>${r.subsession_id ? winnersHtml(winners.get(r.subsession_id) || []) + prov(r) : `<span class="tag">Results not in yet</span>${edit ? `
+        <label class="up" title="The iRacing results file (JSON, or CSV with its original name)">Upload results<input type="file" accept=".json,.csv" data-sched="${r.id}" hidden></label><span class="ups"></span>` : ""}`}</td>
       <td style="white-space:normal">${esc(r.notes)}</td>${del(r)}</tr>`).join("") + `</table></div>`;
     const recent = done.filter(r => Date.parse(r.starts_at) > Date.now() - 150 * 864e5), older = done.filter(r => !recent.includes(r));
     if (recent.length) body += `<h2>Completed</h2>` + table(recent);
@@ -320,6 +323,12 @@ function schedulePage(sr, rows, winners, user, msg = "") {
         placeholder="2026-11-10, 8:00 PM, Kansas Speedway&#10;11/17/2026, 8:00 PM, Martinsville Speedway, Short track night&#10;2026-11-24, Phoenix Raceway, Playoffs: Round of 12"></textarea>
       <p class="tag">The time can be left out (8:00 PM Eastern). When a race's results are uploaded they join up with its date here.</p>
       <p><button class="btn">Add these races</button></p></form>`;
+  if (edit) body += `<script>document.querySelectorAll('input[data-sched]').forEach(i=>i.onchange=async()=>{const f=i.files[0];if(!f)return;
+  const s=i.closest('td').querySelector('.ups'),fd=new FormData();fd.append('file',f);fd.append('schedule',i.dataset.sched);s.textContent=' Uploading…';
+  try{const j=await(await fetch('${BASE}/api/upload',{method:'POST',body:fd})).json();
+    if(!j.ok){s.textContent=' '+j.error;s.className='ups bad';i.value='';return;}
+    if(j.linked&&!j.linked.ok){s.textContent=' Uploaded, but '+j.linked.error;s.className='ups bad';return;}
+    s.textContent=' Uploaded ('+j.results+' drivers)';location.reload();}catch(e){s.textContent=' Upload failed, check your connection';s.className='ups bad';}});</script>`;
   return page(`${sr.short_name} schedule`, body + LOCAL_JS, { user });
 }
 
@@ -666,6 +675,13 @@ async function upload(request, env, user) {
   let ev;
   try { ev = parseExport(await file.text(), file.name || ""); } catch (e) { return json({ ok: false, error: e.message }, 400); }
   const sr = ev.league.id ? await seriesById(env.DB, ev.league.id) : null;
+  // uploaded from a schedule line: it must be that series' race
+  const sched = form.get("schedule") ? await scheduleEntry(env.DB, Number(form.get("schedule"))) : null;
+  if (form.get("schedule") && !sched) return json({ ok: false, error: "That schedule line isn't there any more. Reload the page." }, 404);
+  if (sched && sched.series_id !== ev.league.id) {
+    const want = await seriesById(env.DB, sched.series_id);
+    return json({ ok: false, error: `That file is ${sr ? `a ${sr.short_name} race` : `from iRacing league ${ev.league.id}`}, not ${want ? want.short_name : "this series"}. Nothing was uploaded.` }, 400);
+  }
   if (!user.admin && !canEdit(user, sr)) return json({ ok: false, error: sr ? `You can't upload ${sr.short_name} results. Ask an admin for that series' role.` : "Only admins can upload the first race of a new series." }, 403);
   const had = await getEvent(env.DB, ev.subsessionId || 0);
   try {
@@ -675,7 +691,13 @@ async function upload(request, env, user) {
     const origin = new URL(request.url).origin;
     const posts = r.nowOfficial ? await postOfficial(env.DB, r.subsessionId, origin) : 0;
     if (r.wasOfficial) await updatePosted(env.DB, r.subsessionId, origin);
-    return json({ ok: true, ...r, track: ev.track, replaced: !!had, posts });
+    let linked = null;
+    if (sched) {
+      linked = await linkScheduleTo(env.DB, sched.id, r.subsessionId);
+      if (linked.ok) await logChange(env.DB, { by: `discord:${user.id}:${user.name}`, seriesId: sched.series_id, sub: r.subsessionId, kind: "schedule",
+        summary: `Results attached to the schedule: ${sched.track}, ${day(sched.starts_at)}` });
+    }
+    return json({ ok: true, ...r, track: ev.track, replaced: !!had, posts, linked });
   } catch (e) { return json({ ok: false, error: e.message }, 400); }
 }
 
