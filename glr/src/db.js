@@ -55,6 +55,12 @@ const SCHEMA = [
      id INTEGER PRIMARY KEY AUTOINCREMENT, series_id INTEGER NOT NULL, hook TEXT NOT NULL, kind TEXT NOT NULL,
      subsession_id INTEGER, body TEXT NOT NULL, edit_of TEXT, attempts INTEGER NOT NULL DEFAULT 0, next_try INTEGER NOT NULL DEFAULT 0,
      last_error TEXT, created_at TEXT, sent_at TEXT)`,
+  `CREATE TABLE IF NOT EXISTS driver_aliases (
+     from_cust INTEGER PRIMARY KEY, to_cust INTEGER NOT NULL, merged_at TEXT, merged_by TEXT)`,
+  `CREATE TABLE IF NOT EXISTS changes (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, by TEXT, series_id INTEGER, subsession_id INTEGER,
+     kind TEXT NOT NULL, summary TEXT NOT NULL)`,
+  `CREATE INDEX IF NOT EXISTS changes_series ON changes (series_id, id)`,
   `CREATE TABLE IF NOT EXISTS overlay_keys (
      id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE,
      created_at TEXT, created_by TEXT, last_used TEXT, uses INTEGER NOT NULL DEFAULT 0, revoked INTEGER NOT NULL DEFAULT 0)`,
@@ -63,6 +69,7 @@ const SCHEMA = [
 const ADDED = [
   ["series", "short_name", "TEXT NOT NULL DEFAULT ''"], ["series", "slug", "TEXT NOT NULL DEFAULT ''"], ["series", "role_id", "TEXT NOT NULL DEFAULT ''"],
   ["series", "hook_results", "TEXT NOT NULL DEFAULT ''"], ["series", "hook_standings", "TEXT NOT NULL DEFAULT ''"], ["series", "hook_penalties", "TEXT NOT NULL DEFAULT ''"],
+  ["results", "orig_cust_id", "INTEGER"],
   ["events", "official_at", "TEXT"], ["events", "official_by", "TEXT"], ["events", "discord", "TEXT NOT NULL DEFAULT '{}'"],
   ["results", "car_class", "TEXT NOT NULL DEFAULT ''"], ["results", "class_pos", "INTEGER"],
   ["results", "class_interval_ms", "INTEGER"], ["results", "class_laps_down", "INTEGER"],
@@ -71,7 +78,7 @@ const ADDED = [
 // short names for the GLR series (by iRacing league id); officials can change them on the site
 const SHORT = { 9310: "ARCA", 9309: "Grand National", 11390: "Foundation", 12070: "Sports Car", 11059: "Warrior", 6838: "Next Gen" };
 // words in the site's own addresses, which a series can't use as its address
-export const RESERVED = new Set(["api", "results", "drivers", "upload", "login", "logout", "auth", "health", "series", "edit", "admin", "keys"]);
+export const RESERVED = new Set(["api", "results", "drivers", "upload", "login", "logout", "auth", "health", "series", "edit", "admin", "keys", "history"]);
 
 export const slugify = s => String(s || "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
 const shortFrom = (id, name) => SHORT[id] || String(name || "").replace(/^\s*GLR\s+/i, "").replace(/\s+SERIES\s*$/i, "").trim() || `Series ${id}`;
@@ -104,6 +111,7 @@ export function ensureSchema(db) {
       if (!cols.includes(col)) await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`).run();
     }
     await nameSeries(db);
+    await backfillChanges(db);
   })().catch(e => { ready = null; throw e; });
   return ready;
 }
@@ -139,19 +147,22 @@ export async function importEvent(db, ev, by = "") {
   const fixes = (await db.prepare(`SELECT COUNT(*) AS n FROM result_fixes WHERE subsession_id = ?`).bind(ev.subsessionId).first()).n;
   const before = await db.prepare(`SELECT status FROM events WHERE subsession_id = ?`).bind(ev.subsessionId).first();
   st.push(db.prepare(`DELETE FROM result_fixes WHERE subsession_id = ?`).bind(ev.subsessionId));   // the new results replace any fixes
+  // drivers merged into another record: their results land on that record (and remember where they came from)
+  const alias = new Map((await db.prepare(`SELECT from_cust, to_cust FROM driver_aliases`).all()).results.map(a => [a.from_cust, a.to_cust]));
   const seen = new Map();
   for (const s of ev.sessions) {
     st.push(db.prepare(`DELETE FROM results WHERE subsession_id = ? AND session = ?`).bind(ev.subsessionId, s.name));
-    for (const r of s.results) {
-      if (!r.custId) continue;
+    for (const r0 of s.results) {
+      if (!r0.custId) continue;
+      const r = alias.has(r0.custId) ? { ...r0, custId: alias.get(r0.custId), orig: r0.custId } : r0;
       if (r.name) seen.set(r.custId, r.name);
       st.push(db.prepare(`INSERT OR REPLACE INTO results (subsession_id, session, cust_id, name, car_number, car, car_class,
             finish_pos, class_pos, start_pos, laps, laps_led, incidents, best_lap_ms, best_lap_num, avg_lap_ms, interval_ms,
-            laps_down, class_interval_ms, class_laps_down, reason_out, league_points)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+            laps_down, class_interval_ms, class_laps_down, reason_out, league_points, orig_cust_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .bind(ev.subsessionId, s.name, r.custId, r.name, r.carNumber, r.car, r.carClass || "", r.finish, r.classPos ?? null,
               r.start, r.laps, r.lapsLed, r.incidents, r.bestLapMs, r.bestLapNum, r.avgLapMs, r.intervalMs, r.lapsDown,
-              r.classIntervalMs ?? null, r.classLapsDown ?? null, r.reasonOut, r.leaguePoints));
+              r.classIntervalMs ?? null, r.classLapsDown ?? null, r.reasonOut, r.leaguePoints, r.orig ?? null));
     }
   }
   for (const [id, name] of seen) {
@@ -477,4 +488,112 @@ export async function setHook(db, id, kind, url) {
   if (u && !HOOK_RE.test(u)) throw new Error("That isn't a Discord webhook link. In Discord: channel settings › Integrations › Webhooks › Copy Webhook URL.");
   await ensureSchema(db);
   await db.prepare(`UPDATE series SET hook_${kind} = ? WHERE id = ?`).bind(u, id).run();
+}
+
+/* ---------- change history ---------- */
+
+// who did it, from the "discord:<id>:<name>" / "overlay:<id>:<name>" stamps the site keeps
+export const whoName = by => { const m = /^(discord|overlay):[^:]*:(.*)$/.exec(by || ""); return m ? (m[1] === "overlay" ? `Overlay (${m[2]})` : m[2]) : by || ""; };
+
+export async function logChange(db, { by = "", seriesId = null, sub = null, kind, summary }) {
+  try {
+    await ensureSchema(db);
+    await db.prepare(`INSERT INTO changes (at, by, series_id, subsession_id, kind, summary) VALUES (?, ?, ?, ?, ?, ?)`)
+      .bind(new Date().toISOString(), String(by || ""), seriesId, sub, kind, String(summary || "").slice(0, 300)).run();
+  } catch (e) { console.error("history", e); }      // the history is a record; never let it block the change itself
+}
+
+// the first time: fill the history from what the site already recorded before it had one
+async function backfillChanges(db) {
+  if ((await db.prepare(`SELECT COUNT(*) AS n FROM changes`).first()).n) return;
+  await db.batch([
+    db.prepare(`INSERT INTO changes (at, by, series_id, subsession_id, kind, summary)
+      SELECT uploaded_at, uploaded_by, series_id, subsession_id, 'upload', 'Results uploaded: ' || COALESCE(track, '') FROM events WHERE uploaded_at IS NOT NULL`),
+    db.prepare(`INSERT INTO changes (at, by, series_id, subsession_id, kind, summary)
+      SELECT f.created_at, f.created_by, e.series_id, f.subsession_id, 'fix', 'Result fixed: ' || COALESCE(f.name, '') || ' (' || f.reason || ')'
+      FROM result_fixes f JOIN events e ON e.subsession_id = f.subsession_id`),
+    db.prepare(`INSERT INTO changes (at, by, series_id, subsession_id, kind, summary)
+      SELECT a.created_at, a.created_by, e.series_id, a.subsession_id, 'penalty', 'Penalty: ' || COALESCE((SELECT name FROM results r WHERE r.subsession_id = a.subsession_id
+        AND r.cust_id = a.cust_id AND r.session = 'race'), a.cust_id) || ' ' || a.points || ' points (' || a.reason || ')'
+      FROM adjustments a JOIN events e ON e.subsession_id = a.subsession_id`),
+    db.prepare(`INSERT INTO changes (at, by, series_id, subsession_id, kind, summary)
+      SELECT r.updated_at, r.updated_by, se.series_id, NULL, 'rules', 'Rules saved for ' || se.name FROM season_rules r JOIN seasons se ON se.id = r.season_id WHERE r.updated_at IS NOT NULL`),
+    db.prepare(`INSERT INTO changes (at, by, series_id, subsession_id, kind, summary) VALUES (?, '', NULL, NULL, 'note', 'History starts here; earlier entries were filled in from what the site had recorded')`)
+      .bind(new Date().toISOString()),
+  ]);
+}
+
+export async function listChanges(db, { seriesIds = null, limit = 300 } = {}) {
+  await ensureSchema(db);
+  const where = seriesIds ? `WHERE c.series_id IN (${seriesIds.map(() => "?").join(",") || "NULL"})` : "";
+  const st = db.prepare(`SELECT c.*, sr.short_name, sr.slug, e.track FROM changes c LEFT JOIN series sr ON sr.id = c.series_id
+      LEFT JOIN events e ON e.subsession_id = c.subsession_id ${where} ORDER BY c.at DESC, c.id DESC LIMIT ${Number(limit) || 300}`);
+  return (await (seriesIds && seriesIds.length ? st.bind(...seriesIds) : st).all()).results;
+}
+
+/* ---------- merging drivers ---------- */
+
+// a driver's names and shown name, rebuilt from their results
+async function rebuildNames(db, cust) {
+  await db.batch([
+    db.prepare(`DELETE FROM driver_names WHERE cust_id = ?`).bind(cust),
+    db.prepare(`INSERT INTO driver_names (cust_id, name, first_seen, last_seen)
+      SELECT r.cust_id, r.name, MIN(e.start_time), MAX(e.start_time) FROM results r JOIN events e ON e.subsession_id = r.subsession_id
+      WHERE r.cust_id = ? AND r.name <> '' GROUP BY r.name`).bind(cust),
+  ]);
+  const top = await db.prepare(`SELECT name FROM driver_names WHERE cust_id = ? ORDER BY last_seen DESC LIMIT 1`).bind(cust).first();
+  if (top) await db.prepare(`INSERT INTO drivers (cust_id, name) VALUES (?1, ?2) ON CONFLICT(cust_id) DO UPDATE SET name = ?2`).bind(cust, top.name).run();
+  else await db.prepare(`DELETE FROM drivers WHERE cust_id = ?`).bind(cust).run();
+}
+
+/*
+ * Merge driver `drop` into driver `keep`: every result, penalty and fix moves over, and later uploads under `drop`'s
+ * iRacing ID land on `keep`. Each moved result remembers where it came from, so separateDriver() can undo it.
+ */
+export async function mergeDrivers(db, keep, drop, by) {
+  await ensureSchema(db);
+  if (!keep || !drop || keep === drop) throw new Error("Pick two different drivers.");
+  const [a, b] = await Promise.all([keep, drop].map(c => db.prepare(`SELECT * FROM drivers WHERE cust_id = ?`).bind(c).first()));
+  if (!a || !b) throw new Error("No driver with that iRacing ID has raced here.");
+  const clash = await db.prepare(`SELECT e.track, e.start_time FROM results x JOIN results y ON y.subsession_id = x.subsession_id AND y.session = x.session
+      JOIN events e ON e.subsession_id = x.subsession_id WHERE x.cust_id = ? AND y.cust_id = ? LIMIT 1`).bind(keep, drop).first();
+  if (clash) throw new Error(`They can't be the same driver: both raced at ${clash.track} on ${String(clash.start_time).slice(0, 10)}.`);
+  await db.batch([
+    db.prepare(`UPDATE results SET orig_cust_id = COALESCE(orig_cust_id, ?1), cust_id = ?2 WHERE cust_id = ?1`).bind(drop, keep),
+    db.prepare(`UPDATE adjustments SET cust_id = ? WHERE cust_id = ?`).bind(keep, drop),
+    db.prepare(`UPDATE result_fixes SET cust_id = ? WHERE cust_id = ?`).bind(keep, drop),
+    db.prepare(`UPDATE driver_aliases SET to_cust = ? WHERE to_cust = ?`).bind(keep, drop),
+    db.prepare(`INSERT OR REPLACE INTO driver_aliases (from_cust, to_cust, merged_at, merged_by) VALUES (?, ?, ?, ?)`).bind(drop, keep, new Date().toISOString(), by),
+    db.prepare(`DELETE FROM driver_names WHERE cust_id = ?`).bind(drop),
+    db.prepare(`DELETE FROM drivers WHERE cust_id = ?`).bind(drop),
+  ]);
+  await rebuildNames(db, keep);
+  return { kept: a.name, merged: b.name };
+}
+
+// undo a merge: the results that came from `drop` go back to it, with their penalties and fixes
+export async function separateDriver(db, keep, drop) {
+  await ensureSchema(db);
+  const races = (await db.prepare(`SELECT DISTINCT subsession_id FROM results WHERE cust_id = ? AND orig_cust_id = ?`).bind(keep, drop).all()).results.map(r => r.subsession_id);
+  const inRaces = races.length ? `AND subsession_id IN (${races.join(",")})` : "AND 0";
+  await db.batch([
+    db.prepare(`UPDATE results SET cust_id = ?1, orig_cust_id = NULL WHERE cust_id = ?2 AND orig_cust_id = ?1`).bind(drop, keep),
+    db.prepare(`UPDATE adjustments SET cust_id = ? WHERE cust_id = ? ${inRaces}`).bind(drop, keep),
+    db.prepare(`UPDATE result_fixes SET cust_id = ? WHERE cust_id = ? ${inRaces}`).bind(drop, keep),
+    db.prepare(`DELETE FROM driver_aliases WHERE from_cust = ? AND to_cust = ?`).bind(drop, keep),
+  ]);
+  await rebuildNames(db, keep);
+  await rebuildNames(db, drop);
+  return races.length;
+}
+
+export async function aliasesOf(db, cust) {
+  await ensureSchema(db);
+  return (await db.prepare(`SELECT a.*, (SELECT name FROM results r WHERE r.orig_cust_id = a.from_cust ORDER BY r.subsession_id DESC LIMIT 1) AS name
+      FROM driver_aliases a WHERE a.to_cust = ? ORDER BY merged_at`).bind(cust).all()).results;
+}
+
+export async function findDrivers(db) {
+  await ensureSchema(db);
+  return (await db.prepare(`SELECT cust_id, name FROM drivers ORDER BY name COLLATE NOCASE`).all()).results;
 }

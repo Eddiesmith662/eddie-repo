@@ -14,13 +14,15 @@
  *         /glr/health
  *         /glr/upload             officials upload iRacing result files (JSON or CSV)
  *         /glr/keys               admins: overlay keys, for producers' overlays to send their race results
+ *         /glr/history            officials: who changed what (admins: every series; series officials: their own)
  *         /glr/api/overlay/results  POST from an overlay (Authorization: Bearer <key>): provisional results
  *         /glr/api/overlay/check    GET with the same header: is this key good?
  *         /glr/login, /glr/auth/callback, /glr/logout    Discord sign-in (auth.js)
  */
 import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, importEvent, setSeriesRole, seriesById, seasonsOf,
   getRules, saveRules, seasonEvents, listAdjustments, addAdjustment, deleteAdjustment,
-  importOverlay, listKeys, createKey, revokeKey, checkKey, deleteEvent, listFixes, fixResult, FIX_FIELDS, markOfficial, setHook, HOOKS } from "./db.js";
+  importOverlay, listKeys, createKey, revokeKey, checkKey, deleteEvent, listFixes, fixResult, FIX_FIELDS, markOfficial, setHook, HOOKS,
+  logChange, listChanges, whoName, mergeDrivers, separateDriver, aliasesOf, findDrivers } from "./db.js";
 import { resultsPost, standingsPost, penaltyPost, fixPost, enqueue, processQueue, queueFor, retryQueued, discardQueued, isRecent } from "./discord.js";
 import { computeStandings, cleanRules, DEFAULT_RULES, GLR_PLAYOFFS } from "./standings.js";
 import { parseExport, parseOverlay } from "./parse.js";
@@ -75,7 +77,7 @@ fieldset{min-width:0;border:1px solid var(--line);border-radius:8px;margin:16px 
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:4px 16px}.chk{display:flex;gap:8px;align-items:center;margin:8px 0;color:var(--text);font-size:14px}
 .rules p{margin:6px 0}details{margin:14px 0}summary{cursor:pointer;color:var(--dim)}.btn.ghost{background:#2c2c32}input[type=text]{width:100%;max-width:360px;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
 </style></head><body><header><a href="${BASE}">VSPEED <span>GLR</span></a><div class="me">${user
-  ? `${user.admin ? `<a href="${BASE}/keys">Overlay keys</a>` : ""}<a href="${BASE}/upload">Upload results</a><span class="tag">${esc(user.name)}</span><form method="post" action="${BASE}/logout"><button class="link">Sign out</button></form>`
+  ? `<a href="${BASE}/history">History</a>${user.admin ? `<a href="${BASE}/keys">Overlay keys</a>` : ""}<a href="${BASE}/upload">Upload results</a><span class="tag">${esc(user.name)}</span><form method="post" action="${BASE}/logout"><button class="link">Sign out</button></form>`
   : `<a href="${BASE}/login">Official sign-in</a>`}</div></header><main>${body}</main></body></html>`,
   { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
 
@@ -212,7 +214,20 @@ function statCards(r) {
     ["Laps led", r.reduce((s, x) => s + (x.laps_led || 0), 0)]].map(([k, v]) => `<div class="stat"><b>${v}</b><small>${k}</small></div>`).join("")}</div>`;
 }
 
-function driverPage(d, user) {
+function mergePanel(d, aliases, all, msg) {
+  let h = `<h2 id="merge">Merge drivers</h2>${msg ? `<div class="msg ${/^(Merged|Separated)/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>` : ""}`;
+  if (aliases.length) h += `<div class="wrap"><table><tr><th>Merged into this driver</th><th>When</th><th></th></tr>` + aliases.map(a => `<tr><td>${esc(a.name || "")} <span class="tag">iRacing ID ${a.from_cust}</span></td>
+    <td>${day(a.merged_at)}</td><td><form method="post" action="#merge" onsubmit="return confirm('Separate them again? That driver gets their own races back.')"><input type="hidden" name="action" value="separate">
+    <input type="hidden" name="from" value="${a.from_cust}"><button class="link">Separate again</button></form></td></tr>`).join("") + `</table></div>`;
+  h += `<form method="post" action="#merge" onsubmit="return confirm('Merge that driver into ${esc(String(d.name).replace(/['"\\]/g, ""))}? Their races, penalties and names move here, and later uploads under their iRacing ID land here too. You can separate them again.')">
+    <input type="hidden" name="action" value="merge"><label for="mg">Another record of this same person (name or iRacing ID)</label>
+    <input type="text" id="mg" name="other" list="mgl" autocomplete="off"><datalist id="mgl">${all.filter(x => x.cust_id !== d.cust_id).map(x => `<option value="${esc(x.name)} (${x.cust_id})">`).join("")}</datalist>
+    <p class="tag">Only for one person with two records, for example after a new iRacing account. The site already joins different names under the same iRacing ID by itself.</p>
+    <p><button class="btn ghost">Merge into this driver</button></p></form>`;
+  return h;
+}
+
+function driverPage(d, user, { aliases = [], all = [], msg = "" } = {}) {
   const other = d.names.filter(x => x.name !== d.name).map(x => esc(x.name));
   const bySeries = new Map();
   for (const x of d.races) { const k = x.series_id || 0; if (!bySeries.has(k)) bySeries.set(k, []); bySeries.get(k).push(x); }
@@ -228,6 +243,7 @@ function driverPage(d, user) {
         <td class="n">${x.laps ?? ""}</td><td class="n">${x.laps_led || ""}</td><td class="n">${x.incidents ?? ""}</td><td>${esc(x.reason_out)}</td>
         <td class="n">${x.league_points ?? ""}</td></tr>`; }).join("") + `</table></div>`;
   }
+  if (user && user.admin) body += mergePanel(d, aliases, all, msg);
   return page(d.name, body, { user });
 }
 
@@ -489,11 +505,25 @@ async function upload(request, env, user) {
   const had = await getEvent(env.DB, ev.subsessionId || 0);
   try {
     const r = await importEvent(env.DB, ev, `discord:${user.id}:${user.name}`);
+    await logChange(env.DB, { by: `discord:${user.id}:${user.name}`, seriesId: ev.league.id, sub: r.subsessionId, kind: "upload",
+      summary: `Results uploaded: ${ev.track}${had ? " (replaced the earlier upload)" : ""}${r.fixesCleared ? `, ${r.fixesCleared} fix${r.fixesCleared === 1 ? "" : "es"} cleared` : ""}` });
     const origin = new URL(request.url).origin;
     const posts = r.nowOfficial ? await postOfficial(env.DB, r.subsessionId, origin) : 0;
     if (r.wasOfficial) await updatePosted(env.DB, r.subsessionId, origin);
     return json({ ok: true, ...r, track: ev.track, replaced: !!had, posts });
   } catch (e) { return json({ ok: false, error: e.message }, 400); }
+}
+
+const KIND = { upload: "Upload", overlay: "Overlay", official: "Official", fix: "Fix", remove: "Removed", penalty: "Penalty", unpenalty: "Penalty removed",
+  rules: "Rules", series: "Series", webhook: "Discord", key: "Overlay key", merge: "Merge", separate: "Separate", note: "" };
+function historyPage(rows, user) {
+  const when = t => { const d = new Date(t); return isNaN(d) ? "" : d.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) + " ET"; };
+  let body = `<h1>History</h1><p class="sub">Who changed what on the site, newest first${user.admin ? "" : " (your series)"}.</p>`;
+  body += rows.length ? `<div class="wrap"><table><tr><th>When</th><th>Who</th><th>Series</th><th>What</th></tr>` + rows.map(c => `<tr><td>${when(c.at)}</td><td>${esc(whoName(c.by))}</td>
+    <td>${c.slug ? `<a href="${BASE}/${esc(c.slug)}">${esc(c.short_name)}</a>` : ""}</td>
+    <td style="white-space:normal">${KIND[c.kind] ? `<span class="cls">${esc(KIND[c.kind])}</span>` : ""}${c.subsession_id && c.track ? `<a href="${BASE}/results/${c.subsession_id}">${esc(c.summary)}</a>` : esc(c.summary)}</td></tr>`).join("") + `</table></div>`
+    : `<p class="hint">Nothing yet.</p>`;
+  return page("History", body, { user });
 }
 
 // series as the public sees them: never the webhook links
@@ -559,6 +589,8 @@ export default {
         let ev;
         try { ev = parseOverlay(await request.json()); } catch (e) { return json({ ok: false, error: e.message }, 400); }
         const r = await importOverlay(db, ev, `overlay:${key.id}:${key.name}`);
+        if (r.ok && !r.skipped) await logChange(db, { by: `overlay:${key.id}:${key.name}`, seriesId: ev.league.id, sub: ev.subsessionId, kind: "overlay",
+          summary: `Provisional results from the overlay: ${ev.track}${r.replaced ? " (updated)" : ""}` });
         return json(r, r.status || 200);
       }
       if (path === `${BASE}/keys`) {
@@ -567,8 +599,18 @@ export default {
         if (request.method === "POST") {
           if (!sameOrigin(request, url)) return keysPage(await listKeys(db), user, { msg: "Do this from this page." });
           const f = await request.formData();
-          if (f.get("revoke")) { await revokeKey(db, Number(f.get("revoke"))); return Response.redirect(`${url.origin}${BASE}/keys`, 303); }
-          try { const k = await createKey(db, f.get("name"), `discord:${user.id}:${user.name}`); return keysPage(await listKeys(db), user, { newKey: k }); }
+          const who = `discord:${user.id}:${user.name}`;
+          if (f.get("revoke")) {
+            const k = (await listKeys(db)).find(x => x.id === Number(f.get("revoke")));
+            await revokeKey(db, Number(f.get("revoke")));
+            await logChange(db, { by: who, kind: "key", summary: `Overlay key turned off: ${k ? k.name : f.get("revoke")}` });
+            return Response.redirect(`${url.origin}${BASE}/keys`, 303);
+          }
+          try {
+            const k = await createKey(db, f.get("name"), who);
+            await logChange(db, { by: who, kind: "key", summary: `Overlay key made: ${String(f.get("name")).trim()}` });
+            return keysPage(await listKeys(db), user, { newKey: k });
+          }
           catch (e) { return keysPage(await listKeys(db), user, { msg: e.message }); }
         }
         return keysPage(await listKeys(db), user);
@@ -590,11 +632,13 @@ export default {
           if (!edit || !sameOrigin(request, url)) return notFound("You can't change this race.", user);
           const f = await request.formData(), who = `discord:${user.id}:${user.name}`;
           if (f.get("action") === "delete") {
+            await logChange(db, { by: who, seriesId: ev.series_id, kind: "remove", summary: `Race removed: ${ev.track}, ${day(ev.start_time)} (iRacing session ${sub})` });
             await deleteEvent(db, sub);
             return Response.redirect(`${url.origin}${BASE}/${ev.slug || ""}`, 303);
           }
           if (f.get("action") === "official") {
             if (await markOfficial(db, sub, who)) {
+              await logChange(db, { by: who, seriesId: ev.series_id, sub, kind: "official", summary: `Results marked official: ${ev.track}` });
               const n = await postOfficial(db, sub, url.origin);
               msg = "Marked official." + (n ? " Posting to Discord." : "");
               kick();
@@ -607,6 +651,8 @@ export default {
               incidents: f.get("incidents"), league_points: f.get("league_points"), reason_out: f.get("reason_out") }, f.get("reason"), who);
             msg = "Fixed: " + change;
             ev = await getEvent(db, sub);
+            await logChange(db, { by: who, seriesId: ev.series_id, sub, kind: "fix",
+              summary: `Result fixed: ${(ev.sessions.race.find(r => r.cust_id === cust) || {}).name || cust}: ${change} (${String(f.get("reason")).trim()})` });
             if (ev.status === "official") {
               const sr = await seriesById(db, ev.series_id), name = (ev.sessions.race.find(r => r.cust_id === cust) || {}).name || "";
               if (sr.hook_penalties) await enqueue(db, sr.id, "penalties", "fix", sub, fixPost(sr, ev, name, change, f.get("reason"), url.origin));
@@ -617,7 +663,35 @@ export default {
         }
         return resultPage(ev, user, { fixes: await listFixes(db, sub), edit, msg });
       }
-      if ((m = path.match(/^\/glr\/drivers\/(\d+)$/))) { const d = await getDriver(db, Number(m[1])); return d ? driverPage(d, user) : notFound("No driver with that iRacing ID has raced here yet.", user); }
+      if (path === `${BASE}/history`) {
+        if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/history`, 302);
+        const mine = user.admin ? null : (await listSeries(db)).filter(x => x.role_id && user.roles.includes(x.role_id)).map(x => x.id);
+        return historyPage(await listChanges(db, { seriesIds: mine }), user);
+      }
+      if ((m = path.match(/^\/glr\/drivers\/(\d+)$/))) {
+        const cust = Number(m[1]);
+        let msg = "";
+        if (request.method === "POST") {
+          if (!user || !user.admin || !sameOrigin(request, url)) return notFound("Only admins can merge drivers.", user);
+          const f = await request.formData(), who = `discord:${user.id}:${user.name}`;
+          try {
+            if (f.get("action") === "separate") {
+              const from = Number(f.get("from")), n = await separateDriver(db, cust, from);
+              const [ka, kb] = await Promise.all([getDriver(db, cust), getDriver(db, from)]);
+              await logChange(db, { by: who, kind: "separate", summary: `Drivers separated again: ${kb ? kb.name : ""} (${from}) got ${n} race${n === 1 ? "" : "s"} back from ${ka ? ka.name : ""} (${cust})` });
+              msg = `Separated: iRacing ID ${from} has its ${n} race${n === 1 ? "" : "s"} back.`;
+            } else {
+              const other = Number((/(\d{3,})\)?\s*$/.exec(String(f.get("other") || "")) || [])[1]);
+              const r = await mergeDrivers(db, cust, other, who);
+              await logChange(db, { by: who, kind: "merge", summary: `Drivers merged: ${r.merged} (${other}) into ${r.kept} (${cust})` });
+              msg = `Merged: ${r.merged}'s races are now on this driver.`;
+            }
+          } catch (e) { msg = e.message; }
+        }
+        const d = await getDriver(db, cust);
+        if (!d) return notFound("No driver with that iRacing ID has raced here yet.", user);
+        return driverPage(d, user, user && user.admin ? { aliases: await aliasesOf(db, cust), all: await findDrivers(db), msg } : {});
+      }
       if ((m = path.match(/^\/glr\/api\/standings\/([a-z0-9-]+)$/))) {
         const sr = await getSeries(db, m[1]);
         if (!sr) return json({ ok: false, error: "No such series" }, 404);
@@ -642,6 +716,7 @@ export default {
             const bad = rulesProblems(rules);
             if (bad.length) return rulesPage(sr, seasons, season, info, rules, events, user, "Not saved: " + bad.join(" "));
             await saveRules(db, season.id, rules, `discord:${user.id}:${user.name}`);
+            await logChange(db, { by: `discord:${user.id}:${user.name}`, seriesId: sr.id, kind: "rules", summary: `Rules saved for ${season.name}` });
             return rulesPage(sr, seasons, season, { rules, own: true, updatedAt: new Date().toISOString() }, rules, events, user, "Saved. Standings use these rules now.");
           }
           return rulesPage(sr, seasons, season, info, rules, events, user);
@@ -650,8 +725,12 @@ export default {
         if (request.method === "POST") {
           const f = await request.formData();
           try {
-            if (f.get("delete")) await deleteAdjustment(db, season.id, Number(f.get("delete")));
-            else {
+            const who = `discord:${user.id}:${user.name}`;
+            if (f.get("delete")) {
+              const a = (await listAdjustments(db, season.id)).find(x => x.id === Number(f.get("delete")));
+              await deleteAdjustment(db, season.id, Number(f.get("delete")));
+              if (a) await logChange(db, { by: who, seriesId: sr.id, sub: a.subsession_id, kind: "unpenalty", summary: `Penalty removed: ${a.name || a.cust_id} ${a.points} points at ${a.track} (${a.reason})` });
+            } else {
               await addAdjustment(db, season.id, { sub: Number(f.get("sub")), cust: Number(f.get("cust")), points: f.get("points"), reason: f.get("reason") }, `discord:${user.id}:${user.name}`);
               if (sr.hook_penalties) {
                 const a = await db.prepare(`SELECT a.*, r.name, r.car_number FROM adjustments a JOIN results r ON r.subsession_id = a.subsession_id AND r.cust_id = a.cust_id
@@ -659,6 +738,9 @@ export default {
                 const ev = await getEvent(db, Number(f.get("sub")));
                 if (a && ev) { await enqueue(db, sr.id, "penalties", "penalty", ev.subsession_id, penaltyPost(sr, ev, a, url.origin)); kick(); }
               }
+              const ev2 = await getEvent(db, Number(f.get("sub"))), who2 = ev2 && (ev2.sessions.race || []).find(r => r.cust_id === Number(f.get("cust")));
+              await logChange(db, { by: who, seriesId: sr.id, sub: Number(f.get("sub")), kind: "penalty",
+                summary: `Penalty: ${who2 ? who2.name : f.get("cust")} ${Number(f.get("points")) > 0 ? "+" : ""}${Math.round(Number(f.get("points")))} points at ${ev2 ? ev2.track : ""} (${String(f.get("reason")).trim()})` });
             }
             return back();
           } catch (e) { return penaltiesPage(sr, seasons, season, await listAdjustments(db, season.id), events, user, e.message); }
@@ -679,7 +761,8 @@ export default {
               const kind = String(f.get("kind") || "");
               if (act === "retry") { await retryQueued(db, sr.id, Number(f.get("id"))); await processQueue(db); }
               else if (act === "discard") await discardQueued(db, sr.id, Number(f.get("id")));
-              else if (f.get("clear")) { await setHook(db, sr.id, kind, ""); note = "Removed."; }
+              else if (f.get("clear")) { await setHook(db, sr.id, kind, ""); note = "Removed.";
+                await logChange(db, { by: `discord:${user.id}:${user.name}`, seriesId: sr.id, kind: "webhook", summary: `Discord ${kind} posts switched off` }); }
               else if (f.get("test")) {
                 await enqueue(db, sr.id, kind, "test", null, { embeds: [{ title: `${sr.short_name}: test post`, color: 0xFF0D40,
                   description: `This channel will get the ${sr.short_name} ${kind} posts from the VSPEED GLR site.`, url: `${url.origin}${BASE}/${sr.slug}` }] });
@@ -689,13 +772,21 @@ export default {
                 const u = String(f.get("url") || "").trim();
                 if (!u) throw new Error("Paste the webhook link first.");
                 await setHook(db, sr.id, kind, u); note = "Saved. Press Send test to check it.";
+                await logChange(db, { by: `discord:${user.id}:${user.name}`, seriesId: sr.id, kind: "webhook", summary: `Discord ${kind} webhook ${sr[`hook_${kind}`] ? "replaced" : "set"}` });
               }
             } catch (e) { note = e.message; }
             return seriesEditPage(await getSeries(db, sr.slug), user, "", await queueFor(db, sr.id), note);
           }
           try {
-            if (user.admin && f.has("role_id")) await setSeriesRole(db, sr.id, f.get("role_id"));
-            const r = await updateSeries(db, sr.id, { shortName: f.get("short_name"), slug: f.get("slug") }); return Response.redirect(`${url.origin}${BASE}/${r.slug}`, 303); }
+            const who = `discord:${user.id}:${user.name}`;
+            if (user.admin && f.has("role_id") && String(f.get("role_id")).trim() !== (sr.role_id || "")) {
+              await setSeriesRole(db, sr.id, f.get("role_id"));
+              await logChange(db, { by: who, seriesId: sr.id, kind: "series", summary: String(f.get("role_id")).trim() ? `Officials' Discord role set (${String(f.get("role_id")).trim()})` : "Officials' Discord role removed" });
+            }
+            const r = await updateSeries(db, sr.id, { shortName: f.get("short_name"), slug: f.get("slug") });
+            if (r.shortName !== sr.short_name || r.slug !== sr.slug)
+              await logChange(db, { by: who, seriesId: sr.id, kind: "series", summary: `Name or address changed: ${sr.short_name} (/${sr.slug}) → ${r.shortName} (/${r.slug})` });
+            return Response.redirect(`${url.origin}${BASE}/${r.slug}`, 303); }
           catch (e) { return seriesEditPage({ ...sr, short_name: f.get("short_name") || sr.short_name, slug: f.get("slug") || sr.slug }, user, e.message, await queueFor(db, sr.id)); }
         }
         return seriesEditPage(sr, user, "", await queueFor(db, sr.id));
