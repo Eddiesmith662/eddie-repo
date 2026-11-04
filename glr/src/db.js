@@ -61,6 +61,9 @@ const SCHEMA = [
      id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, by TEXT, series_id INTEGER, subsession_id INTEGER,
      kind TEXT NOT NULL, summary TEXT NOT NULL)`,
   `CREATE INDEX IF NOT EXISTS changes_series ON changes (series_id, id)`,
+  `CREATE TABLE IF NOT EXISTS roster (
+     series_id INTEGER NOT NULL, cust_id INTEGER NOT NULL, name TEXT NOT NULL, car_number TEXT NOT NULL DEFAULT '',
+     added_at TEXT, added_by TEXT, PRIMARY KEY (series_id, cust_id))`,
   `CREATE TABLE IF NOT EXISTS overlay_keys (
      id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE,
      created_at TEXT, created_by TEXT, last_used TEXT, uses INTEGER NOT NULL DEFAULT 0, revoked INTEGER NOT NULL DEFAULT 0)`,
@@ -596,4 +599,57 @@ export async function aliasesOf(db, cust) {
 export async function findDrivers(db) {
   await ensureSchema(db);
   return (await db.prepare(`SELECT cust_id, name FROM drivers ORDER BY name COLLATE NOCASE`).all()).results;
+}
+
+/* ---------- driver lists ---------- */
+
+// every race of a series (all seasons, or one), oldest first, with its race results
+export async function seriesEvents(db, seriesId, seasonId = null) {
+  await ensureSchema(db);
+  const where = seasonId ? "e.series_id = ? AND e.season_id = ?" : "e.series_id = ?", args = seasonId ? [seriesId, seasonId] : [seriesId];
+  const evs = (await db.prepare(`SELECT e.subsession_id, e.start_time, e.track, e.season_id FROM events e WHERE ${where} ORDER BY e.start_time`).bind(...args).all()).results;
+  const rows = (await db.prepare(`SELECT r.* FROM results r JOIN events e ON e.subsession_id = r.subsession_id WHERE ${where} AND r.session = 'race'`).bind(...args).all()).results;
+  const bySub = new Map(evs.map(e => [e.subsession_id, Object.assign(e, { results: [] })]));
+  for (const r of rows) bySub.get(r.subsession_id)?.results.push(r);
+  return evs;
+}
+
+// every race of every series, grouped by series (for the league driver list)
+export async function allSeriesEvents(db) {
+  await ensureSchema(db);
+  const evs = (await db.prepare(`SELECT subsession_id, start_time, track, series_id FROM events ORDER BY start_time`).all()).results;
+  const rows = (await db.prepare(`SELECT r.cust_id, r.name, r.car_number, r.car_class, r.finish_pos, r.class_pos, r.start_pos, r.laps, r.laps_led, r.laps_down,
+      r.class_laps_down, r.reason_out, r.best_lap_ms, r.incidents, r.subsession_id FROM results r WHERE r.session = 'race'`).all()).results;
+  const bySub = new Map(evs.map(e => [e.subsession_id, Object.assign(e, { results: [] })]));
+  for (const r of rows) bySub.get(r.subsession_id)?.results.push(r);
+  const out = new Map();
+  for (const e of evs) { if (!out.has(e.series_id)) out.set(e.series_id, []); out.get(e.series_id).push(e); }
+  return out;
+}
+
+export async function listRoster(db, seriesId = null) {
+  await ensureSchema(db);
+  const st = db.prepare(`SELECT * FROM roster ${seriesId ? "WHERE series_id = ?" : ""} ORDER BY name COLLATE NOCASE`);
+  return (await (seriesId ? st.bind(seriesId) : st).all()).results;
+}
+
+export async function addRoster(db, seriesId, { cust, name, number }, by) {
+  await ensureSchema(db);
+  const id = Number(String(cust || "").trim());
+  if (!Number.isInteger(id) || id < 1 || id > 99999999) throw new Error("Enter the driver's iRacing ID (the number on their iRacing profile).");
+  const known = await db.prepare(`SELECT name FROM drivers WHERE cust_id = ?`).bind(id).first();
+  const n = String(name || "").trim().slice(0, 80) || (known && known.name) || "";
+  if (!n) throw new Error("Enter the driver's name.");
+  const num = String(number || "").trim().replace(/^#/, "").slice(0, 4);
+  if (num && !/^\d{1,4}$/.test(num)) throw new Error("A car number is up to 4 digits, like 07.");
+  await db.prepare(`INSERT INTO roster (series_id, cust_id, name, car_number, added_at, added_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+      ON CONFLICT(series_id, cust_id) DO UPDATE SET name = ?3, car_number = ?4`).bind(seriesId, id, n, num, new Date().toISOString(), by).run();
+  return { cust: id, name: n, number: num, raced: !!known };
+}
+
+export async function removeRoster(db, seriesId, cust) {
+  await ensureSchema(db);
+  const row = await db.prepare(`SELECT name FROM roster WHERE series_id = ? AND cust_id = ?`).bind(seriesId, cust).first();
+  await db.prepare(`DELETE FROM roster WHERE series_id = ? AND cust_id = ?`).bind(seriesId, cust).run();
+  return row && row.name;
 }

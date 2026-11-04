@@ -4,6 +4,9 @@
  * Pages:  /glr                    every series with its latest race, then the latest races
  *         /glr/<series>           one series (its short address, e.g. /glr/arca): seasons and races
  *         /glr/<series>/standings  standings for a season (?season=<id>, newest by default), by class when multi-class
+ *         /glr/<series>/stats     driver stats for a season or all seasons (?season=<id>|all)
+ *         /glr/<series>/drivers   everyone who has raced in the series, plus drivers its officials have added
+ *         /glr/drivers            the league driver list: every driver in every series
  *         /glr/<series>/rules     the season's points and playoff rules; that series' officials can change them
  *         /glr/<series>/penalties points penalties and adjustments, with reasons
  *         /glr/<series>/edit      officials: the series' short name and address; admins: its Discord role
@@ -22,9 +25,11 @@
 import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, importEvent, setSeriesRole, seriesById, seasonsOf,
   getRules, saveRules, seasonEvents, listAdjustments, addAdjustment, deleteAdjustment,
   importOverlay, listKeys, createKey, revokeKey, checkKey, deleteEvent, listFixes, fixResult, FIX_FIELDS, markOfficial, setHook, HOOKS,
-  logChange, listChanges, whoName, mergeDrivers, separateDriver, aliasesOf, findDrivers } from "./db.js";
+  logChange, listChanges, whoName, mergeDrivers, separateDriver, aliasesOf, findDrivers,
+  seriesEvents, allSeriesEvents, listRoster, addRoster, removeRoster } from "./db.js";
 import { resultsPost, standingsPost, penaltyPost, fixPost, enqueue, processQueue, queueFor, retryQueued, discardQueued, isRecent } from "./discord.js";
 import { computeStandings, cleanRules, DEFAULT_RULES, GLR_PLAYOFFS } from "./standings.js";
+import { computeStats, leaders, COLUMNS } from "./stats.js";
 import { parseExport, parseOverlay } from "./parse.js";
 import { configured, login, callback, currentUser, logout, canEdit } from "./auth.js";
 
@@ -76,7 +81,12 @@ input[type=number]{width:90px}tr.cut td{border-top:2px solid var(--accent)!impor
 fieldset{min-width:0;border:1px solid var(--line);border-radius:8px;margin:16px 0;padding:6px 16px 14px}legend{padding:0 6px;font-weight:600}
 .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:4px 16px}.chk{display:flex;gap:8px;align-items:center;margin:8px 0;color:var(--text);font-size:14px}
 .rules p{margin:6px 0}details{margin:14px 0}summary{cursor:pointer;color:var(--dim)}.btn.ghost{background:#2c2c32}input[type=text]{width:100%;max-width:360px;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
-</style></head><body><header><a href="${BASE}">VSPEED <span>GLR</span></a><div class="me">${user
+header{flex-wrap:wrap;row-gap:6px}header .me{flex-wrap:wrap;justify-content:flex-end;column-gap:12px;row-gap:4px}
+.lead{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin:0 0 18px}.lead div{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
+.lead small{display:block;color:var(--dim);font-size:12px}.lead b{font-size:18px}.lead span{display:block;font-size:14px}
+th.sort{cursor:pointer;user-select:none}th.sort:hover{color:var(--text)}th.sort.on{color:var(--text)}th.sort.on::after{content:" ▾"}th.sort.on.asc::after{content:" ▴"}
+input.search{width:100%;max-width:360px;margin:0 0 12px;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
+</style></head><body><header><a href="${BASE}">VSPEED <span>GLR</span></a><div class="me"><a href="${BASE}/drivers">Drivers</a>${user
   ? `<a href="${BASE}/history">History</a>${user.admin ? `<a href="${BASE}/keys">Overlay keys</a>` : ""}<a href="${BASE}/upload">Upload results</a><span class="tag">${esc(user.name)}</span><form method="post" action="${BASE}/logout"><button class="link">Sign out</button></form>`
   : `<a href="${BASE}/login">Official sign-in</a>`}</div></header><main>${body}</main></body></html>`,
   { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
@@ -232,6 +242,7 @@ function driverPage(d, user, { aliases = [], all = [], msg = "" } = {}) {
   const bySeries = new Map();
   for (const x of d.races) { const k = x.series_id || 0; if (!bySeries.has(k)) bySeries.set(k, []); bySeries.get(k).push(x); }
   let body = `<h1>${esc(d.name)}</h1><p class="sub">iRacing ID ${d.cust_id}${other.length ? " · also raced as " + other.join(", ") : ""}</p>`;
+  if (!d.races.length) body += `<p class="hint">Hasn't raced yet. Added to a series' driver list by its officials.</p>`;
   if (bySeries.size > 1) body += `<h2>Career</h2>` + statCards(d.races);
   for (const races of bySeries.values()) {
     const x0 = races[0];
@@ -248,12 +259,92 @@ function driverPage(d, user, { aliases = [], all = [], msg = "" } = {}) {
 }
 
 function seriesTabs(sr, on, seasons, seasonId, user) {
-  const q = seasonId && seasons.length > 1 ? `?season=${seasonId}` : "";
-  const t = (k, label, href) => `<a class="${on === k ? "on" : ""}" href="${BASE}/${esc(sr.slug)}${href}${k === "results" ? "" : q}">${label}</a>`;
-  const pick = on !== "results" && seasons.length > 1 ? `<form class="season" method="get"><select name="season" onchange="this.form.submit()">${seasons.map(se =>
+  const q = seasonId && seasonId !== "all" && seasons.length > 1 ? `?season=${seasonId}` : "";
+  const t = (k, label, href) => `<a class="${on === k ? "on" : ""}" href="${BASE}/${esc(sr.slug)}${href}${k === "results" || k === "drivers" ? "" : q}">${label}</a>`;
+  const opts = on === "stats" && seasons.length > 1 ? [...seasons, { id: "all", name: "All seasons" }] : seasons;
+  const pick = !["results", "drivers"].includes(on) && opts.length > 1 ? `<form class="season" method="get"><select name="season" onchange="this.form.submit()">${opts.map(se =>
     `<option value="${se.id}"${se.id === seasonId ? " selected" : ""}>${esc(se.name)}</option>`).join("")}</select></form>` : "";
   return `<p class="crumb"><a href="${BASE}">GLR</a></p><h1>${esc(sr.short_name)}</h1><p class="sub">${esc(sr.name)}${canEdit(user, sr) ? ` · <a href="${BASE}/${esc(sr.slug)}/edit">Edit series</a>` : ""}</p>
-    <nav class="tabs">${t("results", "Results", "")}${t("standings", "Standings", "/standings")}${t("rules", "Rules", "/rules")}${t("penalties", "Penalties", "/penalties")}${pick}</nav>`;
+    <nav class="tabs">${t("results", "Results", "")}${t("standings", "Standings", "/standings")}${t("stats", "Stats", "/stats")}${t("drivers", "Drivers", "/drivers")}${t("rules", "Rules", "/rules")}${t("penalties", "Penalties", "/penalties")}${pick}</nav>`;
+}
+
+// a table whose columns sort when their heading is clicked (numbers from data-v)
+const SORT_JS = `<script>document.querySelectorAll('table.sortable').forEach(t=>{const hs=[...t.querySelectorAll('th.sort')];
+hs.forEach(h=>h.onclick=()=>{const i=[...h.parentNode.children].indexOf(h),asc=h.classList.contains('on')?!h.classList.contains('asc'):h.dataset.dir==='asc';
+hs.forEach(x=>x.classList.remove('on','asc'));h.classList.add('on');if(asc)h.classList.add('asc');
+const rows=[...t.querySelectorAll('tr')].slice(1),v=r=>{const c=r.children[i],d=c&&c.dataset.v;return d===undefined||d===''?null:isNaN(+d)?d.toLowerCase():+d;};
+rows.sort((a,b)=>{const x=v(a),y=v(b);if(x===null)return 1;if(y===null)return -1;return (x<y?-1:x>y?1:0)*(asc?1:-1);});rows.forEach(r=>t.appendChild(r));});});
+document.querySelectorAll('input.search').forEach(s=>s.oninput=()=>{const q=s.value.trim().toLowerCase();document.querySelectorAll(s.dataset.rows).forEach(r=>r.hidden=q&&!r.textContent.toLowerCase().includes(q));});</script>`;
+
+const fmt = (v, dp) => v == null ? "–" : dp ? v.toFixed(dp) : String(v);
+
+function statsPage(sr, seasons, seasonId, rows, races, user) {
+  let body = seriesTabs(sr, "stats", seasons, seasonId, user);
+  const label = seasonId === "all" ? "All seasons" : (seasons.find(s => s.id === seasonId) || {}).name || "";
+  body += `<p class="tag">${esc(label)} · ${races} race${races === 1 ? "" : "s"}</p>`;
+  if (!rows.length) return page(`${sr.short_name} stats`, body + `<p class="hint">No races uploaded yet.</p>`, { user });
+  const multi = new Set(rows.map(r => r.cls)).size > 1;
+  body += `<div class="lead">${leaders(rows, races).map(([t, r]) => `<div><small>${esc(t)}</small><b>${fmt(r.value, t.includes("avg") ? 1 : 0)}</b>
+    <span>${driverLink(r.custId, r.name)}</span></div>`).join("")}</div>`;
+  if (multi) body += `<p class="tag">Multi-class: finishes, poles and wins count within each driver's class.</p>`;
+  const sorted = [...rows].sort((a, b) => b.wins - a.wins || b.top5 - a.top5 || (a.avgFinish ?? 99) - (b.avgFinish ?? 99));
+  body += `<div class="wrap"><table class="sortable"><tr><th class="sort" data-dir="asc">Driver</th><th>#</th>${COLUMNS.map(([k, l, dir]) => `<th class="n sort${k === "wins" ? " on" : ""}" data-dir="${dir}">${l}</th>`).join("")}</tr>` +
+    sorted.map(r => `<tr><td data-v="${esc(r.name)}">${multi ? cls(r.cls) : ""}${driverLink(r.custId, r.name)}</td><td>${esc(r.number)}</td>${COLUMNS.map(([k, , , dp]) =>
+      `<td class="n" data-v="${r[k] ?? ""}">${fmt(r[k], dp)}</td>`).join("")}</tr>`).join("") + `</table></div>
+    <p class="tag">Click a heading to sort. Pos. gained adds up start minus finish. Lead-lap: finished on the leader's lap. DNF: didn't finish running.</p>` + SORT_JS;
+  return page(`${sr.short_name} stats`, body, { user });
+}
+
+function seriesDriversPage(sr, rows, roster, user, msg = "") {
+  let body = seriesTabs(sr, "drivers", [], null, user);
+  const edit = canEdit(user, sr), raced = new Set(rows.map(r => r.custId)), mine = new Set(roster.map(r => r.cust_id));
+  const list = [...rows.map(r => ({ ...r, added: mine.has(r.custId) })),
+    ...roster.filter(r => !raced.has(r.cust_id)).map(r => ({ custId: r.cust_id, name: r.name, number: r.car_number, starts: 0, wins: 0, first: "", last: "", added: true }))]
+    .sort((a, b) => b.starts - a.starts || a.name.localeCompare(b.name));
+  body += `<p class="tag">${list.length} driver${list.length === 1 ? "" : "s"}: everyone who has raced in ${esc(sr.short_name)}${roster.length ? ", plus drivers the officials have added" : ""}.</p>`;
+  if (msg) body += `<div class="msg ${/^(Added|Removed)/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>`;
+  body += `<input type="search" class="search" placeholder="Find a driver" data-rows="#dl tr.d">`;
+  body += `<div class="wrap"><table class="sortable" id="dl"><tr><th class="n sort" data-dir="asc">#</th><th class="sort" data-dir="asc">Driver</th><th class="n">iRacing ID</th>
+    <th class="n sort on" data-dir="desc">Starts</th><th class="n sort" data-dir="desc">Wins</th><th class="sort" data-dir="asc">First race</th><th class="sort" data-dir="desc">Last race</th>${edit ? "<th></th>" : ""}</tr>` +
+    list.map(r => `<tr class="d"><td class="n" data-v="${esc(r.number) === "" ? "" : Number(r.number)}">${esc(r.number)}</td><td data-v="${esc(r.name)}">${r.starts ? driverLink(r.custId, r.name) : esc(r.name)}</td>
+      <td class="n tag">${r.custId}</td><td class="n" data-v="${r.starts}">${r.starts || `<span class="tag">Hasn't raced yet</span>`}</td><td class="n" data-v="${r.wins}">${r.wins || ""}</td>
+      <td data-v="${esc(r.first)}">${r.first ? day(r.first) : ""}</td><td data-v="${esc(r.last)}">${r.last ? day(r.last) : ""}</td>
+      ${edit ? `<td>${r.added ? `<form method="post"><input type="hidden" name="remove" value="${r.custId}"><button class="link" title="Added by an official">Remove</button></form>` : ""}</td>` : ""}</tr>`).join("") + `</table></div>`;
+  if (edit) body += `<h2>Add a driver</h2><form method="post"><div class="grid"><label>iRacing ID<br><input type="number" name="cust" required></label>
+    <label>Car number<br><input type="text" name="number" maxlength="4" style="width:90px"></label></div>
+    <label for="dn">Name</label><input type="text" id="dn" name="name" maxlength="80">
+    <p class="tag">For drivers who haven't raced yet, like new sign-ups. Once they race, their results join up by iRacing ID. Leave the name empty for a driver the site already knows.</p>
+    <p><button class="btn">Add driver</button></p></form>`;
+  return page(`${sr.short_name} drivers`, body + SORT_JS, { user });
+}
+
+function leagueDriversPage(list, user) {
+  let body = `<h1>Drivers</h1><p class="sub">${list.length} drivers across every GLR series. Click a heading to sort.</p>
+    <input type="search" class="search" placeholder="Find a driver or iRacing ID" data-rows="#ld tr.d">`;
+  body += `<div class="wrap"><table class="sortable" id="ld"><tr><th class="sort" data-dir="asc">Driver</th><th class="n">iRacing ID</th><th>Series</th>
+    <th class="n sort on" data-dir="desc">Starts</th><th class="n sort" data-dir="desc">Wins</th><th class="sort" data-dir="desc">Last race</th></tr>` +
+    list.map(d => `<tr class="d"><td data-v="${esc(d.name)}">${d.starts ? driverLink(d.custId, d.name) : esc(d.name)}</td><td class="n tag">${d.custId}</td>
+      <td>${d.series.map(s => `<a href="${BASE}/${esc(s.slug)}/drivers"><span class="cls">${esc(s.short)}</span></a>`).join("")}</td>
+      <td class="n" data-v="${d.starts}">${d.starts || `<span class="tag">Hasn't raced yet</span>`}</td><td class="n" data-v="${d.wins}">${d.wins || ""}</td>
+      <td data-v="${esc(d.last)}">${d.last ? day(d.last) : ""}</td></tr>`).join("") + `</table></div>`;
+  return page("GLR drivers", body + SORT_JS, { user });
+}
+
+// the league list: every driver, the series they've run (or been added to), starts and wins across all of them
+async function leagueDrivers(db) {
+  const [series, bySeries, roster] = await Promise.all([listSeries(db), allSeriesEvents(db), listRoster(db)]);
+  const sr = new Map(series.map(s => [s.id, s])), out = new Map();
+  const get = (id, name) => { if (!out.has(id)) out.set(id, { custId: id, name, series: [], starts: 0, wins: 0, last: "" }); return out.get(id); };
+  for (const [sid, evs] of bySeries) {
+    for (const r of computeStats(evs)) {
+      const d = get(r.custId, r.name);
+      d.starts += r.starts; d.wins += r.wins;
+      if (r.last > d.last) { d.last = r.last; d.name = r.name; }
+      if (sr.has(sid)) d.series.push({ slug: sr.get(sid).slug, short: sr.get(sid).short_name });
+    }
+  }
+  for (const r of roster) { const d = get(r.cust_id, r.name); if (sr.has(r.series_id) && !d.series.some(s => s.slug === sr.get(r.series_id).slug)) d.series.push({ slug: sr.get(r.series_id).slug, short: sr.get(r.series_id).short_name }); }
+  return [...out.values()].sort((a, b) => b.starts - a.starts || a.name.localeCompare(b.name));
 }
 
 const pickSeason = (seasons, url) => { const want = Number(url.searchParams.get("season")); return seasons.find(se => se.id === want) || seasons[0] || null; };
@@ -515,7 +606,7 @@ async function upload(request, env, user) {
 }
 
 const KIND = { upload: "Upload", overlay: "Overlay", official: "Official", fix: "Fix", remove: "Removed", penalty: "Penalty", unpenalty: "Penalty removed",
-  rules: "Rules", series: "Series", webhook: "Discord", key: "Overlay key", merge: "Merge", separate: "Separate", note: "" };
+  rules: "Rules", series: "Series", roster: "Drivers", webhook: "Discord", key: "Overlay key", merge: "Merge", separate: "Separate", note: "" };
 function historyPage(rows, user) {
   const when = t => { const d = new Date(t); return isNaN(d) ? "" : d.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) + " ET"; };
   let body = `<h1>History</h1><p class="sub">Who changed what on the site, newest first${user.admin ? "" : " (your series)"}.</p>`;
@@ -688,8 +779,12 @@ export default {
             }
           } catch (e) { msg = e.message; }
         }
-        const d = await getDriver(db, cust);
-        if (!d) return notFound("No driver with that iRacing ID has raced here yet.", user);
+        let d = await getDriver(db, cust);
+        if (!d) {
+          const added = (await listRoster(db)).filter(r => r.cust_id === cust);
+          if (!added.length) return notFound("No driver with that iRacing ID has raced here yet.", user);
+          d = { cust_id: cust, name: added[0].name, names: [], races: [] };
+        }
         return driverPage(d, user, user && user.admin ? { aliases: await aliasesOf(db, cust), all: await findDrivers(db), msg } : {});
       }
       if ((m = path.match(/^\/glr\/api\/standings\/([a-z0-9-]+)$/))) {
@@ -699,6 +794,40 @@ export default {
         if (!season) return json({ ok: true, series: sr.short_name, season: null, groups: [] });
         const st = await seasonStandings(db, sr, season);
         return json({ ok: true, series: sr.short_name, season: { id: season.id, name: season.name }, rules: st.rules, groups: st.groups, adjustments: st.adj });
+      }
+      if (path === `${BASE}/drivers`) return leagueDriversPage(await leagueDrivers(db), user);
+      if (path === `${BASE}/api/drivers`) return json({ ok: true, drivers: await leagueDrivers(db) });
+      if ((m = path.match(/^\/glr\/(?:api\/series\/)?([a-z0-9-]+)\/(stats|drivers)$/))) {
+        const sr = await getSeries(db, m[1]), api = path.startsWith(`${BASE}/api/`);
+        if (!sr) return api ? json({ ok: false, error: "No such series" }, 404) : notFound("No series at that address.", user);
+        if (m[2] === "stats") {
+          const seasons = await seasonsOf(db, sr.id), all = url.searchParams.get("season") === "all";
+          const season = all ? null : pickSeason(seasons, url);
+          const evs = await seriesEvents(db, sr.id, all ? null : season && season.id);
+          const rows = season || all ? computeStats(evs) : [];
+          if (api) return json({ ok: true, series: sr.short_name, season: all ? "all" : season && { id: season.id, name: season.name }, races: evs.length, drivers: rows });
+          return statsPage(sr, seasons, all ? "all" : season && season.id, rows, evs.length, user);
+        }
+        let msg = "";
+        if (request.method === "POST" && !api) {
+          if (!canEdit(user, sr) || !sameOrigin(request, url)) return notFound("You can't change this series.", user);
+          const f = await request.formData(), who = `discord:${user.id}:${user.name}`;
+          try {
+            if (f.get("remove")) {
+              const n = await removeRoster(db, sr.id, Number(f.get("remove")));
+              await logChange(db, { by: who, seriesId: sr.id, kind: "roster", summary: `Driver removed from the list: ${n || f.get("remove")}` });
+              msg = `Removed ${n || "the driver"} from the list.`;
+            } else {
+              const r = await addRoster(db, sr.id, { cust: f.get("cust"), name: f.get("name"), number: f.get("number") }, who);
+              await logChange(db, { by: who, seriesId: sr.id, kind: "roster", summary: `Driver added to the list: ${r.name} (${r.cust})${r.number ? ` #${r.number}` : ""}` });
+              msg = `Added ${r.name}.`;
+            }
+          } catch (e) { msg = e.message; }
+        }
+        const [rows, roster] = await Promise.all([seriesEvents(db, sr.id).then(computeStats), listRoster(db, sr.id)]);
+        if (api) return json({ ok: true, series: sr.short_name, drivers: rows.map(r => ({ custId: r.custId, name: r.name, number: r.number, starts: r.starts, wins: r.wins, first: r.first, last: r.last })),
+          added: roster.map(r => ({ custId: r.cust_id, name: r.name, number: r.car_number })) });
+        return seriesDriversPage(sr, rows, roster, user, msg);
       }
       if ((m = path.match(/^\/glr\/([a-z0-9-]+)\/(standings|rules|penalties)$/))) {
         const sr = await getSeries(db, m[1]);
