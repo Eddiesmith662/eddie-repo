@@ -112,9 +112,10 @@ async function nameSeries(db) {
   }
 }
 
-let ready = null;
+const readyFor = new WeakMap();          // per database (the site has one; tests make a fresh one each time)
 export function ensureSchema(db) {
-  if (!ready) ready = (async () => {
+  let ready = readyFor.get(db);
+  if (!ready) readyFor.set(db, ready = (async () => {
     await db.batch(SCHEMA.map(s => db.prepare(s)));
     for (const [table, col, def] of ADDED) {
       const cols = (await db.prepare(`PRAGMA table_info(${table})`).all()).results.map(c => c.name);
@@ -122,7 +123,7 @@ export function ensureSchema(db) {
     }
     await nameSeries(db);
     await backfillChanges(db);
-  })().catch(e => { ready = null; throw e; });
+  })().catch(e => { readyFor.delete(db); throw e; }));
   return ready;
 }
 

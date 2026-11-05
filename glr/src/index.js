@@ -766,15 +766,15 @@ function settingsPage(cur, short, user, msg = "") {
 }
 
 // fill in a page's theme: the chosen theme, or ?theme= to preview another
-let themeCache = null;
+let themeCache = null;                  // read from the database at most once a minute (and only for that database)
 async function siteTheme(db, url) {
-  if (!themeCache || Date.now() - themeCache.t > 60000) {
+  if (!themeCache || themeCache.db !== db || Date.now() - themeCache.t > 60000) {
     let theme = "", short = "";
     try { [theme, short] = await Promise.all([getSetting(db, "theme"), getSetting(db, "league_short")]); } catch (e) { console.error(e); }
-    themeCache = { t: Date.now(), theme: themeOf(theme || "glr"), short: short || "GLR" };
+    themeCache = { db, t: Date.now(), theme: themeOf(theme || "glr"), short: short || "GLR" };
   }
   const want = url.searchParams.get("theme");
-  return { ...themeCache, theme: want && THEMES[want] ? want : themeCache.theme };
+  return { t: themeCache.t, short: themeCache.short, theme: want && THEMES[want] ? want : themeCache.theme };
 }
 async function applyTheme(res, db, url) {
   if (!(res.headers.get("content-type") || "").startsWith("text/html")) return res;

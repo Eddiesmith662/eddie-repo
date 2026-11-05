@@ -23,14 +23,15 @@ const SCHEMA = `CREATE TABLE IF NOT EXISTS sessions (
   token_hash TEXT PRIMARY KEY, discord_id TEXT NOT NULL, name TEXT, avatar TEXT,
   access_token TEXT, refresh_token TEXT, token_expires INTEGER,
   created INTEGER, expires INTEGER, checked INTEGER)`;
-let ready = null;
+const readyFor = new WeakMap();          // per database, like ensureSchema
 async function schema(db) {
   await ensureSchema(db);
-  if (!ready) ready = (async () => {
+  let ready = readyFor.get(db);
+  if (!ready) readyFor.set(db, ready = (async () => {
     await db.prepare(SCHEMA).run();
     const cols = (await db.prepare(`PRAGMA table_info(sessions)`).all()).results.map(c => c.name);
     if (!cols.includes("roles")) await db.prepare(`ALTER TABLE sessions ADD COLUMN roles TEXT NOT NULL DEFAULT '[]'`).run();
-  })().catch(e => { ready = null; throw e; });
+  })().catch(e => { readyFor.delete(db); throw e; }));
   return ready;
 }
 
