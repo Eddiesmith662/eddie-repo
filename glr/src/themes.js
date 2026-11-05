@@ -35,7 +35,7 @@ header .me a,header .me .tag,button.link{font:600 13px "JetBrains Mono",monospac
 header .me > a,header .me > span,header .me > form{padding:0 9px;border-left:1px solid #d5d5d5}header .me > :first-child{border-left:0}
 header .me a:hover{color:var(--accent)}
 main{background:#fff;max-width:1040px;margin:24px auto;padding:24px 20px 48px;border:1px solid var(--line);border-radius:6px}
-h1,h2,.card b{font-family:Roboto,Arial,sans-serif;text-transform:uppercase}
+h1,h2,.card b,.wt b{font-family:Roboto,Arial,sans-serif;text-transform:uppercase}
 h1{font-size:28px;font-weight:800;border-left-color:var(--accent)}h2{font-size:18px;font-weight:700}
 .tabs a{font:600 13px "JetBrains Mono",monospace;text-transform:uppercase;letter-spacing:-.03em;color:#33373d}.tabs a.on{color:var(--text)}
 th{font-family:"JetBrains Mono",monospace;letter-spacing:-.02em;color:#54595f;background:#fafafa}

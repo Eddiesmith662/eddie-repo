@@ -19,6 +19,9 @@
  *         /glr/health
  *         /glr/upload             officials upload iRacing result files (JSON or CSV)
  *         /glr/keys               admins: overlay keys, for producers' overlays to send their race results
+ *         /glr/<series>/widget/standings|schedule|results   small pages to embed on a website or use in OBS/vMix
+ *                                 (?rows=10&bg=transparent|page&theme=glr|vspeed&class=GT3&refresh=60)
+ *         /glr/<series>/embed     the widgets with options, a preview and the code to paste
  *         /glr/settings           admins: the site's theme and the league's short name
  *         /glr/theme/<file>       the themes' images (the GLR logo)
  *         /glr/history            officials: who changed what (admins: every series; series officials: their own)
@@ -287,7 +290,7 @@ function seriesTabs(sr, on, seasons, seasonId, user) {
   const opts = on === "stats" && seasons.length > 1 ? [...seasons, { id: "all", name: "All seasons" }] : seasons;
   const pick = !["results", "drivers", "schedule"].includes(on) && opts.length > 1 ? `<form class="season" method="get"><select name="season" onchange="this.form.submit()">${opts.map(se =>
     `<option value="${se.id}"${se.id === seasonId ? " selected" : ""}>${esc(se.name)}</option>`).join("")}</select></form>` : "";
-  return `<p class="crumb"><a href="${BASE}">GLR</a></p><h1>${esc(sr.short_name)}</h1><p class="sub">${esc(sr.name)}${canEdit(user, sr) ? ` · <a href="${BASE}/${esc(sr.slug)}/edit">Edit series</a>` : ""}</p>
+  return `<p class="crumb"><a href="${BASE}">GLR</a></p><h1>${esc(sr.short_name)}</h1><p class="sub">${esc(sr.name)}${canEdit(user, sr) ? ` · <a href="${BASE}/${esc(sr.slug)}/edit">Edit series</a> · <a href="${BASE}/${esc(sr.slug)}/embed">Embed on a website</a>` : ""}</p>
     <nav class="tabs">${t("results", "Results", "")}${t("schedule", "Schedule", "/schedule")}${t("standings", "Standings", "/standings")}${t("stats", "Stats", "/stats")}${t("drivers", "Drivers", "/drivers")}${t("rules", "Rules", "/rules")}${t("penalties", "Penalties", "/penalties")}${pick}</nav>`;
 }
 
@@ -750,6 +753,111 @@ async function applyTheme(res, db, url) {
   return new Response(html, { status: res.status, headers: res.headers });
 }
 
+/* ---------- widgets: small pages for other websites (in an iframe) and OBS/vMix ---------- */
+
+const ORIGIN = "https://vspeedlivetiming.app";
+const widgetPage = (title, body, { bg = "transparent", refresh = 0 } = {}) => new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(title)}</title>__THEME_FONTS__<style>
+:root{__THEME_VARS__}*{box-sizing:border-box}body{margin:0;color:var(--text);font:14px/1.45 system-ui,Segoe UI,Arial,sans-serif}
+a{color:var(--link);text-decoration:none}a:hover{text-decoration:underline}.wt{display:flex;justify-content:space-between;align-items:baseline;gap:10px;margin:0 0 6px}
+.wt b{font-size:17px;text-transform:uppercase}.wt span{color:var(--dim);font-size:12px}.box{border:1px solid var(--line);border-radius:6px;overflow:hidden;background:var(--card)}
+table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}th,td{padding:6px 9px;text-align:left;white-space:nowrap}td.n,th.n{text-align:right}
+th{font-size:11px;color:var(--dim);font-weight:600;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--line)}
+tr+tr td{border-top:1px solid var(--line)}tr.cut td{border-top:2px solid var(--accent)!important}td.nm{white-space:normal}.tag{color:var(--dim);font-size:12px}
+.st{font-size:11px;font-weight:700;color:#c47a00}.st.good{color:#1e9d46}.st.bad{color:#d33}.more{display:block;text-align:right;font-size:12px;margin-top:6px}
+.cls{display:inline-block;font-size:10px;font-weight:700;padding:0 5px;border-radius:3px;background:#7774;margin-right:4px}.empty{padding:14px;color:var(--dim)}
+__THEME_CSS__
+html,body{background:${bg === "page" ? "var(--bg)" : "transparent"}!important}main,header{all:unset}body{padding:2px}
+th{background:transparent}
+</style></head><body>${body}
+<script>(function(){var last=0;function send(){var h=document.documentElement.scrollHeight;if(h!==last){last=h;parent.postMessage({glrWidget:true,h:h},"*");}}
+addEventListener("load",send);addEventListener("resize",send);setInterval(send,1000);
+document.querySelectorAll('time[datetime]').forEach(function(t){try{var d=new Date(t.getAttribute('datetime'));t.textContent=d.toLocaleString(undefined,{weekday:'short',month:'short',day:'numeric',hour:'numeric',minute:'2-digit',timeZoneName:'short'});}catch(e){}});
+${refresh ? `setTimeout(function(){location.reload();},${refresh * 1000});` : ""}})();</script></body></html>`,
+  { headers: { "content-type": "text/html; charset=utf-8", "cache-control": "public, max-age=60" } });
+
+const wLink = (path, label) => `<a href="${ORIGIN}${path}" target="_blank" rel="noopener">${label}</a>`;
+const wDriver = (id, name) => wLink(`${BASE}/drivers/${id}`, esc(name));
+
+function standingsWidget(sr, season, st, rows, cls) {
+  let body = `<div class="wt"><b>${esc(sr.short_name)} standings</b><span>${season ? esc(season.name) : ""}</span></div>`;
+  if (!st || !st.events.length) return body + `<div class="box empty">No races yet this season.</div>`;
+  const groups = cls ? st.groups.filter(g => g.carClass.toLowerCase() === cls.toLowerCase()) : st.groups;
+  const po = st.rules.playoffs;
+  for (const g of groups.length ? groups : st.groups) {
+    if (st.groups.length > 1) body += `<div class="wt" style="margin-top:8px"><b style="font-size:14px">${esc(g.carClass)}</b></div>`;
+    const p = g.playoffs;
+    if (po.enabled && p && p.started) {
+      const cur = p.current, cutAt = !cur.finale && cur.spots < cur.rows.length ? cur.rows.findIndex(r => !r.through) : -1;
+      body += `<div class="tag" style="margin:-2px 0 6px">${esc(cur.name)}${cur.finale && cur.complete ? " · final" : ` · race ${Math.min(cur.ran + (cur.complete ? 0 : 1), cur.races)} of ${cur.races}`}</div>`;
+      body += `<div class="box"><table><tr><th class="n">Pos</th><th>Driver</th><th class="n">Pts</th><th class="n">${cur.finale ? "Behind" : "To cut"}</th><th></th></tr>` +
+        cur.rows.slice(0, rows).map((r, i) => `<tr${i === cutAt ? ' class="cut"' : ""}><td class="n">${r.pos}</td><td class="nm">${r.number ? `<span class="tag">#${esc(r.number)}</span> ` : ""}${wDriver(r.custId, r.name)}</td>
+          <td class="n"><b>${r.points}</b></td><td class="n">${cur.finale ? (r.behind ? -r.behind : "") : r.toCut != null && !/win/.test(r.status) ? (r.toCut > 0 ? "+" : "") + r.toCut : ""}</td>
+          <td>${r.status ? `<span class="st ${/Advanced|Champion/.test(r.status) ? "good" : /Out/.test(r.status) ? "bad" : ""}">${esc(r.status)}</span>` : ""}</td></tr>`).join("") + `</table></div>`;
+    } else {
+      const field = g.regular.filter(s => s.inField).length;
+      body += `<div class="box"><table><tr><th class="n">Pos</th><th>Driver</th><th class="n">Pts</th><th class="n">Behind</th><th class="n">Wins</th></tr>` +
+        g.regular.slice(0, rows).map((s, i) => `<tr${po.enabled && i > 0 && !s.inField && g.regular.slice(0, i).filter(x => x.inField).length === field ? ' class="cut"' : ""}>
+          <td class="n">${s.pos}</td><td class="nm">${s.number ? `<span class="tag">#${esc(s.number)}</span> ` : ""}${wDriver(s.custId, s.name)}</td>
+          <td class="n"><b>${s.points}</b></td><td class="n">${s.behind ? -s.behind : ""}</td><td class="n">${s.wins || ""}</td></tr>`).join("") + `</table></div>`;
+    }
+  }
+  return body + wLink(`${BASE}/${sr.slug}/standings`, "Full standings ›").replace("<a ", '<a class="more" ');
+}
+
+function scheduleWidget(sr, rows, n) {
+  const up = rows.filter(r => !r.subsession_id && Date.parse(r.starts_at) >= Date.now() - 4 * 3600e3).slice(0, n);
+  let body = `<div class="wt"><b>${esc(sr.short_name)} schedule</b><span>Upcoming races</span></div>`;
+  body += up.length ? `<div class="box"><table>` + up.map(r => `<tr><td>${when(r.starts_at)}</td><td class="nm"><b>${esc(r.track)}</b>${r.notes ? `<br><span class="tag">${esc(r.notes)}</span>` : ""}</td></tr>`).join("") + `</table></div>`
+    : `<div class="box empty">No upcoming races on the schedule.</div>`;
+  return body + wLink(`${BASE}/${sr.slug}/schedule`, "Full schedule ›").replace("<a ", '<a class="more" ');
+}
+
+function resultsWidget(sr, ev, n) {
+  if (!ev) return `<div class="wt"><b>${esc(sr.short_name)} results</b></div><div class="box empty">No races yet.</div>`;
+  const race = (ev.sessions.race || []).slice().sort((a, b) => a.finish_pos - b.finish_pos);
+  const classes = [...new Set(race.map(r => r.car_class || ""))], multi = classes.length > 1;
+  let body = `<div class="wt"><b>${esc(sr.short_name)}: ${esc(ev.track)}</b><span>${day(ev.start_time)}${ev.status === "provisional" ? " · provisional" : ""}</span></div>`;
+  for (const c of classes) {
+    const list = race.filter(r => (r.car_class || "") === c);
+    if (multi) body += `<div class="wt" style="margin-top:8px"><b style="font-size:14px">${esc(c)}</b></div>`;
+    body += `<div class="box"><table><tr><th class="n">Pos</th><th>Driver</th><th class="n">Gap</th><th class="n">Led</th></tr>` + list.slice(0, n).map(r => `<tr>
+      <td class="n">${multi ? r.class_pos ?? "" : r.finish_pos}</td><td class="nm">${r.car_number ? `<span class="tag">#${esc(r.car_number)}</span> ` : ""}${wDriver(r.cust_id, r.name)}</td>
+      <td class="n">${gap(r, multi)}</td><td class="n">${r.laps_led || ""}</td></tr>`).join("") + `</table></div>`;
+  }
+  return body + wLink(`${BASE}/results/${ev.subsession_id}`, "Full results ›").replace("<a ", '<a class="more" ');
+}
+
+function embedPage(sr, user, classes) {
+  const W = [["standings", "Standings", 10], ["schedule", "Schedule", 5], ["results", "Latest results", 10]];
+  let body = seriesTabs(sr, "embed", [], null, user).replace(/<nav class="tabs">[\s\S]*<\/nav>/, "");
+  body += `<h2>Embed on a website</h2><p class="hint">Pick a widget, set it up, then copy the code. On a WordPress/Elementor page: Edit with Elementor › drag an <b>HTML</b> element onto the page › paste the code › Update.
+    The widget keeps itself up to date and sizes itself to fit. The same link (without the code around it) works as a browser source in OBS or vMix.</p>
+  <div class="grid" style="margin:10px 0"><label>Widget<br><select id="ew">${W.map(([k, l]) => `<option value="${k}">${l}</option>`).join("")}</select></label>
+    <label>Rows<br><input type="number" id="er" min="1" max="60" value="10"></label>
+    <label>Look<br><select id="et"><option value="">Site theme</option>${Object.entries(THEMES).map(([k, t]) => `<option value="${k}">${esc(t.label)}</option>`).join("")}</select></label>
+    <label>Background<br><select id="eb"><option value="transparent">See-through</option><option value="page">Theme background</option></select></label>
+    ${classes.length > 1 ? `<label>Class<br><select id="ec"><option value="">All classes</option>${classes.map(c => `<option>${esc(c)}</option>`).join("")}</select></label>` : ""}
+    <label>Reload (OBS)<br><select id="ef"><option value="">Off (websites)</option><option value="60">Every minute</option><option value="300">Every 5 minutes</option></select></label></div>
+  <label>Code for a website</label><textarea id="ecode" rows="5" readonly style="width:100%;font:12px monospace;padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--card);color:var(--text)"></textarea>
+  <p><button class="btn" type="button" id="ecopy">Copy code</button> <button class="btn ghost" type="button" id="ecopy2">Copy link only (OBS / vMix)</button></p>
+  <h2>Preview</h2><div style="border:1px dashed var(--line);border-radius:6px;padding:12px;max-width:640px"><iframe id="eprev" data-glr-widget style="width:100%;border:0;height:300px" title="Preview"></iframe></div>
+<script>
+const O=${JSON.stringify(ORIGIN)},S=${JSON.stringify(`${BASE}/${sr.slug}/widget/`)},D=${JSON.stringify(Object.fromEntries(W.map(([k, , r]) => [k, r])))};
+const $=id=>document.getElementById(id);
+function url(){const w=$('ew').value,q=new URLSearchParams();q.set('rows',$('er').value||D[w]);if($('et').value)q.set('theme',$('et').value);if($('eb').value!=='transparent')q.set('bg',$('eb').value);
+  if($('ec')&&$('ec').value)q.set('class',$('ec').value);if($('ef').value)q.set('refresh',$('ef').value);return O+S+w+'?'+q.toString();}
+function code(u){return '<iframe src="'+u+'" title="${esc(sr.short_name)}" data-glr-widget style="width:100%;border:0;overflow:hidden;min-height:120px" scrolling="no" loading="lazy"></iframe>\\n'+
+ '<script>window.addEventListener("message",function(e){if(e.origin!=="'+O+'"||!e.data||!e.data.glrWidget)return;document.querySelectorAll("iframe[data-glr-widget]").forEach(function(f){if(f.contentWindow===e.source)f.style.height=e.data.h+"px";});});<\\/script>';}
+function upd(){const u=url();$('ecode').value=code(u);$('eprev').src=u.replace(O,'');}
+['ew','er','et','eb','ec','ef'].forEach(i=>{if($(i))$(i).onchange=()=>{if(i==='ew')$('er').value=D[$('ew').value];upd();};});$('er').oninput=upd;
+const cp=t=>{navigator.clipboard.writeText(t).then(()=>alert('Copied'),()=>{$('ecode').select();document.execCommand('copy');});};
+$('ecopy').onclick=()=>cp($('ecode').value);$('ecopy2').onclick=()=>cp(url());
+window.addEventListener('message',e=>{if(e.data&&e.data.glrWidget&&e.source===$('eprev').contentWindow)$('eprev').style.height=e.data.h+'px';});upd();
+</script>`;
+  return page(`${sr.short_name} embed`, body, { user });
+}
+
 // series as the public sees them: never the webhook links
 const pub = ({ hook_results, hook_standings, hook_penalties, ...rest }) => rest;
 const sameOrigin = (request, url) => request.headers.get("origin") === url.origin;
@@ -1007,6 +1115,26 @@ const site = {
         if (api) return json({ ok: true, series: sr.short_name, races: rows.map(r => ({ startsAt: r.starts_at, track: r.track, notes: r.notes, subsessionId: r.subsession_id || null })) });
         const w = new Map((await listEvents(db, { series: sr.id })).map(e => [e.subsession_id, e.winners]));
         return schedulePage(sr, rows, w, user, msg);
+      }
+      if ((m = path.match(/^\/glr\/([a-z0-9-]+)\/widget\/(standings|schedule|results)$/))) {
+        const sr = await getSeries(db, m[1]);
+        if (!sr) return new Response("No such series", { status: 404 });
+        const rows = Math.max(1, Math.min(60, Number(url.searchParams.get("rows")) || 10));
+        const opts = { bg: url.searchParams.get("bg") === "page" ? "page" : "transparent", refresh: Math.max(0, Math.min(3600, Number(url.searchParams.get("refresh")) || 0)) };
+        if (opts.refresh && opts.refresh < 30) opts.refresh = 30;
+        if (m[2] === "standings") {
+          const seasons = await seasonsOf(db, sr.id), season = pickSeason(seasons, url);
+          return widgetPage(`${sr.short_name} standings`, standingsWidget(sr, season, season && await seasonStandings(db, sr, season), rows, url.searchParams.get("class") || ""), opts);
+        }
+        if (m[2] === "schedule") return widgetPage(`${sr.short_name} schedule`, scheduleWidget(sr, await listSchedule(db, sr.id), rows), opts);
+        const last = (await listEvents(db, { series: sr.id, limit: 1 }))[0];
+        return widgetPage(`${sr.short_name} results`, resultsWidget(sr, last && await getEvent(db, last.subsession_id), rows), opts);
+      }
+      if ((m = path.match(/^\/glr\/([a-z0-9-]+)\/embed$/))) {
+        const sr = await getSeries(db, m[1]);
+        if (!sr) return notFound("No series at that address.", user);
+        const classes = [...new Set((await seriesEvents(db, sr.id)).slice(-3).flatMap(e => e.results.map(r => r.car_class || "")))].filter(Boolean);
+        return embedPage(sr, user, classes);
       }
       if (path === `${BASE}/drivers`) return leagueDriversPage(await leagueDrivers(db), user);
       if (path === `${BASE}/api/drivers`) return json({ ok: true, drivers: await leagueDrivers(db) });
