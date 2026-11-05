@@ -1,0 +1,406 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>VSPEED Race Control</title>
+<script>/* report this page's errors to the program's log file (data/logs) */
+(function () { let n = 0;
+  function rep(msg, src, line) { if (++n > 20) return; try { fetch('/api/clientlog', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ page: 'race control', msg: String(msg), src: src || '', line: line || 0 }) }); } catch (e) {} }
+  window.addEventListener('error', e => rep(e.message, e.filename, e.lineno));
+  window.addEventListener('unhandledrejection', e => rep('Unhandled: ' + ((e.reason && e.reason.message) || e.reason)));
+})();</script>
+<style>
+  :root { --red:#FF0D40; --grey:#383839; --panel:#242425; --bg:#161617; --line:#3a3a3b; --text:#f2f2f2; --dim:#939598; --blue:#33A1FF; --yellow:#FFE81F; --green:#22C55E; --bad:#ff6b6b; --amber:#ffb020; }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body { margin: 0; background: var(--bg); color: var(--text); font-family: "Bahnschrift", Arial, sans-serif; font-size: 15px; display: flex; flex-direction: column; }
+  button { font: inherit; color: var(--text); background: #2c2c2d; border: 1px solid #4a4a4b; border-radius: 5px; padding: 7px 12px; cursor: pointer; }
+  button:hover { border-color: #777; }
+  button.pri { background: var(--red); border-color: var(--red); color: #fff; font-weight: 600; }
+  button.pri:disabled { opacity: .45; cursor: default; }
+  button.on { background: #fff; color: #111; border-color: #fff; }
+  input, select, textarea { font: inherit; color: var(--text); background: #1b1b1c; border: 1px solid #4a4a4b; border-radius: 5px; padding: 7px 9px; }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--blue); }
+  header { background: var(--grey); border-bottom: 3px solid var(--red); }
+  .hbar { display: flex; align-items: center; gap: 12px; padding: 10px 16px; flex-wrap: wrap; }
+  .hbar img { height: 22px; }
+  .hbar h1 { font-size: 16px; letter-spacing: 2px; margin: 0; font-weight: 700; }
+  .pill { background: rgba(0,0,0,.35); padding: 4px 10px; border-radius: 4px; white-space: nowrap; font-size: 14px; }
+  .dot { width: 10px; height: 10px; border-radius: 50%; background: #666; display: inline-block; margin-right: 6px; }
+  .dot.on { background: var(--green); } .dot.demo { background: var(--blue); }
+  .flag { font-weight: 700; } .flag.caution { color: var(--yellow); } .flag.red { color: var(--bad); } .flag.green { color: var(--green); }
+  .grow { flex: 1; }
+  .steward { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--dim); text-transform: uppercase; letter-spacing: 1px; }
+  .steward input { width: 180px; text-transform: none; letter-spacing: 0; }
+  .steward input.need { border-color: var(--amber); }
+  .hbar a { color: var(--dim); font-size: 13px; }
+  .banner { display: none; align-items: center; gap: 12px; padding: 8px 16px; background: #3a2d00; border-bottom: 1px solid #7a5d00; color: #ffe08a; font-size: 14px; }
+  .banner.on { display: flex; }
+  .banner button { padding: 4px 12px; }
+  .wrap { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(340px, 1fr) minmax(380px, 1.15fr) minmax(330px, .95fr); grid-template-rows: 1fr minmax(150px, 30%); gap: 12px; padding: 12px; }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
+  section.log { grid-column: 1 / -1; }
+  h2 { margin: 0 0 10px; font-size: 13px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--dim); display: flex; align-items: center; gap: 8px; }
+  h2 .n { background: rgba(0,0,0,.35); color: var(--text); padding: 1px 8px; border-radius: 10px; letter-spacing: 0; font-size: 12px; }
+  .scroll { overflow-y: auto; flex: 1; min-height: 0; }
+  .empty { color: var(--dim); text-align: center; padding: 24px 8px; font-size: 14px; }
+  .hint { color: var(--dim); font-size: 13px; margin: 6px 0 0; line-height: 1.4; }
+  /* queue */
+  .tools { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; flex-wrap: wrap; position: relative; }
+  .seg { display: inline-flex; border: 1px solid #4a4a4b; border-radius: 5px; overflow: hidden; }
+  .seg button { border: 0; border-radius: 0; padding: 5px 10px; font-size: 13px; background: transparent; }
+  .seg button + button { border-left: 1px solid #4a4a4b; }
+  .seg button.on { background: #fff; color: #111; }
+  .tools .s { font-size: 12px; color: var(--dim); }
+  .tools input[type=number] { width: 54px; padding: 4px 6px; font-size: 13px; }
+  .tools > button { padding: 5px 10px; font-size: 13px; }
+  .types { position: absolute; top: 34px; right: 0; z-index: 40; background: #1d1d1e; border: 1px solid #4a4a4b; border-radius: 6px; padding: 6px; min-width: 210px; box-shadow: 0 8px 30px rgba(0,0,0,.6); }
+  .types[hidden] { display: none; }
+  .types label { display: flex; align-items: center; gap: 8px; padding: 5px 8px; font-size: 14px; cursor: pointer; border-radius: 4px; }
+  .types label:hover { background: #2c2c2d; }
+  .types input { accent-color: var(--red); }
+  .q { display: flex; flex-direction: column; gap: 4px; }
+  .inc { display: grid; grid-template-columns: 50px 1fr; gap: 2px 8px; padding: 7px 8px; background: #1d1d1e; border: 1px solid #2f2f30; border-left: 4px solid var(--ic, #666); border-radius: 5px; cursor: pointer; user-select: none; }
+  .inc:hover { border-color: #555; border-left-color: var(--ic, #666); }
+  .inc.cur { outline: 2px solid var(--red); outline-offset: -1px; }
+  .inc.done { opacity: .62; }
+  .inc .when { grid-row: span 2; font-size: 12px; color: var(--dim); line-height: 1.35; font-variant-numeric: tabular-nums; }
+  .inc .when b { display: block; color: var(--text); font-size: 13px; }
+  .inc .top { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .chip { font-size: 11px; letter-spacing: .8px; text-transform: uppercase; padding: 2px 6px; border-radius: 3px; background: var(--ic, #666); color: var(--icx, #fff); white-space: nowrap; font-weight: 600; }
+  .inc .who { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-size: 14px; flex: 1; min-width: 0; }
+  .pts { font-size: 11px; padding: 1px 5px; border-radius: 3px; border: 1px solid #666; color: #ddd; white-space: nowrap; }
+  .st { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; padding: 2px 6px; border-radius: 3px; white-space: nowrap; font-weight: 700; }
+  .st.new { background: var(--red); color: #fff; } .st.reviewing { background: var(--amber); color: #111; }
+  .st.decided { background: #fff; color: #111; } .st.noaction { background: #4b5563; color: #fff; } .st.logged { background: transparent; color: var(--dim); border: 1px solid #555; }
+  .inc .dt { font-size: 12px; color: var(--dim); display: flex; justify-content: space-between; gap: 6px; align-items: baseline; }
+  .tag { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: #8fb4ff; white-space: nowrap; }
+  .tag.rev { color: var(--amber); }
+  .inc .calls { grid-column: 2; font-size: 12px; color: #ddd; }
+  /* decision */
+  .det .head { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-bottom: 4px; }
+  .det .head .who { font-size: 18px; font-weight: 700; }
+  .det .meta { color: var(--dim); font-size: 13px; margin-bottom: 10px; line-height: 1.5; }
+  .row { display: flex; gap: 6px; flex-wrap: wrap; align-items: center; margin-bottom: 10px; }
+  .lbl { font-size: 12px; letter-spacing: 1px; text-transform: uppercase; color: var(--dim); margin: 12px 0 6px; }
+  .cars button { padding: 6px 10px; font-size: 14px; }
+  .kinds { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+  .kinds button { padding: 8px 6px; font-size: 14px; }
+  .kinds button.on { background: var(--red); border-color: var(--red); color: #fff; }
+  .kinds button[data-k=noaction].on { background: #4b5563; border-color: #4b5563; }
+  .val { display: flex; gap: 8px; align-items: center; margin-top: 8px; }
+  .val input { width: 90px; }
+  textarea { width: 100%; min-height: 64px; resize: vertical; }
+  .go { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+  .go .msg { color: var(--bad); font-size: 13px; }
+  .clist { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
+  .call { display: flex; gap: 10px; align-items: flex-start; padding: 7px 9px; background: #1d1d1e; border: 1px solid #2f2f30; border-radius: 5px; font-size: 14px; }
+  .call .what { font-weight: 700; white-space: nowrap; }
+  .call .why { color: #ccc; flex: 1; min-width: 0; }
+  .call .by { color: var(--dim); font-size: 12px; white-space: nowrap; }
+  .call.wd { opacity: .55; } .call.wd .what { text-decoration: line-through; }
+  .call button { padding: 3px 9px; font-size: 12px; }
+  /* replay + running order */
+  .rp { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-bottom: 10px; }
+  .rp button { padding: 7px 4px; font-size: 13px; }
+  .rp button.live { background: var(--red); border-color: var(--red); color: #fff; font-weight: 700; }
+  table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
+  th { text-align: left; font-weight: 400; color: var(--dim); font-size: 11px; letter-spacing: 1px; text-transform: uppercase; padding: 4px 5px; position: sticky; top: 0; background: var(--panel); }
+  td { padding: 4px 5px; border-top: 1px solid #2c2c2d; white-space: nowrap; }
+  td.nm { overflow: hidden; text-overflow: ellipsis; max-width: 150px; }
+  td.r, th.r { text-align: right; }
+  tbody tr { cursor: pointer; } tbody tr:hover td { background: #2a2a2b; }
+  tr.cam td { background: rgba(255,13,64,.16); }
+  .fl { display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 4px; border-radius: 3px; margin-left: 3px; }
+  .fl.bf { background: #fff; color: #111; } .fl.mb { background: #ff7a00; color: #111; } .fl.dq { background: #000; color: #fff; border: 1px solid #666; } .fl.pit { background: var(--blue); color: #fff; }
+  .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #111; border: 1px solid var(--red); padding: 10px 16px; border-radius: 6px; z-index: 99; display: none; }
+  section.det { overflow-y: auto; }
+  /* narrower screens: the page scrolls instead of fitting the window */
+  @media (max-width: 1250px) { html, body { height: auto; } .wrap { flex: none; grid-template-columns: 1fr 1fr; grid-template-rows: auto; }
+    section { min-height: 420px; max-height: 80vh; } section.det { max-height: none; } section.ro { grid-column: 1 / -1; } }
+  @media (max-width: 760px) { .wrap { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="hbar">
+    <img src="/static/assets/vspeed_logo.png" alt="VSPEED">
+    <h1>RACE CONTROL</h1>
+    <span class="pill"><span class="dot" id="cdot"></span><span id="ctext">Waiting for iRacing</span></span>
+    <span class="pill" id="sess">–</span>
+    <span class="grow"></span>
+    <label class="steward">Steward <input id="steward" placeholder="Your name" maxlength="60" autocomplete="off"></label>
+    <a href="/control" target="_blank" title="The league site upload is set up on the control panel's Setup tab">League upload: <span id="lu">off</span></a>
+    <span class="pill" id="ver" style="color:var(--dim)"></span>
+  </div>
+</header>
+<div class="banner" id="replayBanner">
+  <b>You're watching a replay.</b>
+  <span class="grow">New incidents aren't detected until you go back to live. Incident points gained meanwhile are added when you do, marked "found after review".</span>
+  <button id="bannerLive">Back to live</button>
+</div>
+
+<div class="wrap">
+  <section>
+    <h2>Incidents <span class="n" id="qCount">0</span></h2>
+    <div class="tools">
+      <div class="seg" id="view">
+        <button data-v="review" class="on">To review</button><button data-v="all">All</button><button data-v="decided">Decided</button><button data-v="logged">Logged</button>
+      </div>
+      <span class="grow"></span>
+      <input type="number" id="rewind" min="0" max="120" value="10" title="Seconds before the incident to start the replay"><span class="s">s</span>
+      <button id="typesBtn">Types ▾</button>
+      <div class="types" id="types" hidden></div>
+    </div>
+    <div class="scroll"><div class="q" id="queue"></div></div>
+    <p class="hint">Click to open it. Double-click to replay it in the sim. <b>Logged</b> = iRacing's own penalties, cautions and retirements: recorded, nothing to decide.</p>
+  </section>
+
+  <section class="det" id="det"></section>
+
+  <section class="ro">
+    <h2>Replay</h2>
+    <div class="rp">
+      <button data-r="back" data-v="10">−10 s</button><button data-r="rew">◀◀</button><button data-r="pause">❚❚</button><button data-r="play">▶</button>
+      <button data-r="speed" data-v="0.5">½ speed</button><button data-r="ff">▶▶</button><button data-r="prevlap">◀ Lap</button><button data-r="nextlap">Lap ▶</button>
+      <button data-r="live" class="live" style="grid-column: 1 / -1">LIVE</button>
+    </div>
+    <h2>Running order</h2>
+    <div class="scroll">
+      <table><thead><tr><th>P</th><th>#</th><th>Driver</th><th class="r">Laps</th><th class="r">Gap</th><th class="r">Inc</th><th class="r">Pits</th></tr></thead><tbody id="order"></tbody></table>
+    </div>
+    <p class="hint">Click a driver to put the camera on them. Double-click for a call that isn't from an incident.</p>
+  </section>
+
+  <section class="log">
+    <h2>Calls <span class="n" id="cCount">0</span><span class="grow"></span><span id="file" style="text-transform:none;letter-spacing:0;font-size:12px"></span></h2>
+    <div class="scroll"><div class="clist" id="calls"></div></div>
+  </section>
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+const $ = id => document.getElementById(id);
+const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const clock = t => { if (t == null) return ''; t = Math.max(0, Math.floor(t)); const h = Math.floor(t / 3600), m = Math.floor(t / 60) % 60, s = t % 60; return (h ? h + ':' + String(m).padStart(2, '0') : m) + ':' + String(s).padStart(2, '0'); };
+const hm = iso => { try { return new Date(iso).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }); } catch (e) { return ''; } };
+let toastT; function toast(msg) { const t = $('toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(toastT); toastT = setTimeout(() => t.style.display = 'none', 3500); }
+async function post(url, body) {
+  try { const r = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-VS-From': 'race control' }, body: JSON.stringify(body) }); return await r.json(); }
+  catch (e) { return { ok: false, error: 'The race control program isn\'t answering. Is it still running?' }; }
+}
+const store = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+const load = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSON.parse(v) : d; } catch (e) { return d; } };
+
+const COLORS = { offtrack: ['#8b8f96'], spin: ['#ff8a3d'], contact: ['#ff4d6d'], wall: ['#e11d48'], multi: ['#FF0D40'], stopped: ['#ffb020', '#111'],
+  mechanical: ['#a78bfa'], slow: ['#7dd3fc', '#111'], retired: ['#4b5563'], caution: ['#FFE81F', '#111'], meatball: ['#ff7a00'], penalty: ['#ffffff', '#111'],
+  warning: ['#cbd5e1', '#111'], dq: ['#000000'], pit: ['#33A1FF'] };
+const STATUS = { new: 'New', reviewing: 'Reviewing', decided: 'Decided', noaction: 'No action', logged: 'Logged' };
+const RC = { ver: -1, queue: [], calls: [], kinds: [], types: [], inReplay: false, busy: false };
+let L = { connected: false, cars: [] }, S = {}, LU = {};
+let view = load('rcView', 'review'), off = new Set(load('rcOff', ['offtrack', 'slow'])), cur = null, form = { kind: null, idx: null, value: '', reason: '' }, sel = null;
+$('rewind').value = load('rcRewind', 10);
+$('rewind').onchange = () => store('rcRewind', +$('rewind').value || 0);
+
+/* ---------- data ---------- */
+async function rcFetch() {
+  if (RC.busy) return; RC.busy = true;
+  try {
+    const d = await (await fetch('/api/rc')).json();
+    if (d.ok) { Object.assign(RC, d); if (document.activeElement !== $('steward') && d.steward != null && !$('steward')._typed) $('steward').value = d.steward; }
+    render();
+  } catch (e) {} finally { RC.busy = false; }
+}
+function connect() {
+  const es = new EventSource('/events');
+  es.onmessage = ev => {
+    const d = JSON.parse(ev.data);
+    L = d.live || L; S = d.settings || S; LU = d.leagueUpload || LU; $('ver').textContent = 'v' + ((d.app || {}).version || '');
+    if (d.raceControl != null && d.raceControl !== RC.ver) rcFetch();
+    renderLive();
+  };
+  es.onerror = () => { es.close(); setTimeout(connect, 2000); };
+}
+
+/* ---------- header, replay, running order ---------- */
+function renderLive() {
+  const on = L.connected;
+  $('cdot').className = 'dot ' + (on ? (L.source === 'demo' ? 'demo' : 'on') : '');
+  $('ctext').textContent = on ? (L.source === 'demo' ? 'Demo race' : 'iRacing connected') : 'Waiting for iRacing';
+  const flag = L.flag ? `<span class="flag ${esc(L.flag)}">${esc(L.flag.toUpperCase())}</span>` : '';
+  $('sess').innerHTML = on ? `${esc(L.track || '')} · ${esc(L.sessionName || '')}${L.lap ? ` · Lap ${L.lap}${L.totalLaps ? '/' + L.totalLaps : ''}` : ''} ${flag}` : '–';
+  $('replayBanner').classList.toggle('on', !!(on && L.isReplay));
+  $('lu').textContent = { off: 'off', setup: 'needs a key', ready: 'on', ok: 'on', waiting: 'waiting', error: 'problem' }[LU.state] || 'off';
+  const cars = L.cars || [];
+  const html = cars.map(c => `<tr data-idx="${c.idx}" class="${c.idx === L.camCarIdx ? 'cam' : ''}">
+      <td>${c.pos || ''}</td><td>${esc(c.num)}</td>
+      <td class="nm">${esc(c.name)}${c.blackFlag ? '<span class="fl bf" title="Black flag">BF</span>' : ''}${c.meatball ? '<span class="fl mb" title="Meatball (repairs)">MB</span>' : ''}${c.dq ? '<span class="fl dq">DQ</span>' : ''}${c.pit ? '<span class="fl pit">PIT</span>' : ''}</td>
+      <td class="r">${c.lapsCompleted ?? ''}</td><td class="r">${esc(c.gap || '')}</td><td class="r">${c.inc != null ? c.inc + 'x' : ''}</td><td class="r">${c.stops || 0}</td></tr>`).join('')
+    || `<tr><td colspan="7" class="empty">${on ? 'No cars yet' : 'Waiting for iRacing'}</td></tr>`;
+  if ($('order')._h !== html) { $('order')._h = html; $('order').innerHTML = html; }
+  if (cur == null && document.activeElement && !$('det').contains(document.activeElement)) renderDet();   // keep the car list fresh for a new call
+}
+$('order').onclick = e => { const tr = e.target.closest('[data-idx]'); if (tr) post('/api/camera', { carIdx: +tr.dataset.idx }); };
+$('order').ondblclick = e => { const tr = e.target.closest('[data-idx]'); if (!tr) return; cur = null; form = { kind: null, idx: +tr.dataset.idx, value: '', reason: '' }; render(); };
+document.querySelector('.rp').onclick = async e => {
+  const b = e.target.closest('[data-r]'); if (!b) return;
+  const r = await post('/api/replay', { cmd: b.dataset.r, value: b.dataset.v });
+  if (!r.ok) toast('The sim didn\'t take that replay command');
+};
+$('bannerLive').onclick = () => post('/api/replay', { cmd: 'live' });
+
+/* ---------- steward ---------- */
+$('steward').oninput = () => { $('steward')._typed = true; $('steward').classList.remove('need'); };
+$('steward').onchange = async () => { await post('/api/rc', { cmd: 'steward', name: $('steward').value.trim() }); $('steward')._typed = false; };
+
+/* ---------- queue ---------- */
+const inView = q => view === 'all' ? true : view === 'review' ? (q.status === 'new' || q.status === 'reviewing')
+  : view === 'decided' ? (q.status === 'decided' || q.status === 'noaction') : q.status === 'logged';
+function callText(c) {
+  const k = RC.kinds.find(k => k.key === c.kind) || { label: c.kind };
+  return k.label + (c.value ? ` ${c.value}${k.unit === 'seconds' ? ' s' : ' ' + k.unit}` : '');
+}
+function who(q) { return q.type === 'caution' ? 'Full course caution' : `#${esc(q.num)} ${esc(q.name)}`; }
+function renderQueue() {
+  const label = Object.fromEntries(RC.types || []);
+  const shown = RC.queue.filter(q => inView(q) && !off.has(q.type)).slice().reverse();
+  const review = RC.queue.filter(q => q.status === 'new' || q.status === 'reviewing').length;
+  $('qCount').textContent = view === 'review' ? review : shown.length;
+  document.querySelectorAll('#view button').forEach(b => b.classList.toggle('on', b.dataset.v === view));
+  const html = !shown.length ? `<div class="empty">${view === 'review' ? 'Nothing to review' : 'Nothing here yet'}</div>` : shown.map(q => {
+    const [bg, fg] = COLORS[q.type] || ['#666'];
+    const calls = RC.calls.filter(c => c.incident === q.id && c.status === 'active');
+    return `<div class="inc ${cur === q.id ? 'cur' : ''} ${['decided', 'noaction', 'logged'].includes(q.status) ? 'done' : ''}" data-id="${q.id}" style="--ic:${bg};--icx:${fg || '#fff'}">
+      <div class="when"><b>${q.lap != null ? 'L' + Math.max(1, q.lap) : ''}</b>${clock(q.t)}</div>
+      <div class="top"><span class="chip">${esc(label[q.type] || q.type)}</span><span class="who">${who(q)}</span>${q.pts ? `<span class="pts">+${q.pts}x</span>` : ''}<span class="st ${q.status}">${STATUS[q.status] || q.status}</span></div>
+      <div class="dt"><span>${esc(q.detail || '')}</span>${q.afterReview ? '<span class="tag rev">found after review</span>' : q.auto ? '<span class="tag">iRacing penalty</span>' : ''}</div>
+      ${calls.length ? `<div class="calls">${calls.map(c => esc(callText(c)) + (c.car ? ' · #' + esc(c.car.num) : '')).join(' &nbsp;|&nbsp; ')}</div>` : ''}</div>`;
+  }).join('');
+  if ($('queue')._h !== html) { $('queue')._h = html; $('queue').innerHTML = html; }
+}
+$('view').onclick = e => { const b = e.target.closest('[data-v]'); if (!b) return; view = b.dataset.v; store('rcView', view); renderQueue(); };
+$('queue').onclick = e => { const r = e.target.closest('[data-id]'); if (!r) return; open(r.dataset.id); };
+$('queue').ondblclick = e => { const r = e.target.closest('[data-id]'); if (!r) return; open(r.dataset.id); replay(r.dataset.id); };
+function open(id) {
+  if (cur === id) return;
+  cur = id; const q = RC.queue.find(x => x.id === id);
+  form = { kind: null, idx: q && q.idx != null && q.type !== 'caution' ? q.idx : null, value: '', reason: '' };
+  render();
+}
+async function replay(id) {
+  const r = await post('/api/rc', { cmd: 'jump', id, rewind: Math.max(0, +$('rewind').value || 0) });
+  if (!r.ok) return toast(r.error || 'Could not jump to the replay');
+  const q = RC.queue.find(x => x.id === id);
+  if (q && q.status === 'new') post('/api/rc', { cmd: 'status', id, status: 'reviewing' });
+}
+function renderTypes() {
+  const n = (RC.types || []).filter(([k]) => k !== 'pit');
+  $('typesBtn').textContent = `Types ${n.filter(([k]) => !off.has(k)).length}/${n.length} ▾`;
+  const html = n.map(([k, lbl]) => { const [bg, fg] = COLORS[k] || ['#666'];
+    return `<label><input type="checkbox" data-k="${k}" ${off.has(k) ? '' : 'checked'}><span class="chip" style="--ic:${bg};--icx:${fg || '#fff'}">${esc(lbl)}</span></label>`; }).join('');
+  if ($('types')._h !== html) { $('types')._h = html; $('types').innerHTML = html; }
+}
+$('typesBtn').onclick = e => { e.stopPropagation(); $('types').hidden = !$('types').hidden; };
+document.addEventListener('click', e => { if (!$('types').hidden && !e.target.closest('#types') && e.target.id !== 'typesBtn') $('types').hidden = true; });
+$('types').onchange = e => { const k = e.target.dataset.k; if (!k) return; e.target.checked ? off.delete(k) : off.add(k); store('rcOff', [...off]); renderTypes(); renderQueue(); };
+
+/* ---------- decision panel ---------- */
+function carsFor(q) {
+  const list = [];
+  const add = (idx, num, name) => { if (idx != null && !list.some(c => c.idx === idx)) list.push({ idx, num, name }); };
+  if (q) { if (q.type !== 'caution') add(q.idx, q.num, q.name); (q.cars || []).forEach(m => add(m.idx, m.num, m.name)); }
+  return list;
+}
+function renderDet() {
+  const q = cur ? RC.queue.find(x => x.id === cur) : null;
+  const kinds = RC.kinds || [];
+  const unit = (kinds.find(k => k.key === form.kind) || {}).unit;
+  const involved = carsFor(q);
+  const others = (L.cars || []).filter(c => !involved.some(i => i.idx === c.idx)).slice().sort((a, b) => (+a.num || 999) - (+b.num || 999));
+  if (form.idx != null && !involved.some(i => i.idx === form.idx) && !others.some(c => c.idx === form.idx) && q && q.idx === form.idx) involved.push({ idx: q.idx, num: q.num, name: q.name });
+  const label = Object.fromEntries(RC.types || []);
+  const [bg, fg] = q ? (COLORS[q.type] || ['#666']) : ['#666'];
+  const calls = q ? RC.calls.filter(c => c.incident === q.id) : [];
+  const head = q ? `
+    <h2>Incident ${esc(q.id)}<span class="grow"></span><button id="newCall" style="text-transform:none;letter-spacing:0;font-size:12px;padding:4px 10px">New call without an incident</button></h2>
+    <div class="head"><span class="chip" style="--ic:${bg};--icx:${fg || '#fff'}">${esc(label[q.type] || q.type)}</span><span class="who">${who(q)}</span>${q.pts ? `<span class="pts">+${q.pts}x</span>` : ''}<span class="st ${q.status}">${STATUS[q.status]}</span></div>
+    <div class="meta">${q.lap != null ? 'Lap ' + Math.max(1, q.lap) + ' · ' : ''}${clock(q.t)} into ${esc((q.sessName || 'the session').toLowerCase())} · ${q.src === 'predicted' ? 'predicted from speeds and positions' : q.src === 'both' ? 'iRacing + predicted' : 'reported by iRacing'}<br>
+      ${esc(q.detail || '')}${q.afterReview ? '<br><span class="tag rev">found after review</span> Replay goes to where your review started; the points came somewhere in that window.' : ''}${q.auto ? '<br><span class="tag">iRacing penalty</span> iRacing gave this itself. It\'s recorded here; nothing to decide unless you want to add a call.' : ''}</div>
+    <div class="row">
+      <button id="rpBtn">▶ Replay it</button>
+      ${q.status === 'new' ? '<button id="stRev">Mark reviewing</button>' : q.status === 'reviewing' ? '<button id="stNew">Back to new</button>' : ''}
+    </div>` : `<h2>New call</h2><p class="hint" style="margin:0 0 6px">For something that isn't in the incident list. Pick the car, or open an incident on the left.</p>`;
+  const carBtns = involved.map(c => `<button data-car="${c.idx}" class="${form.idx === c.idx ? 'on' : ''}">#${esc(c.num)} ${esc(c.name)}</button>`).join('');
+  const html = head + `
+    <div class="lbl">Car</div>
+    <div class="row cars">${carBtns}
+      <select id="carSel"><option value="">${involved.length ? 'Another car…' : 'Pick a car…'}</option>${others.map(c => `<option value="${c.idx}" ${form.idx === c.idx ? 'selected' : ''}>#${esc(c.num)} ${esc(c.name)}</option>`).join('')}</select>
+    </div>
+    <div class="lbl">Call</div>
+    <div class="kinds">${kinds.map(k => `<button data-k="${k.key}" class="${form.kind === k.key ? 'on' : ''}">${esc(k.label)}</button>`).join('')}</div>
+    ${unit ? `<div class="val"><input type="number" id="val" min="1" value="${esc(form.value)}"> <span>${esc(unit)}</span></div>` : ''}
+    <div class="lbl">Reason${form.kind === 'noaction' ? ' (optional)' : ''}</div>
+    <textarea id="reason" maxlength="300" placeholder="${form.kind === 'noaction' ? 'e.g. racing incident' : 'e.g. avoidable contact, turn 3'}">${esc(form.reason)}</textarea>
+    <div class="go"><button class="pri" id="make">Make the call</button><span class="msg" id="msg"></span></div>
+    ${calls.length ? `<div class="lbl">Calls on this incident</div><div class="clist">${calls.map(callRow).join('')}</div>` : ''}`;
+  if ($('det')._h === html) return;
+  const focus = document.activeElement && document.activeElement.id, pos = focus === 'reason' ? $('reason').selectionStart : null;
+  $('det')._h = html; $('det').innerHTML = html;
+  if (focus && $(focus) && $('det').contains($(focus))) { $(focus).focus(); if (pos != null) $(focus).setSelectionRange(pos, pos); }
+}
+$('det').oninput = e => { if (e.target.id === 'reason') form.reason = e.target.value; if (e.target.id === 'val') form.value = e.target.value; };
+$('det').onchange = e => { if (e.target.id === 'carSel' && e.target.value !== '') { form.idx = +e.target.value; renderDet(); } };
+$('det').onclick = async e => {
+  const t = e.target;
+  if (t.id === 'newCall') { cur = null; form = { kind: null, idx: null, value: '', reason: '' }; return render(); }
+  if (t.id === 'rpBtn') return replay(cur);
+  if (t.id === 'stRev' || t.id === 'stNew') { const r = await post('/api/rc', { cmd: 'status', id: cur, status: t.id === 'stRev' ? 'reviewing' : 'new' }); if (!r.ok) toast(r.error); return rcFetch(); }
+  const car = t.closest('[data-car]'); if (car) { form.idx = +car.dataset.car; return renderDet(); }
+  const k = t.closest('[data-k]'); if (k && $('det').contains(k) && k.parentElement.classList.contains('kinds')) { form.kind = k.dataset.k; renderDet(); if ($('val')) $('val').focus(); else $('reason').focus(); return; }
+  if (t.id === 'make') return makeCall();
+  const wd = t.closest('[data-wd]'); if (wd) return withdraw(wd.dataset.wd);
+};
+async function makeCall() {
+  const msg = m => { $('msg').textContent = m || ''; };
+  if (!$('steward').value.trim()) { $('steward').classList.add('need'); $('steward').focus(); return msg('Type your name at the top first'); }
+  if (!form.kind) return msg('Pick the call');
+  const r = await post('/api/rc', { cmd: 'call', incident: cur, idx: form.idx, kind: form.kind, value: form.value, reason: form.reason });
+  if (!r.ok) return msg(r.error);
+  toast(callText(r.call) + (r.call.car ? ' for #' + r.call.car.num : '') + ': logged');
+  form = { kind: null, idx: form.idx, value: '', reason: '' };
+  rcFetch();
+}
+async function withdraw(id) {
+  if (!$('steward').value.trim()) { $('steward').classList.add('need'); $('steward').focus(); return toast('Type your name at the top first'); }
+  const why = prompt('Why is this call withdrawn? (kept in the log with your name)');
+  if (why == null) return;
+  const r = await post('/api/rc', { cmd: 'withdraw', id, reason: why });
+  if (!r.ok) return toast(r.error);
+  rcFetch();
+}
+function callRow(c) {
+  const wd = c.status === 'withdrawn';
+  return `<div class="call ${wd ? 'wd' : ''}">
+    <span class="by">${c.lap != null ? 'L' + Math.max(1, c.lap) + ' · ' : ''}${hm(c.at)}</span>
+    <span class="what">${esc(callText(c))}${c.car ? ' · #' + esc(c.car.num) + ' ' + esc(c.car.name) : ''}</span>
+    <span class="why">${esc(c.reason || '')}${wd ? `<br><span class="by">Withdrawn by ${esc(c.withdrawn.by)}: ${esc(c.withdrawn.reason)}</span>` : ''}</span>
+    <span class="by">${esc(c.steward)}${c.incident ? ' · ' + esc(c.incident) : ''}</span>
+    ${wd ? '' : `<button data-wd="${c.id}">Withdraw</button>`}</div>`;
+}
+
+/* ---------- call log ---------- */
+function renderCalls() {
+  const list = RC.calls.slice().reverse();
+  $('cCount').textContent = RC.calls.filter(c => c.status === 'active').length;
+  $('file').textContent = RC.file ? 'Saved in data/' + RC.file : '';
+  const html = list.length ? list.map(callRow).join('') : '<div class="empty">No calls yet</div>';
+  if ($('calls')._h !== html) { $('calls')._h = html; $('calls').innerHTML = html; }
+}
+$('calls').onclick = e => { const wd = e.target.closest('[data-wd]'); if (wd) withdraw(wd.dataset.wd); };
+
+function render() { renderTypes(); renderQueue(); renderDet(); renderCalls(); }
+connect(); rcFetch(); setInterval(rcFetch, 5000);
+</script>
+</body>
+</html>

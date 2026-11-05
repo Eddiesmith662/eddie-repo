@@ -40,6 +40,7 @@ import profiles
 import raceresults
 import announcer
 import leagueupload
+import racecontrol
 
 ROOT = datafiles.ROOT
 STATIC = os.path.join(ROOT, "static")
@@ -122,6 +123,7 @@ def deep_merge(base, patch):
 
 
 APP = {"version": update.local_version(), "update": None}   # shown in the control panel
+RC = {"on": False}         # race control mode (start-race-control.bat): the steward's program, no graphics
 
 
 def update_watch():
@@ -183,7 +185,8 @@ class State:
         return json.dumps({"settings": self.public_settings(), "live": self.live, "standings": standings.summary(), "app": APP,
                            "penalties": {"list": PEN["list"], "hide": PEN["hide"], "reasons": PEN_REASONS, "now": time.time()},
                            "incidentsVer": incidents.STATE["ver"], "pitrace": pitrace.snapshot(), "series": profiles.summary(),
-                           "announcer": announcer.status(), "leagueUpload": leagueupload.status()})
+                           "announcer": announcer.status(), "leagueUpload": leagueupload.status(),
+                           **({"raceControl": racecontrol.version()} if RC["on"] else {})})
 
     def defaults(self):
         return copy.deepcopy(DEFAULT_SETTINGS)
@@ -1612,6 +1615,35 @@ def announcer_command(d):
     return False, "Unknown command"
 
 
+def race_control_command(d):
+    """From the Race Control page: steward name, replay jump, and the queue and calls (racecontrol.py)."""
+    if not RC["on"]:
+        return {"ok": False, "error": "Race control isn't running"}
+    cmd = str(d.get("cmd") or "")
+    if cmd == "steward":
+        name = str(d.get("name") or "").strip()[:60]
+        STATE.update_settings({"raceControl": {"steward": name}})
+        diag.log("Race control: steward is %s" % (name or "(none)"))
+        return {"ok": True}
+    if cmd == "jump":              # replay from a few seconds before the incident (or the start of a review window)
+        q = racecontrol.find(str(d.get("id") or ""))
+        if not q:
+            return {"ok": False, "error": "That incident isn't in the queue"}
+        rewind = max(0.0, min(120.0, float(d.get("rewind") or 15)))
+        t = (q.get("window") or [None])[0] or q.get("t")
+        if t is None:
+            return {"ok": False, "error": "No time for this incident"}
+        with SOURCE_LOCK:
+            ok = SOURCE.jump(q["sess"], max(0.0, t - rewind), q.get("num") or None)
+        return {"ok": bool(ok)}
+    with STATE.lock:
+        live = STATE.live
+        steward = (STATE.settings.get("raceControl") or {}).get("steward", "")
+    ok, msg, extra = racecontrol.command(d, live, steward)
+    STATE.notify()
+    return dict(extra or {}, ok=ok, error=msg if not ok else "")
+
+
 def on_air_now():
     """Names of the graphics on screen right now, for the usage stats in the diagnostics."""
     st = STATE.settings
@@ -1679,6 +1711,11 @@ def telemetry_loop(demo, multiclass=False, qual=False):
                 incidents.update(live, log=diag.log)
             except Exception as e:      # the incident log must never stop the overlay
                 diag.error("Incident log error: %r" % (e,), e)
+            if RC["on"]:
+                try:
+                    racecontrol.update(live)
+                except Exception as e:
+                    diag.error("Race control error: %r" % (e,), e)
             try:
                 pitrace.update(live, log=diag.log)
             except Exception as e:
@@ -1817,6 +1854,8 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         path = urlparse(self.path).path
+        if path == "/racecontrol" or (path == "/" and RC["on"]):
+            return self.send_file(os.path.join(STATIC, "racecontrol.html"))
         if path in ("/", "/control", "/timing"):
             return self.send_file(os.path.join(STATIC, "control.html"))
         if path == "/overlay":
@@ -1857,6 +1896,10 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"settings": STATE.public_settings(), "live": STATE.live})
         if path == "/api/incidents":
             return self.send_json(incidents.snapshot())
+        if path == "/api/rc":
+            if not RC["on"]:
+                return self.send_json({"ok": False, "error": "Race control isn't running. Start it with start-race-control.bat."}, 404)
+            return self.send_json(dict(racecontrol.snapshot(), ok=True, steward=(STATE.settings.get("raceControl") or {}).get("steward", "")))
         if path == "/api/assets":
             return self.send_json(list_assets())
         if path == "/api/graphics":
@@ -1998,6 +2041,8 @@ class Handler(BaseHTTPRequestHandler):
                 else:
                     ok = SOURCE.camera_group(int(data["group"]))
             return self.send_json({"ok": bool(ok)})
+        if path == "/api/rc":
+            return self.send_json(race_control_command(data))
         if path == "/api/announcer":
             ok, msg = announcer_command(data)
             return self.send_json({"ok": ok, "msg": msg})
@@ -2770,9 +2815,11 @@ def main():
     ap.add_argument("--demo", action="store_true", help="run a fake race instead of reading iRacing")
     ap.add_argument("--multiclass", action="store_true", help="demo race with GTP and GT3 classes")
     ap.add_argument("--qual", action="store_true", help="demo qualifying session instead of a race")
+    ap.add_argument("--race-control", action="store_true", help="race control mode, for a steward: incident queue and calls, no graphics")
     ap.add_argument("--port", type=int, default=8765)
     args = ap.parse_args()
-    diag.setup(APP["version"], ("DEMO QUALIFYING" if args.qual else "DEMO") if args.demo else "iRacing")
+    RC["on"] = args.race_control
+    diag.setup(APP["version"], (("DEMO QUALIFYING" if args.qual else "DEMO") if args.demo else "iRacing") + (" RACE CONTROL" if RC["on"] else ""))
 
     standings.init()
     standings.startup_note()       # standings are pulled only when Pull standings now is pressed
@@ -2781,11 +2828,25 @@ def main():
     except Exception as e:
         diag.error("Series profiles could not start: %r" % (e,), e)
     threading.Thread(target=update_watch, daemon=True).start()
-    announcer.start(STATE, on_air_now, diag.log)    # the announcer page feed (does nothing until it's set up)
+    if RC["on"]:
+        racecontrol.start(diag.log)       # the steward's queue and calls (data/race-control)
+    else:
+        announcer.start(STATE, on_air_now, diag.log)    # the announcer page feed (does nothing until it's set up)
     leagueupload.start(STATE.settings.get("leagueUpload"), diag.log)   # league site upload (does nothing until it's switched on)
     threading.Thread(target=telemetry_loop, args=(args.demo, args.multiclass, args.qual), daemon=True).start()
     server = QuietServer(("0.0.0.0", args.port), Handler)
     ip = local_ip()
+    if RC["on"]:
+        print("=" * 60)
+        print(" VSPEED Race Control v%s  (%s mode)" % (APP["version"], "DEMO" if args.demo else "iRacing"))
+        print("  Race control :  http://localhost:%d/racecontrol" % args.port)
+        print("  League upload:  set up on the Setup tab of http://localhost:%d/control" % args.port)
+        print("=" * 60)
+        try:
+            server.serve_forever()
+        except KeyboardInterrupt:
+            pass
+        return
     print("=" * 60)
     print(" VSPEED Broadcast Overlay v%s  (%s mode)" % (APP["version"], "DEMO" if args.demo else "iRacing"))
     print("  Overlay      :  http://localhost:%d/overlay  (browser input in your broadcasting software)" % args.port)

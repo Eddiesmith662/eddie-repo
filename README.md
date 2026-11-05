@@ -6,7 +6,7 @@ standings, live points, podium, sponsors and more, built to the VSPEED Brand Sty
 **Contents:** [Quick start](#quick-start) · [Race night](#race-night) · [The control panel](#the-control-panel) ·
 [The graphics](#the-graphics) · [Standings, live points and playoffs](#standings-live-points-and-playoffs) ·
 [Several series](#several-series) · [Race results](#race-results) · [Announcer page](#announcer-page) ·
-[Live timing window](#live-timing-window) · [Updates](#updates) · [When something goes wrong](#when-something-goes-wrong) ·
+[Live timing window](#live-timing-window) · [Race control](#race-control) · [Updates](#updates) · [When something goes wrong](#when-something-goes-wrong) ·
 [Files](#files)
 
 ---
@@ -227,6 +227,36 @@ The relay itself runs on Cloudflare and is looked after by VSPEED.
 
 ---
 
+## Race control
+
+For a league steward: the same program, started with **`start-race-control.bat`** instead of `start.bat`. No
+graphics, vMix or OBS: just iRacing and this. The steward needs to be a session admin in the league session, so that
+iRacing shares every driver's incident points. Open **http://localhost:8765/racecontrol** in a browser (best on a
+second screen). It works the same whether or not the race is being broadcast.
+
+- **Steward** (top right): type your name first. Every call is saved with who made it.
+- **Incidents** (left): spins, contact, stopped and slow cars, meatballs and more, as they happen. **To review** shows
+  what still needs a look. Click one to open it; double-click to replay it in the sim (the seconds box sets how far
+  before it the replay starts). Replaying marks it **Reviewing**.
+- **Logged**: iRacing's own penalties (black flag, warning, disqualified), cautions and retirements. They're recorded
+  for the stewards, not decisions, and nothing is done with them.
+- **Making a call** (middle): pick the car, the call (warning, drive-through, stop-and-go, time penalty, end of line,
+  positions, points, disqualified or no action), the number of seconds / positions / points where it needs one, and
+  the reason, then **Make the call**. The incident moves to **Decided** (or **No action**). For something that isn't
+  in the list, double-click the driver in the running order, or press **New call without an incident**.
+- **Withdraw** a call made by mistake: it stays in the log, crossed out, with who withdrew it and why.
+- **While you watch a replay**, new incidents aren't detected (iRacing's car data is the replay). Incident points
+  gained in the meantime are added when you go back to **Live**, marked **found after review**; replaying one of those
+  goes to where your review started.
+
+Calls are saved after every change in `data\race-control\<race>.json` (one file per iRacing session), so closing the
+program mid-race loses nothing. For now the penalties themselves are still given in the sim by hand, and calls stay on
+this PC. To send the race's results to the league site, set up **League site upload** on the control panel's Setup
+tab (http://localhost:8765/control), the same as for a producer. `start-race-control.bat --demo` runs it on a pretend
+race.
+
+---
+
 ## Updates
 
 The overlay checks GitHub each time it starts. If there's a new version, the black window shows what's new and asks
@@ -268,6 +298,7 @@ For whoever looks after the overlay.
 ```
 start.bat                  run against iRacing (checks for updates first)
 start-demo.bat             a pretend race; start-demo-qualifying.bat a pretend qualifying session
+start-race-control.bat     race control, for a steward (add --demo for a pretend race)
 restore-previous.bat       go back to the version before the last update
 python-setup.bat           sets up the overlay's own Python the first time
 data\                      YOUR files, never touched by updates:
@@ -276,14 +307,16 @@ data\                      YOUR files, never touched by updates:
   standings\                 the current series' standings, bracket, logo, race info and team
   results\                   race results, one folder per series
   league-upload\             races waiting to go to the league site (only if the upload is on)
+  race-control\              race control: each race's incident queue and steward calls
   logos\  sponsors\          league logos; sponsor and Pole Award images
   demo-field.csv             optional: your own drivers for the demo (car number,name per line)
   logs\  diagnostics\        logs, the black box and saved diagnostics
   backup\                    the last few versions, for restore-previous.bat
 server.py                  reads iRacing and serves every page (port 8765)
 standings.py  livepoints.py  profiles.py  pitrace.py  incidents.py  raceresults.py  announcer.py  leagueupload.py
+racecontrol.py
 update.py  run.py  net.py  datafiles.py  diag.py
-static\                    the overlay, control panel and standings graphic pages
+static\                    the overlay, control panel, race control and standings graphic pages
 relay\                     the announcer relay (Cloudflare Worker) and the announcer page
 glr\                       the league site (Cloudflare Worker at vspeedlivetiming.app/glr)
 ```
