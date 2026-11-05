@@ -131,3 +131,16 @@ test("a disqualified driver scores nothing in the standings", () => {
   assert.equal(row(st, 100).points, 0);
   assert.equal(row(st, 100).wins, 0);
 });
+
+test("a series that changes cars during the season has one set of standings", () => {
+  const races = [["ARCA", 0], ["Trucks", 1], ["Grand National", 2]].map(([c, i]) => {
+    const all = Object.fromEntries([...Array(10).keys()].map(d => [d, c]));
+    return asEvent(raceExport({ sub: 3000 + i, date: week(i), classes: all }));
+  });
+  const st = computeStandings({}, races);
+  assert.equal(st.groups.length, 1);
+  assert.equal(row(st, 100).points, 120);
+  // classes racing together still split
+  const mixed = asEvent(raceExport({ sub: 4000, date: week(5), classes: { 0: "GTP", 1: "GT3", 2: "GTP", 3: "GT3" }, order: [0, 1, 2, 3] }));
+  assert.equal(computeStandings({}, [mixed]).groups.length, 2);
+});

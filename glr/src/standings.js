@@ -220,7 +220,10 @@ export function computeStandings(rawRules, events, adjustments = [], opts = {}) 
   const skip = new Set(rules.skip);
   const counted = events.filter(e => !skip.has(e.subsession_id)).sort((a, b) => String(a.start_time).localeCompare(String(b.start_time)));
   const classes = [...new Set(counted.flatMap(e => e.results.map(r => r.car_class || "")))];
-  const perClass = rules.byClass && classes.length > 1;
+  // standings split by class only when classes race together. A series that changes cars during the season (one class
+  // per race, like the Foundation series) is one set of standings.
+  const together = counted.some(e => new Set(e.results.map(r => r.car_class || "")).size > 1);
+  const perClass = rules.byClass && together && classes.length > 1;
   const groups = (perClass ? classes : [""]).map(cls => {
     const races = scoreRaces(rules, counted, adjustments, perClass, cls);
     return { carClass: cls, ...standingsFor(rules, races), races: races.map(r => ({ subsession_id: r.ev.subsession_id, start_time: r.ev.start_time, track: r.ev.track,
