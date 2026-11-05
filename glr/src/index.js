@@ -36,7 +36,7 @@ import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, i
   importOverlay, listKeys, createKey, revokeKey, checkKey, deleteEvent, listFixes, fixResult, FIX_FIELDS, markOfficial, setHook, HOOKS,
   logChange, listChanges, whoName, mergeDrivers, separateDriver, aliasesOf, findDrivers,
   seriesEvents, allSeriesEvents, listRoster, addRoster, removeRoster, listSchedule, upcoming, addSchedule, addScheduleLines, deleteSchedule,
-  scheduleEntry, linkScheduleTo, getSetting, setSetting } from "./db.js";
+  scheduleEntry, linkScheduleTo, getSetting, setSetting, editSchedule } from "./db.js";
 import { resultsPost, standingsPost, penaltyPost, fixPost, enqueue, processQueue, queueFor, retryQueued, discardQueued, isRecent } from "./discord.js";
 import { computeStandings, cleanRules, DEFAULT_RULES, GLR_PLAYOFFS } from "./standings.js";
 import { computeStats, leaders, COLUMNS } from "./stats.js";
@@ -98,11 +98,14 @@ header{flex-wrap:wrap;row-gap:6px}header .me{flex-wrap:wrap;justify-content:flex
 .lead small{display:block;color:var(--dim);font-size:12px}.lead b{font-size:18px}.lead span{display:block;font-size:14px}
 th.sort{cursor:pointer;user-select:none}th.sort:hover{color:var(--text)}th.sort.on{color:var(--text)}th.sort.on::after{content:" ▾"}th.sort.on.asc::after{content:" ▴"}
 label.up{margin:0 0 0 10px;display:inline;color:var(--link);font-size:13px;cursor:pointer;text-decoration:underline}.ups{font-size:13px;color:var(--dim)}.ups.bad{color:#ff8a8a}
+.edrow td{background:var(--card)}.edf{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:8px 12px;padding:6px 0;white-space:normal}
+.edf label{margin:0;display:flex;flex-direction:column;gap:3px}.edf input{width:100%}.edf .btn{align-self:end}
 .grid-r td,.grid-r th{padding:5px 6px;text-align:center}.grid-r td.d{text-align:left;position:sticky;left:0;background:var(--card);z-index:1}
 .grid-r .c{border-radius:4px;display:inline-block;min-width:26px;padding:1px 3px}.grid-r .w{background:#6b5313;color:#ffe08a;font-weight:700}
 .grid-r .t5{background:#1f4630}.grid-r .t10{background:#1f3550}.grid-r .dnf{color:#ff8a8a}.grid-r .p{display:none}.grid-r.pts .p{display:inline}.grid-r.pts .f{display:none}
 .seg2{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;margin:0 0 10px}.seg2 button{background:none;border:0;color:var(--dim);padding:6px 12px;font:inherit;cursor:pointer}
 .seg2 button.on{background:#2c2c32;color:var(--text)}time{white-space:nowrap}
+.chg{font-size:12px;font-weight:600;width:42px}.chg .up{color:#1e9d46}.chg .dn{color:#d33}.bon{font-size:12px;color:var(--dim);white-space:normal;min-width:120px}
 input.search{width:100%;max-width:360px;margin:0 0 12px;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
 __THEME_CSS__</style></head><body><header><a class="brand" href="${BASE}">__THEME_BRAND__</a><div class="me"><a href="${BASE}/schedule">Schedule</a><a href="${BASE}/drivers">Drivers</a>${user
   ? `<a href="${BASE}/history">History</a>${user.admin ? `<a href="${BASE}/keys">Overlay keys</a><a href="${BASE}/settings">Settings</a>` : ""}<a href="${BASE}/upload">Upload results</a><span class="tag">${esc(user.name)}</span><form method="post" action="${BASE}/logout"><button class="link">Sign out</button></form>`
@@ -177,21 +180,23 @@ function seriesEditPage(sr, user, err = "", queue = [], note = "") {
     <p><button class="btn">Save</button></p></form>${hooksHtml(sr, queue, note)}`, { user });
 }
 
-function sessionTable(rows, race, inClass) {
+function sessionTable(rows, race, inClass, score = null) {
+  const sc = race && score;
   return `<div class="wrap"><table><tr><th class="n">Pos</th>${inClass ? `<th class="n">Overall</th>` : ""}<th>#</th><th>Driver</th>${race ? `<th class="n">Start</th><th class="n">Gap</th><th class="n">Laps</th><th class="n">Led</th>` : ""}
-    <th class="n">Best lap</th>${race ? `<th class="n">Avg lap</th>` : ""}<th class="n">Inc</th>${race ? `<th>Status</th><th class="n">Pts</th>` : ""}</tr>` +
+    <th class="n">Best lap</th>${race ? `<th class="n">Avg lap</th>` : ""}<th class="n">Inc</th>${race ? `<th>Status</th><th class="n">Pts</th>` : ""}${sc ? "<th>Bonus / penalty</th>" : ""}</tr>` +
     rows.map(r => `<tr><td class="n">${(inClass ? r.class_pos : r.finish_pos) ?? ""}</td>${inClass ? `<td class="n tag">${r.finish_pos ?? ""}</td>` : ""}
       <td>${esc(r.car_number)}</td><td>${driverLink(r.cust_id, r.name)}</td>
       ${race ? `<td class="n">${r.start_pos ?? ""}</td><td class="n">${gap(r, inClass)}</td><td class="n">${r.laps ?? ""}</td><td class="n">${r.laps_led || ""}</td>` : ""}
       <td class="n">${lap(r.best_lap_ms)}</td>${race ? `<td class="n">${lap(r.avg_lap_ms)}</td>` : ""}<td class="n">${r.incidents ?? ""}</td>
-      ${race ? `<td>${esc(r.reason_out)}</td><td class="n">${r.league_points ?? ""}</td>` : ""}</tr>`).join("") + `</table></div>`;
+      ${race ? `<td>${esc(r.reason_out)}</td><td class="n">${sc ? `<b>${(score[r.cust_id] || {}).pts ?? ""}</b>` : r.league_points ?? ""}</td>` : ""}
+      ${sc ? `<td class="bon">${[...((score[r.cust_id] || {}).bonusReasons || []), ...((score[r.cust_id] || {}).reasons || [])].map(esc).join("<br>")}</td>` : ""}</tr>`).join("") + `</table></div>`;
 }
 
 // a session's rows, one table per class when there's more than one (classes in the order their best car finished)
-function sessionTables(rows, race, label) {
+function sessionTables(rows, race, label, score = null) {
   const classes = [...new Set(rows.map(r => r.car_class))];
-  if (classes.length < 2) return `<h2>${esc(label)}</h2>` + sessionTable(rows, race, false);
-  return classes.map(c => `<h2>${esc(label)} ${cls(c)}</h2>` + sessionTable(rows.filter(r => r.car_class === c), race, race)).join("");
+  if (classes.length < 2) return `<h2>${esc(label)}</h2>` + sessionTable(rows, race, false, score);
+  return classes.map(c => `<h2>${esc(label)} ${cls(c)}</h2>` + sessionTable(rows.filter(r => r.car_class === c), race, race, score)).join("");
 }
 
 function fixesHtml(fixes) {
@@ -228,13 +233,14 @@ const fill=()=>{const d=D.find(x=>String(x.id)===S.value)||D[0];for(const [k,v] 
 S.onchange=fill;fill();</script>`;
 }
 
-function resultPage(ev, user, { fixes = [], edit = false, msg = "" } = {}) {
+function resultPage(ev, user, { fixes = [], edit = false, msg = "", score = null } = {}) {
   const facts = [ev.laps != null && `${ev.laps} laps`, ev.cautions != null && `${ev.cautions} caution${ev.cautions === 1 ? "" : "s"}${ev.caution_laps ? ` (${ev.caution_laps} laps)` : ""}`,
     ev.lead_changes != null && `${ev.lead_changes} lead changes`, ev.sof && `SOF ${ev.sof}`].filter(Boolean).join(" · ");
   let body = crumb(ev) + `<h1>${esc(ev.track)}${prov(ev)}</h1>${ev.status === "provisional" ? `<p class="hint" style="padding-left:14px">Provisional: sent by the broadcast overlay at the end of the race. It's replaced by the official iRacing results file when that's uploaded, which also adds league points, qualifying and practice.</p>` : ""}<p class="sub">${day(ev.start_time)}${ev.season_name ? " · " + esc(ev.season_name) : ""}${facts ? " · " + facts : ""}</p>`;
   const names = { race: "Race", qualify: "Qualifying", practice: "Practice", warmup: "Warmup" };
   for (const s of ["race", "qualify", "warmup", "practice", ...Object.keys(ev.sessions).filter(k => !names[k])])
-    if (ev.sessions[s]) body += sessionTables(ev.sessions[s], s === "race", names[s] || s) + (s === "race" ? fixesHtml(fixes) : "");
+    if (ev.sessions[s]) body += sessionTables(ev.sessions[s], s === "race", names[s] || s, s === "race" ? score && score.points : null)
+      + (s === "race" && score && score.note ? `<p class="tag">${score.note}</p>` : "") + (s === "race" ? fixesHtml(fixes) : "");
   body += `<p class="tag">iRacing session ${ev.subsession_id}</p>`;
   if (edit) body += officialsPanel(ev, msg);
   return page(`${ev.track} results`, body, { user });
@@ -305,19 +311,28 @@ document.querySelectorAll('input.search').forEach(s=>s.oninput=()=>{const q=s.va
 function schedulePage(sr, rows, winners, user, msg = "") {
   let body = seriesTabs(sr, "schedule", [], null, user);
   const edit = canEdit(user, sr), now = Date.now() - 4 * 3600e3;
-  if (msg) body += `<div class="msg ${/^(Added|Removed)/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>`;
+  if (msg) body += `<div class="msg ${/^(Added|Removed|Saved)/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>`;
   const up = rows.filter(r => !r.subsession_id && Date.parse(r.starts_at) >= now);
   const done = rows.filter(r => !up.includes(r)).reverse();
-  const del = r => edit ? `<td><form method="post" onsubmit="return confirm('Remove ${esc(String(r.track).replace(/['"\\]/g, ""))} from the schedule?')"><input type="hidden" name="remove" value="${r.id}"><button class="link">Remove</button></form></td>` : "";
-  body += `<h2>Upcoming</h2>` + (up.length ? `<div class="wrap"><table><tr><th>When</th><th>Track</th><th>Notes</th>${edit ? "<th></th>" : ""}</tr>` +
-    up.map(r => `<tr><td>${when(r.starts_at)}</td><td>${esc(r.track)}</td><td style="white-space:normal">${esc(r.notes)}</td>${del(r)}</tr>`).join("") + `</table></div>`
+  const et = iso => { const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
+    .formatToParts(new Date(iso)).map(x => [x.type, x.value])); return { date: `${p.year}-${p.month}-${p.day}`, time: `${p.hour}:${p.minute}` }; };
+  const del = r => edit ? `<td><button class="link" type="button" onclick="const t=this.closest('tr').nextElementSibling;t.hidden=!t.hidden">Edit</button>
+      <form method="post" style="display:inline;margin-left:10px" onsubmit="return confirm('Remove ${esc(String(r.track).replace(/['"\\]/g, ""))} from the schedule?')"><input type="hidden" name="remove" value="${r.id}"><button class="link">Remove</button></form></td>` : "";
+  const edRow = (r, cols) => edit ? `<tr class="edrow" hidden><td colspan="${cols}"><form method="post" class="edf"><input type="hidden" name="edit" value="${r.id}">
+      <label>Date<input type="date" name="date" value="${et(r.starts_at).date}" required></label><label>Start (Eastern)<input type="time" name="time" value="${et(r.starts_at).time}" required></label>
+      <label>Track<input type="text" name="track" value="${esc(r.track)}" maxlength="100" required></label><label>Layout<input type="text" name="layout" value="${esc(r.layout)}" maxlength="60" placeholder="Oval, Road Course…"></label>
+      <label>Length<input type="text" name="length" value="${esc(r.length)}" maxlength="40" placeholder="100 laps or 115 min"></label><label>Notes<input type="text" name="notes" value="${esc(r.notes)}" maxlength="120"></label>
+      <button class="btn">Save</button></form></td></tr>` : "";
+  const len = r => esc(r.length || (r.result_laps ? `${r.result_laps} laps` : ""));
+  body += `<h2>Upcoming</h2>` + (up.length ? `<div class="wrap"><table><tr><th>When</th><th>Track</th><th>Layout</th><th>Length</th><th>Notes</th>${edit ? "<th></th>" : ""}</tr>` +
+    up.map(r => `<tr><td>${when(r.starts_at)}</td><td>${esc(r.track)}</td><td>${esc(r.layout)}</td><td>${len(r)}</td><td style="white-space:normal">${esc(r.notes)}</td>${del(r)}</tr>${edRow(r, 6)}`).join("") + `</table></div>`
     : `<p class="hint">No upcoming races on the schedule.${edit ? " Add them below." : ""}</p>`);
   if (done.length) {
-    const table = list => `<div class="wrap"><table><tr><th>When</th><th>Track</th><th>Winner</th><th>Notes</th>${edit ? "<th></th>" : ""}</tr>` + list.map(r => `<tr>
-      <td>${r.subsession_id ? `<a href="${BASE}/results/${r.subsession_id}">${when(r.starts_at)}</a>` : when(r.starts_at)}</td><td>${esc(r.track)}</td>
+    const table = list => `<div class="wrap"><table><tr><th>When</th><th>Track</th><th>Layout</th><th>Length</th><th>Winner</th><th>Notes</th>${edit ? "<th></th>" : ""}</tr>` + list.map(r => `<tr>
+      <td>${r.subsession_id ? `<a href="${BASE}/results/${r.subsession_id}">${when(r.starts_at)}</a>` : when(r.starts_at)}</td><td>${esc(r.track)}</td><td>${esc(r.layout)}</td><td>${len(r)}</td>
       <td>${r.subsession_id ? winnersHtml(winners.get(r.subsession_id) || []) + prov(r) : `<span class="tag">Results not in yet</span>${edit ? `
         <label class="up" title="The iRacing results file (JSON, or CSV with its original name)">Upload results<input type="file" accept=".json,.csv" data-sched="${r.id}" hidden></label><span class="ups"></span>` : ""}`}</td>
-      <td style="white-space:normal">${esc(r.notes)}</td>${del(r)}</tr>`).join("") + `</table></div>`;
+      <td style="white-space:normal">${esc(r.notes)}</td>${del(r)}</tr>${edRow(r, 7)}`).join("") + `</table></div>`;
     const recent = done.filter(r => Date.parse(r.starts_at) > Date.now() - 150 * 864e5), older = done.filter(r => !recent.includes(r));
     if (recent.length) body += `<h2>Completed</h2>` + table(recent);
     if (older.length) body += `<details><summary>Earlier races (${older.length})</summary>${table(older)}</details>`;
@@ -325,12 +340,14 @@ function schedulePage(sr, rows, winners, user, msg = "") {
   if (edit) body += `<h2>Add races</h2><form method="post"><div class="grid"><label>Date<br><input type="date" name="date" required></label>
       <label>Start (Eastern)<br><input type="time" name="time" value="20:00" required></label></div>
       <label for="st">Track</label><input type="text" id="st" name="track" maxlength="100" required>
+      <div class="grid"><label>Layout (optional)<br><input type="text" name="layout" maxlength="60" placeholder="Oval, Road Course…"></label>
+      <label>Length (optional)<br><input type="text" name="length" maxlength="40" placeholder="100 laps or 115 min"></label></div>
       <label for="sn2">Notes (optional, e.g. Playoffs: Round of 12)</label><input type="text" id="sn2" name="notes" maxlength="120">
       <p><button class="btn">Add race</button></p></form>
-    <form method="post"><label for="bulk">Or paste a whole season, one race per line: date, start time (Eastern), track, notes</label>
+    <form method="post"><label for="bulk">Or paste a whole season, one race per line: date, start time (Eastern), track, then any of length and notes</label>
       <textarea id="bulk" name="bulk" rows="6" style="width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit"
-        placeholder="2026-11-10, 8:00 PM, Kansas Speedway&#10;11/17/2026, 8:00 PM, Martinsville Speedway, Short track night&#10;2026-11-24, Phoenix Raceway, Playoffs: Round of 12"></textarea>
-      <p class="tag">The time can be left out (8:00 PM Eastern). When a race's results are uploaded they join up with its date here.</p>
+        placeholder="2026-11-10, 8:00 PM, Kansas Speedway - Oval, 100 laps or 115 min&#10;11/17/2026, 8:00 PM, Martinsville Speedway, 200 laps, Short track night&#10;2026-11-24, Phoenix Raceway, Playoffs: Round of 12"></textarea>
+      <p class="tag">The time can be left out (8:00 PM Eastern). Write a layout after the track with a dash (Daytona - Road Course); lengths like "100 laps" or "115 min" are picked out by themselves. When a race's results are uploaded they join up with its date here.</p>
       <p><button class="btn">Add these races</button></p></form>`;
   if (edit) body += `<script>document.querySelectorAll('input[data-sched]').forEach(i=>i.onchange=async()=>{const f=i.files[0];if(!f)return;
   const s=i.closest('td').querySelector('.ups'),fd=new FormData();fd.append('file',f);fd.append('schedule',i.dataset.sched);s.textContent=' Uploading…';
@@ -468,12 +485,29 @@ async function updatePosted(db, sub, origin) {
   if (sr.hook_results && msg) await enqueue(db, sr.id, "results", "results", sub, resultsPost(ev, origin, await listFixes(db, sub)), msg);
 }
 
+// one race's points under its season's rules: { custId: { pts, bonusReasons, reasons } } and a note on how it's scored
+async function raceScore(db, ev) {
+  if (!ev.season_id || !ev.sessions.race) return null;
+  const info = await getRules(db, ev.season_id, ev.series_id);
+  const rules = cleanRules(info.rules || DEFAULT_RULES);
+  if (rules.skip.includes(ev.subsession_id)) return { points: null, note: "This race doesn't count for points (see the series' Rules)." };
+  const adj = (await listAdjustments(db, ev.season_id)).filter(a => a.subsession_id === ev.subsession_id);
+  const st = computeStandings(rules, [{ subsession_id: ev.subsession_id, start_time: ev.start_time, track: ev.track, results: ev.sessions.race }], adj, { noPrev: true });
+  const points = {};
+  for (const g of st.groups) for (const r of g.races) Object.assign(points, r.points);
+  const how = rules.points.source === "iracing" ? "iRacing's league points" : "the series' points table";
+  return { points, note: `Pts: this series' points for the race (${how}${Object.values(rules.bonus).some(Boolean) ? " plus bonuses" : ""}${adj.length ? ", after penalties" : ""}).` };
+}
+
 const num = v => (v > 0 ? `+${v}` : `${v}`);
+// places moved since the race before: ▲2 up, ▼1 down, nothing for no change or a driver's first race
+const chgCell = c => `<td class="n chg">${c > 0 ? `<span class="up">▲${c}</span>` : c < 0 ? `<span class="dn">▼${-c}</span>` : ""}</td>`;
+
 function regularTable(list, rules, { cutAfter = 0, playoffNote = false } = {}) {
   const drops = rules.drops > 0;
-  return `<div class="wrap"><table><tr><th class="n">Pos</th><th>#</th><th>Driver</th><th class="n">Pts</th><th class="n">Behind</th>${drops ? `<th class="n">Dropped</th>` : ""}
+  return `<div class="wrap"><table><tr><th class="n">Pos</th><th class="n" title="Places moved since the previous race">+/–</th><th>#</th><th>Driver</th><th class="n">Pts</th><th class="n">Behind</th>${drops ? `<th class="n">Dropped</th>` : ""}
     <th class="n">Starts</th><th class="n">Wins</th><th class="n">Top 5</th><th class="n">Top 10</th><th class="n">Led</th>${playoffNote ? "<th>Playoffs</th>" : ""}</tr>` +
-    list.map((s, i) => `<tr${cutAfter && i === cutAfter ? ' class="cut"' : ""}><td class="n">${s.pos}</td><td>${esc(s.number)}</td><td>${driverLink(s.custId, s.name)}</td>
+    list.map((s, i) => `<tr${cutAfter && i === cutAfter ? ' class="cut"' : ""}><td class="n">${s.pos}</td>${chgCell(s.chg)}<td>${esc(s.number)}</td><td>${driverLink(s.custId, s.name)}</td>
       <td class="n"><b>${s.points}</b></td><td class="n">${s.behind ? -s.behind : ""}</td>${drops ? `<td class="n tag">${s.dropped || ""}</td>` : ""}
       <td class="n">${s.starts}</td><td class="n">${s.wins || ""}</td><td class="n">${s.top5 || ""}</td><td class="n">${s.top10 || ""}</td><td class="n">${s.lapsLed || ""}</td>
       ${playoffNote ? `<td>${s.inField ? '<span class="st good">In</span>' : s.needStarts ? `<span class="st">Needs ${s.needStarts} more start${s.needStarts === 1 ? "" : "s"}</span>` : ""}</td>` : ""}</tr>`).join("") + `</table></div>`;
@@ -483,9 +517,9 @@ function roundTable(rd) {
   const statusCls = t => /Advanced|Champion/.test(t) ? "good" : /Out/.test(t) ? "bad" : "";
   let cutIdx = 0;
   if (!rd.finale && rd.spots < rd.rows.length) cutIdx = rd.rows.findIndex(r => !r.through);
-  return `<div class="wrap"><table><tr><th class="n">Pos</th><th>#</th><th>Driver</th><th class="n">Pts</th><th class="n">${rd.finale ? "Behind" : "To cut"}</th><th class="n">Bonus</th>
+  return `<div class="wrap"><table><tr><th class="n">Pos</th><th class="n" title="Places moved since the previous race in this round">+/–</th><th>#</th><th>Driver</th><th class="n">Pts</th><th class="n">${rd.finale ? "Behind" : "To cut"}</th><th class="n">Bonus</th>
     <th class="n">Wins</th><th class="n">Starts</th><th>Status</th></tr>` +
-    rd.rows.map((r, i) => `<tr${cutIdx > 0 && i === cutIdx ? ' class="cut"' : ""}><td class="n">${r.pos}</td><td>${esc(r.number)}</td><td>${driverLink(r.custId, r.name)}</td>
+    rd.rows.map((r, i) => `<tr${cutIdx > 0 && i === cutIdx ? ' class="cut"' : ""}><td class="n">${r.pos}</td>${chgCell(r.chg)}<td>${esc(r.number)}</td><td>${driverLink(r.custId, r.name)}</td>
       <td class="n"><b>${r.points}</b></td><td class="n">${rd.finale ? (r.behind ? -r.behind : "") : r.toCut != null && !/win/.test(r.status) ? num(r.toCut) : ""}</td>
       <td class="n tag">${r.bonus || ""}</td><td class="n">${r.wins || ""}</td><td class="n">${r.starts}</td>
       <td>${r.status ? `<span class="st ${statusCls(r.status)}">${esc(r.status)}</span>` : ""}</td></tr>`).join("") + `</table></div>`;
@@ -766,6 +800,7 @@ th{font-size:11px;color:var(--dim);font-weight:600;text-transform:uppercase;lett
 tr+tr td{border-top:1px solid var(--line)}tr.cut td{border-top:2px solid var(--accent)!important}td.nm{white-space:normal}.tag{color:var(--dim);font-size:12px}
 .st{font-size:11px;font-weight:700;color:#c47a00}.st.good{color:#1e9d46}.st.bad{color:#d33}.more{display:block;text-align:right;font-size:12px;margin-top:6px}
 .cls{display:inline-block;font-size:10px;font-weight:700;padding:0 5px;border-radius:3px;background:#7774;margin-right:4px}.empty{padding:14px;color:var(--dim)}
+.chg{font-size:11px;font-weight:600;padding-left:0;padding-right:2px}.chg .up{color:#1e9d46}.chg .dn{color:#d33}
 __THEME_CSS__
 html,body{background:${bg === "page" ? "var(--bg)" : "transparent"}!important}main,header{all:unset}body{padding:2px}
 th{background:transparent}
@@ -790,15 +825,15 @@ function standingsWidget(sr, season, st, rows, cls) {
     if (po.enabled && p && p.started) {
       const cur = p.current, cutAt = !cur.finale && cur.spots < cur.rows.length ? cur.rows.findIndex(r => !r.through) : -1;
       body += `<div class="tag" style="margin:-2px 0 6px">${esc(cur.name)}${cur.finale && cur.complete ? " · final" : ` · race ${Math.min(cur.ran + (cur.complete ? 0 : 1), cur.races)} of ${cur.races}`}</div>`;
-      body += `<div class="box"><table><tr><th class="n">Pos</th><th>Driver</th><th class="n">Pts</th><th class="n">${cur.finale ? "Behind" : "To cut"}</th><th></th></tr>` +
-        cur.rows.slice(0, rows).map((r, i) => `<tr${i === cutAt ? ' class="cut"' : ""}><td class="n">${r.pos}</td><td class="nm">${r.number ? `<span class="tag">#${esc(r.number)}</span> ` : ""}${wDriver(r.custId, r.name)}</td>
+      body += `<div class="box"><table><tr><th class="n">Pos</th><th></th><th>Driver</th><th class="n">Pts</th><th class="n">${cur.finale ? "Behind" : "To cut"}</th><th></th></tr>` +
+        cur.rows.slice(0, rows).map((r, i) => `<tr${i === cutAt ? ' class="cut"' : ""}><td class="n">${r.pos}</td>${chgCell(r.chg)}<td class="nm">${r.number ? `<span class="tag">#${esc(r.number)}</span> ` : ""}${wDriver(r.custId, r.name)}</td>
           <td class="n"><b>${r.points}</b></td><td class="n">${cur.finale ? (r.behind ? -r.behind : "") : r.toCut != null && !/win/.test(r.status) ? (r.toCut > 0 ? "+" : "") + r.toCut : ""}</td>
           <td>${r.status ? `<span class="st ${/Advanced|Champion/.test(r.status) ? "good" : /Out/.test(r.status) ? "bad" : ""}">${esc(r.status)}</span>` : ""}</td></tr>`).join("") + `</table></div>`;
     } else {
       const field = g.regular.filter(s => s.inField).length;
-      body += `<div class="box"><table><tr><th class="n">Pos</th><th>Driver</th><th class="n">Pts</th><th class="n">Behind</th><th class="n">Wins</th></tr>` +
+      body += `<div class="box"><table><tr><th class="n">Pos</th><th></th><th>Driver</th><th class="n">Pts</th><th class="n">Behind</th><th class="n">Wins</th></tr>` +
         g.regular.slice(0, rows).map((s, i) => `<tr${po.enabled && i > 0 && !s.inField && g.regular.slice(0, i).filter(x => x.inField).length === field ? ' class="cut"' : ""}>
-          <td class="n">${s.pos}</td><td class="nm">${s.number ? `<span class="tag">#${esc(s.number)}</span> ` : ""}${wDriver(s.custId, s.name)}</td>
+          <td class="n">${s.pos}</td>${chgCell(s.chg)}<td class="nm">${s.number ? `<span class="tag">#${esc(s.number)}</span> ` : ""}${wDriver(s.custId, s.name)}</td>
           <td class="n"><b>${s.points}</b></td><td class="n">${s.behind ? -s.behind : ""}</td><td class="n">${s.wins || ""}</td></tr>`).join("") + `</table></div>`;
     }
   }
@@ -808,7 +843,8 @@ function standingsWidget(sr, season, st, rows, cls) {
 function scheduleWidget(sr, rows, n) {
   const up = rows.filter(r => !r.subsession_id && Date.parse(r.starts_at) >= Date.now() - 4 * 3600e3).slice(0, n);
   let body = `<div class="wt"><b>${esc(sr.short_name)} schedule</b><span>Upcoming races</span></div>`;
-  body += up.length ? `<div class="box"><table>` + up.map(r => `<tr><td>${when(r.starts_at)}</td><td class="nm"><b>${esc(r.track)}</b>${r.notes ? `<br><span class="tag">${esc(r.notes)}</span>` : ""}</td></tr>`).join("") + `</table></div>`
+  body += up.length ? `<div class="box"><table>` + up.map(r => `<tr><td>${when(r.starts_at)}</td><td class="nm"><b>${esc(r.track)}</b>${r.layout ? ` <span class="tag">${esc(r.layout)}</span>` : ""}
+    ${[r.length, r.notes].filter(Boolean).length ? `<br><span class="tag">${[r.length, r.notes].filter(Boolean).map(esc).join(" · ")}</span>` : ""}</td></tr>`).join("") + `</table></div>`
     : `<div class="box empty">No upcoming races on the schedule.</div>`;
   return body + wLink(`${BASE}/${sr.slug}/schedule`, "Full schedule ›").replace("<a ", '<a class="more" ');
 }
@@ -1003,7 +1039,7 @@ const site = {
               kick();
             }
             ev = await getEvent(db, sub);
-            return resultPage(ev, user, { fixes: await listFixes(db, sub), edit, msg });
+            return resultPage(ev, user, { fixes: await listFixes(db, sub), edit, msg, score: await raceScore(db, ev) });
           }
           try {
             const cust = Number(f.get("cust")), change = await fixResult(db, sub, cust, { finish_pos: f.get("finish_pos"), laps: f.get("laps"), laps_led: f.get("laps_led"),
@@ -1020,7 +1056,7 @@ const site = {
             }
           } catch (e) { msg = e.message; }
         }
-        return resultPage(ev, user, { fixes: await listFixes(db, sub), edit, msg });
+        return resultPage(ev, user, { fixes: await listFixes(db, sub), edit, msg, score: await raceScore(db, ev) });
       }
       if ((m = path.match(/^\/glr\/theme\/([\w.-]+)$/))) {
         const a = ASSETS[m[1]];
@@ -1096,7 +1132,11 @@ const site = {
           if (!canEdit(user, sr) || !sameOrigin(request, url)) return notFound("You can't change this series.", user);
           const f = await request.formData(), who = `discord:${user.id}:${user.name}`;
           try {
-            if (f.get("remove")) {
+            if (f.get("edit")) {
+              const r = await editSchedule(db, sr.id, Number(f.get("edit")), { date: f.get("date"), time: f.get("time"), track: f.get("track"), layout: f.get("layout"), length: f.get("length"), notes: f.get("notes") });
+              await logChange(db, { by: who, seriesId: sr.id, kind: "schedule", summary: `Schedule line changed: ${r.track}, ${day(r.at)}` });
+              msg = `Saved ${r.track}.`;
+            } else if (f.get("remove")) {
               const r = await deleteSchedule(db, sr.id, Number(f.get("remove")));
               if (r) await logChange(db, { by: who, seriesId: sr.id, kind: "schedule", summary: `Removed from the schedule: ${r.track}, ${day(r.starts_at)}` });
               msg = "Removed.";
@@ -1105,14 +1145,14 @@ const site = {
               await logChange(db, { by: who, seriesId: sr.id, kind: "schedule", summary: `${n} race${n === 1 ? "" : "s"} added to the schedule` });
               msg = `Added ${n} race${n === 1 ? "" : "s"}.`;
             } else {
-              const r = await addSchedule(db, sr.id, { date: f.get("date"), time: f.get("time"), track: f.get("track"), notes: f.get("notes") }, who);
+              const r = await addSchedule(db, sr.id, { date: f.get("date"), time: f.get("time"), track: f.get("track"), layout: f.get("layout"), length: f.get("length"), notes: f.get("notes") }, who);
               await logChange(db, { by: who, seriesId: sr.id, kind: "schedule", summary: `Added to the schedule: ${r.track}, ${day(r.at)}` });
               msg = `Added ${r.track}.`;
             }
           } catch (e) { msg = e.message; }
         }
         const rows = await listSchedule(db, sr.id);
-        if (api) return json({ ok: true, series: sr.short_name, races: rows.map(r => ({ startsAt: r.starts_at, track: r.track, notes: r.notes, subsessionId: r.subsession_id || null })) });
+        if (api) return json({ ok: true, series: sr.short_name, races: rows.map(r => ({ startsAt: r.starts_at, track: r.track, layout: r.layout, length: r.length, notes: r.notes, subsessionId: r.subsession_id || null })) });
         const w = new Map((await listEvents(db, { series: sr.id })).map(e => [e.subsession_id, e.winners]));
         return schedulePage(sr, rows, w, user, msg);
       }

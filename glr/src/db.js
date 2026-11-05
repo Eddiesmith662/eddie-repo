@@ -79,6 +79,7 @@ const ADDED = [
   ["series", "hook_results", "TEXT NOT NULL DEFAULT ''"], ["series", "hook_standings", "TEXT NOT NULL DEFAULT ''"], ["series", "hook_penalties", "TEXT NOT NULL DEFAULT ''"],
   ["results", "orig_cust_id", "INTEGER"],
   ["overlay_keys", "kind", "TEXT NOT NULL DEFAULT 'overlay'"],
+  ["schedule", "layout", "TEXT NOT NULL DEFAULT ''"], ["schedule", "length", "TEXT NOT NULL DEFAULT ''"],
   ["events", "official_at", "TEXT"], ["events", "official_by", "TEXT"], ["events", "discord", "TEXT NOT NULL DEFAULT '{}'"],
   ["results", "car_class", "TEXT NOT NULL DEFAULT ''"], ["results", "class_pos", "INTEGER"],
   ["results", "class_interval_ms", "INTEGER"], ["results", "class_laps_down", "INTEGER"],
@@ -701,9 +702,9 @@ async function linkSchedule(db, seriesId) {
 export async function listSchedule(db, seriesId) {
   await ensureSchema(db);
   await linkSchedule(db, seriesId);
-  return (await db.prepare(`SELECT s.*, e.season_id, se.name AS season_name, e.track AS result_track, e.status FROM schedule s
+  return (await db.prepare(`SELECT s.*, e.season_id, se.name AS season_name, e.track AS result_track, e.status, e.laps AS result_laps FROM schedule s
       LEFT JOIN events e ON e.subsession_id = s.subsession_id LEFT JOIN seasons se ON se.id = e.season_id
-      WHERE s.series_id = ? ORDER BY s.starts_at`).bind(seriesId).all()).results;
+      WHERE s.series_id = ? ORDER BY s.starts_at`).bind(seriesId).all()).results.map(splitLayout);
 }
 
 // upcoming races in every series (the league calendar), and each series' next race
@@ -711,17 +712,39 @@ export async function upcoming(db, days = 60) {
   await ensureSchema(db);
   const now = new Date(Date.now() - 4 * 3600e3).toISOString(), until = new Date(Date.now() + days * 864e5).toISOString();
   return (await db.prepare(`SELECT s.*, sr.short_name, sr.slug FROM schedule s JOIN series sr ON sr.id = s.series_id
-      WHERE s.subsession_id IS NULL AND s.starts_at >= ? AND s.starts_at <= ? ORDER BY s.starts_at`).bind(now, until).all()).results;
+      WHERE s.subsession_id IS NULL AND s.starts_at >= ? AND s.starts_at <= ? ORDER BY s.starts_at`).bind(now, until).all()).results.map(splitLayout);
 }
 
-export async function addSchedule(db, seriesId, { date, time, track, notes }, by) {
-  await ensureSchema(db);
-  const tr = String(track || "").trim().slice(0, 100);
+// "Daytona - Road Course" written as one track name: the part after " - " is the layout
+function splitLayout(r) {
+  if (!r.layout && / - /.test(r.track || "")) { const i = r.track.indexOf(" - "); return { ...r, track: r.track.slice(0, i), layout: r.track.slice(i + 3) }; }
+  return r;
+}
+const LENGTH_RE = /^\s*\d+(?:\.\d+)?\s*(?:laps?|mins?|minutes?|hrs?|hours?)\b(?:\s*(?:or|\/|\+)\s*\d+(?:\.\d+)?\s*(?:laps?|mins?|minutes?|hrs?|hours?))?\s*$/i;
+
+function scheduleFields({ track, layout, length, notes }) {
+  let tr = String(track || "").trim().slice(0, 100), lay = String(layout || "").trim().slice(0, 60);
   if (!tr) throw new Error("Enter the track.");
+  if (!lay && / - /.test(tr)) { const i = tr.indexOf(" - "); lay = tr.slice(i + 3); tr = tr.slice(0, i); }
+  return { tr, lay, len: String(length || "").trim().slice(0, 40), notes: String(notes || "").trim().slice(0, 120) };
+}
+
+export async function addSchedule(db, seriesId, { date, time, track, layout, length, notes }, by) {
+  await ensureSchema(db);
+  const f = scheduleFields({ track, layout, length, notes });
   const at = easternToUtc(date, time);
-  await db.prepare(`INSERT INTO schedule (series_id, starts_at, track, notes, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?)`)
-    .bind(seriesId, at, tr, String(notes || "").trim().slice(0, 120), new Date().toISOString(), by).run();
-  return { at, track: tr };
+  await db.prepare(`INSERT INTO schedule (series_id, starts_at, track, layout, length, notes, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(seriesId, at, f.tr, f.lay, f.len, f.notes, new Date().toISOString(), by).run();
+  return { at, track: f.tr };
+}
+
+export async function editSchedule(db, seriesId, id, { date, time, track, layout, length, notes }) {
+  await ensureSchema(db);
+  const f = scheduleFields({ track, layout, length, notes });
+  const at = easternToUtc(date, time);
+  const r = await db.prepare(`UPDATE schedule SET starts_at = ?, track = ?, layout = ?, length = ?, notes = ? WHERE id = ? AND series_id = ?`)
+    .bind(at, f.tr, f.lay, f.len, f.notes, id, seriesId).run();
+  return { at, track: f.tr };
 }
 
 // a pasted season: one race per line, "date, time, track, notes" (time and notes optional)
@@ -734,7 +757,8 @@ export async function addScheduleLines(db, seriesId, text, by) {
     let [date, time, ...rest] = parts;
     if (time && !/\d/.test(time)) { rest = [time, ...rest]; time = ""; }        // no time given: the second part is the track
     if (!rest.length) throw new Error(`Line ${i + 1}: needs at least a date and a track ("${l}").`);
-    try { return { date, time: time || "8:00 PM", track: rest[0], notes: rest.slice(1).join(", ") }; }
+    const len = rest.slice(1).filter(x => LENGTH_RE.test(x)), other = rest.slice(1).filter(x => !LENGTH_RE.test(x));
+    try { return { date, time: time || "8:00 PM", track: rest[0], length: len.join(" or "), notes: other.join(", ") }; }
     catch (e) { throw new Error(`Line ${i + 1}: ${e.message}`); }
   });
   rows.forEach((r, i) => { try { easternToUtc(r.date, r.time); } catch (e) { throw new Error(`Line ${i + 1}: ${e.message}`); } });

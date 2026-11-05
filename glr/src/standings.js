@@ -72,11 +72,13 @@ function scoreRaces(rules, events, adj, inClass, cls) {
       const pos = inClass ? i + 1 : r.finish_pos || i + 1;
       const B = rules.bonus;
       const base = rules.points.source === "iracing" ? int(r.league_points) : (rules.points.table[pos - 1] ?? rules.points.others);
-      const bonus = (pos === 1 ? B.win : 0) + (r.start_pos && r.start_pos === pole ? B.pole : 0) + ((r.laps_led || 0) > 0 ? B.led : 0) +
-        (most > 0 && r.laps_led === most ? B.mostLed : 0) + (r.best_lap_ms && r.best_lap_ms === fast ? B.fastLap : 0);
+      const why = [[pos === 1, B.win, "Win"], [r.start_pos && r.start_pos === pole, B.pole, "Pole"], [(r.laps_led || 0) > 0, B.led, "Led a lap"],
+        [most > 0 && r.laps_led === most, B.mostLed, "Most laps led"], [r.best_lap_ms && r.best_lap_ms === fast, B.fastLap, "Fastest lap"]].filter(([on, v]) => on && v);
+      const bonus = why.reduce((s, [, v]) => s + v, 0);
       const pen = adj.filter(a => a.subsession_id === ev.subsession_id && a.cust_id === r.cust_id);
       const adjPts = pen.reduce((s, a) => s + int(a.points), 0);
-      by.set(r.cust_id, { pos, pts: base + bonus + adjPts, base, bonus, adj: adjPts, adjReasons: pen.map(a => a.reason).filter(Boolean),
+      by.set(r.cust_id, { pos, pts: base + bonus + adjPts, base, bonus, bonusReasons: why.map(([, v, t]) => `${v > 0 ? "+" : ""}${v} ${t}`), adj: adjPts,
+        adjReasons: pen.map(a => `${int(a.points) > 0 ? "+" : ""}${int(a.points)} ${a.reason || "adjustment"}`),
         lapsLed: r.laps_led || 0, row: r });
     });
     races.push({ ev, by, ran: true });
@@ -193,7 +195,26 @@ function standingsFor(rules, races) {
 }
 
 // the whole season: standings per class (or one set), plus each race's points
-export function computeStandings(rawRules, events, adjustments = []) {
+// places moved since the race before the latest: chg > 0 is up. In the playoffs, only within the same round.
+function addChanges(groups, prevGroups) {
+  for (const g of groups) {
+    const pg = prevGroups.find(x => x.carClass === g.carClass);
+    if (!pg) continue;
+    const prevReg = new Map(pg.regular.map(s => [s.custId, s.pos]));
+    for (const s of g.regular) if (prevReg.has(s.custId)) s.chg = prevReg.get(s.custId) - s.pos;
+    const cur = g.playoffs && g.playoffs.current, pcur = pg.playoffs && pg.playoffs.current;
+    if (cur && pcur && cur.name === pcur.name) {
+      const prev = new Map(pcur.rows.map(r => [r.custId, r.pos]));
+      for (const r of cur.rows) if (prev.has(r.custId)) r.chg = prev.get(r.custId) - r.pos;
+    }
+    if (g.playoffs && g.playoffs.others && pg.playoffs && pg.playoffs.others) {
+      const prev = new Map(pg.playoffs.others.map(r => [r.custId, r.pos]));
+      for (const r of g.playoffs.others) if (prev.has(r.custId)) r.chg = prev.get(r.custId) - r.pos;
+    }
+  }
+}
+
+export function computeStandings(rawRules, events, adjustments = [], opts = {}) {
   const rules = cleanRules(rawRules);
   const skip = new Set(rules.skip);
   const counted = events.filter(e => !skip.has(e.subsession_id)).sort((a, b) => String(a.start_time).localeCompare(String(b.start_time)));
@@ -202,7 +223,9 @@ export function computeStandings(rawRules, events, adjustments = []) {
   const groups = (perClass ? classes : [""]).map(cls => {
     const races = scoreRaces(rules, counted, adjustments, perClass, cls);
     return { carClass: cls, ...standingsFor(rules, races), races: races.map(r => ({ subsession_id: r.ev.subsession_id, start_time: r.ev.start_time, track: r.ev.track,
-      points: Object.fromEntries([...r.by].map(([id, x]) => [id, { pos: x.pos, pts: x.pts, bonus: x.bonus, adj: x.adj, reasons: x.adjReasons, out: x.row.reason_out || "" }])) })) };
+      points: Object.fromEntries([...r.by].map(([id, x]) => [id, { pos: x.pos, pts: x.pts, base: x.base, bonus: x.bonus, bonusReasons: x.bonusReasons, adj: x.adj,
+        reasons: x.adjReasons, out: x.row.reason_out || "" }])) })) };
   });
+  if (!opts.noPrev && counted.length > 1) addChanges(groups, computeStandings(rules, counted.slice(0, -1), adjustments, { noPrev: true }).groups);
   return { rules, counted: counted.length, skipped: events.length - counted.length, groups };
 }
