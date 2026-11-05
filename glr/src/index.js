@@ -86,6 +86,8 @@ header .me a{font-weight:400;letter-spacing:0;color:var(--link)}header form{marg
 .card{display:block;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;color:var(--text);text-decoration:none}
 .card:hover{border-color:#44444c}.card b{display:block;font-size:18px;border-left:3px solid var(--accent);padding-left:8px;margin-bottom:2px}
 .card .full{color:var(--dim);font-size:12px;padding-left:11px;margin-bottom:10px}
+.shead{display:flex;align-items:center;gap:18px;margin-bottom:8px}.shead>div{min-width:0}.shlogo{height:96px;width:auto;flex:none}
+@media (max-width:640px){.shead{gap:12px}.shlogo{height:64px}}
 .card .slogo{height:120px;display:flex;align-items:center;justify-content:center;margin:2px 0 12px}.card .slogo img{max-height:120px;max-width:100%;object-fit:contain}.card .row{font-size:14px}.card .row span{color:var(--dim)}
 .row2{display:flex;gap:8px;flex-wrap:wrap}.row2 input{flex:1 1 260px;max-width:none}form.hook{margin:0 0 6px}
 .prov{display:inline-block;font-size:11px;font-weight:700;padding:1px 6px;border-radius:4px;background:#4a3a12;color:#ffcf66;margin-left:6px;vertical-align:1px}
@@ -383,7 +385,8 @@ function seriesTabs(sr, on, seasons, seasonId, user) {
   const opts = on === "stats" && seasons.length > 1 ? [...seasons, { id: "all", name: "All seasons" }] : seasons;
   const pick = !["results", "drivers", "schedule"].includes(on) && opts.length > 1 ? `<form class="season" method="get"><select name="season" onchange="this.form.submit()">${opts.map(se =>
     `<option value="${se.id}"${se.id === seasonId ? " selected" : ""}>${esc(se.name)}</option>`).join("")}</select></form>` : "";
-  return `<p class="crumb"><a href="${BASE}">GLR</a></p><h1>${esc(sr.short_name)}</h1><p class="sub">${esc(sr.name)}${canEdit(user, sr) ? ` · <a href="${BASE}/${esc(sr.slug)}/edit">Edit series</a> · <a href="${BASE}/${esc(sr.slug)}/embed">Embed on a website</a>` : ""}</p>
+  const logo = ASSETS[`series-${sr.id}.png`] ? `<img class="shlogo" src="${BASE}/theme/series-${sr.id}.png" alt="${esc(sr.short_name)} logo">` : "";
+  return `<p class="crumb"><a href="${BASE}">GLR</a></p><div class="shead">${logo}<div><h1>${esc(sr.short_name)}</h1><p class="sub">${esc(sr.name)}${canEdit(user, sr) ? ` · <a href="${BASE}/${esc(sr.slug)}/edit">Edit series</a> · <a href="${BASE}/${esc(sr.slug)}/embed">Embed on a website</a>` : ""}</p></div></div>
     <nav class="tabs">${t("results", "Results", "")}${t("schedule", "Schedule", "/schedule")}${t("standings", "Standings", "/standings")}${t("stats", "Stats", "/stats")}${t("drivers", "Drivers", "/drivers")}${t("rules", "Rules", "/rules")}${t("penalties", "Penalties", "/penalties")}${pick}</nav>`;
 }
 
