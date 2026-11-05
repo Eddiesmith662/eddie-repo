@@ -93,3 +93,41 @@ test("stats count wins, poles and laps led per class", () => {
   assert.equal(b.poles, 3);
   assert.equal(a.starts, 3);
 });
+
+test("stewards' position penalties and disqualifications reorder the finish", async () => {
+  const { applyDecisions } = await import("../src/stewards.js");
+  const rows = [0, 1, 2, 3].map(i => ({ cust_id: 100 + i, name: "Racer " + "ABCD"[i], car_class: "", finish_pos: i + 1, class_pos: i + 1, league_points: 40 - i }));
+  const moved = applyDecisions(rows, [{ cust_id: 100, kind: "positions", amount: 2, reason: "Jumped the start" }]);
+  const by = id => moved.find(r => r.cust_id === id);
+  assert.equal(by(100).finish_pos, 3);
+  assert.equal(by(100).league_points, 38);        // the points for 3rd
+  assert.equal(by(101).finish_pos, 1);
+  assert.equal(by(100).orig_finish, 1);
+  assert.match(by(100).stewards[0], /Moved back 2 places: Jumped the start/);
+  const dq = applyDecisions(rows, [{ cust_id: 101, kind: "dq", reason: "Illegal car" }]);
+  const d = id => dq.find(r => r.cust_id === id);
+  assert.equal(d(101).finish_pos, 4);
+  assert.equal(d(101).league_points, 0);
+  assert.equal(d(101).reason_out, "Disqualified");
+  assert.equal(d(102).finish_pos, 2);
+  assert.equal(d(102).league_points, 39);
+  assert.deepEqual(applyDecisions(rows, [{ cust_id: 100, kind: "warning" }]).map(r => r.finish_pos), [1, 2, 3, 4]);
+});
+
+test("a multi-class penalty stays inside its class", async () => {
+  const { applyDecisions } = await import("../src/stewards.js");
+  const rows = [["GTP", 1], ["GT3", 2], ["GTP", 3], ["GT3", 4]].map(([c, p], i) => ({ cust_id: 100 + i, car_class: c, finish_pos: p, class_pos: 0 }));
+  const out = applyDecisions(rows, [{ cust_id: 100, kind: "positions", amount: 1 }]);
+  const by = id => out.find(r => r.cust_id === id);
+  assert.equal(by(100).finish_pos, 3);              // GTP's places are 1st and 3rd overall
+  assert.equal(by(102).finish_pos, 1);
+  assert.equal(by(101).finish_pos, 2);              // GT3 untouched
+});
+
+test("a disqualified driver scores nothing in the standings", () => {
+  const ev = asEvent(raceExport({ sub: 1, date: week(0) }));
+  ev.results = ev.results.map(r => r.cust_id === 100 ? { ...r, dq: true, finish_pos: 10, stewards: ["Disqualified: test"] } : r);
+  const st = computeStandings({ bonus: { win: 3, led: 1 } }, [ev]);
+  assert.equal(row(st, 100).points, 0);
+  assert.equal(row(st, 100).wins, 0);
+});

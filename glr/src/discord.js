@@ -1,6 +1,6 @@
 /*
  * Discord posts through each series' webhooks (set on the series' Edit page): results and standings when a race
- * becomes official, penalties and result fixes when an official adds them.
+ * becomes official, penalties and result fixes when an official adds them, and stewards' decisions.
  *
  * Posts wait in the discord_queue table and are sent straight away, then retried every few minutes (the cron
  * trigger) if Discord is down or asks us to slow down. A correction to a race that's already posted edits the
@@ -78,6 +78,13 @@ export function penaltyPost(sr, ev, a, origin) {
   return { embeds: [{ title: `${sr.short_name}: ${a.points < 0 ? "penalty" : "points adjustment"}`, url: `${origin}/glr/${sr.slug}/penalties`, color: COLOR,
     description: `${a.car_number ? `#${md(a.car_number)} ` : ""}**${md(a.name)}**: ${a.points > 0 ? "+" : "−"}${Math.abs(a.points)} points\n${md(ev.track)}, ${day(ev.start_time)}\n\n${md(a.reason)}`,
     footer: { text: "VSPEED GLR" } }] };
+}
+
+// a stewards' decision (warnings and penalties; "no action" isn't posted)
+export function decisionPost(sr, ev, d, origin) {
+  return { embeds: [{ title: `${sr.short_name}: stewards' decision`, url: `${origin}/glr/results/${ev.subsession_id}/stewards`, color: COLOR,
+    description: `${d.car_number ? `#${md(d.car_number)} ` : ""}**${md(d.name)}**: ${md(d.text)}\n${md(ev.track)}, ${day(ev.start_time)}\n\n${md(d.reason)}`,
+    footer: { text: "VSPEED GLR stewards" } }] };
 }
 
 export function fixPost(sr, ev, name, change, reason, origin) {

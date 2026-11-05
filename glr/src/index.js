@@ -13,6 +13,9 @@
  *         /glr/<series>/penalties points penalties and adjustments, with reasons
  *         /glr/<series>/edit      officials: the series' short name and address; admins: its Discord role
  *         /glr/results/<session>  one race (iRacing subsession id), split by class in a multi-class race
+ *         /glr/results/<session>/stewards  the stewards' report: protests and decisions; drivers file protests here,
+ *                                 stewards decide them
+ *         /glr/protests           signed in: stewards see open protests, drivers see their own
  *         /glr/drivers/<cust id>  one driver: every name they've raced under, stats and races by series
  * Data:   /glr/api/series, /glr/api/series/<series>, /glr/api/events, /glr/api/results/<session>,
  *         /glr/api/drivers/<cust id>, /glr/api/standings/<series>?season=<id>   (the same, as JSON)
@@ -22,7 +25,7 @@
  *         /glr/<series>/widget/standings|schedule|results   small pages to embed on a website or use in OBS/vMix
  *                                 (?rows=10&bg=transparent|page&theme=glr|vspeed&class=GT3&refresh=60)
  *         /glr/<series>/embed     the widgets with options, a preview and the code to paste
- *         /glr/settings           admins: the site's theme and the league's short name
+ *         /glr/settings           admins: the site's theme, the league's short name and the race control role
  *         /glr/theme/<file>       the themes' images (the GLR logo)
  *         /glr/history            officials: who changed what (admins: every series; series officials: their own)
  *         /glr/api/overlay/results  POST from an overlay (Authorization: Bearer <key>): provisional results
@@ -36,14 +39,16 @@ import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, i
   importOverlay, listKeys, createKey, revokeKey, checkKey, deleteEvent, listFixes, fixResult, FIX_FIELDS, markOfficial, setHook, HOOKS,
   logChange, listChanges, whoName, mergeDrivers, separateDriver, aliasesOf, findDrivers,
   seriesEvents, allSeriesEvents, listRoster, addRoster, removeRoster, listSchedule, upcoming, addSchedule, addScheduleLines, deleteSchedule,
-  scheduleEntry, linkScheduleTo, getSetting, setSetting, editSchedule } from "./db.js";
-import { resultsPost, standingsPost, penaltyPost, fixPost, enqueue, processQueue, queueFor, retryQueued, discardQueued, isRecent } from "./discord.js";
+  scheduleEntry, linkScheduleTo, getSetting, setSetting, editSchedule,
+  linkDriver, unlinkDriver, fileProtest, listProtests, getProtest, setProtestStatus, listDecisions, addDecision, deleteDecision } from "./db.js";
+import { KINDS, decisionText } from "./stewards.js";
+import { resultsPost, standingsPost, penaltyPost, fixPost, decisionPost, enqueue, processQueue, queueFor, retryQueued, discardQueued, isRecent } from "./discord.js";
 import { computeStandings, cleanRules, DEFAULT_RULES, GLR_PLAYOFFS } from "./standings.js";
 import { computeStats, leaders, COLUMNS } from "./stats.js";
 import { THEMES, themeOf } from "./themes.js";
 import { ASSETS } from "./assets.js";
 import { parseExport, parseOverlay } from "./parse.js";
-import { configured, login, callback, currentUser, logout, canEdit, cookies } from "./auth.js";
+import { configured, login, callback, currentUser, logout, canEdit, canSteward, cookies } from "./auth.js";
 
 const BASE = "/glr";
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -106,10 +111,13 @@ label.up{margin:0 0 0 10px;display:inline;color:var(--link);font-size:13px;curso
 .seg2{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;margin:0 0 10px}.seg2 button{background:none;border:0;color:var(--dim);padding:6px 12px;font:inherit;cursor:pointer}
 .seg2 button.on{background:#2c2c32;color:var(--text)}time{white-space:nowrap}
 .chg{font-size:12px;font-weight:600;width:42px}.chg .up{color:#1e9d46}.chg .dn{color:#d33}.bon{font-size:12px;color:var(--dim);white-space:normal;min-width:120px}
+.protest{border:1px solid var(--line);border-radius:8px;padding:2px 14px 10px;margin:10px 0;background:var(--card)}.protest blockquote{margin:6px 0;padding:8px 12px;border-left:3px solid var(--line);color:var(--text);white-space:normal}
+.protest details{margin-top:6px}.protest summary{cursor:pointer;color:var(--link);font-size:14px}.dec .grid select,.dec .grid input,.dec input[type=text]{width:100%}
+.stw{margin:18px 0 4px;font-size:14px}textarea{width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
 input.search{width:100%;max-width:360px;margin:0 0 12px;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
 __THEME_CSS__</style></head><body><header><a class="brand" href="${BASE}">__THEME_BRAND__</a>__THEME_SWITCH__<div class="me"><a href="${BASE}/schedule">Schedule</a><a href="${BASE}/drivers">Drivers</a>${user
-  ? `<a href="${BASE}/history">History</a>${user.admin ? `<a href="${BASE}/keys">Overlay keys</a><a href="${BASE}/settings">Settings</a>` : ""}<a href="${BASE}/upload">Upload results</a><span class="tag">${esc(user.name)}</span><form method="post" action="${BASE}/logout"><button class="link">Sign out</button></form>`
-  : `<a href="${BASE}/login">Official sign-in</a>`}</div></header><main>${body}</main></body></html>`,
+  ? `<a href="${BASE}/protests">Protests</a>${user.official ? `<a href="${BASE}/history">History</a>${user.admin ? `<a href="${BASE}/keys">Overlay keys</a><a href="${BASE}/settings">Settings</a>` : ""}<a href="${BASE}/upload">Upload results</a>` : ""}<span class="tag">${esc(user.name)}</span><form method="post" action="${BASE}/logout"><button class="link">Sign out</button></form>`
+  : `<a href="${BASE}/login">Sign in</a>`}</div></header><main>${body}</main></body></html>`,
   { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
 
 const notFound = (what, user) => page("Not found", `<h1>Not found</h1><p class="sub">${esc(what)}</p>`, { status: 404, user });
@@ -241,9 +249,87 @@ function resultPage(ev, user, { fixes = [], edit = false, msg = "", score = null
   for (const s of ["race", "qualify", "warmup", "practice", ...Object.keys(ev.sessions).filter(k => !names[k])])
     if (ev.sessions[s]) body += sessionTables(ev.sessions[s], s === "race", names[s] || s, s === "race" ? score && score.points : null)
       + (s === "race" && score && score.note ? `<p class="tag">${score.note}</p>` : "") + (s === "race" ? fixesHtml(fixes) : "");
+  const nd = (ev.decisions || []).length;
+  body += `<p class="stw"><a href="${BASE}/results/${ev.subsession_id}/stewards">Stewards' report</a>${nd ? ` · ${nd} decision${nd === 1 ? "" : "s"}` : ""} · drivers in this race can file a protest there</p>`;
   body += `<p class="tag">iRacing session ${ev.subsession_id}</p>`;
   if (edit) body += officialsPanel(ev, msg);
   return page(`${ev.track} results`, body, { user });
+}
+
+/* ---------- stewards: protests and decisions ---------- */
+
+const carName = (num, name) => `${num ? `#${esc(num)} ` : ""}${esc(name || "")}`;
+const STATUS = { open: ["Open", ""], decided: ["Decided", "good"], withdrawn: ["Withdrawn", "bad"] };
+const statusTag = p => `<span class="st ${STATUS[p.status]?.[1] || ""}">${STATUS[p.status]?.[0] || esc(p.status)}</span>`;
+const who = p => `${carName(p.filer_number, p.filer_name)}${p.against_cust ? ` <span class="tag">protests</span> ${carName(p.against_number, p.against_name)}` : ""}`;
+
+function decisionForm(ev, race, { protest = null } = {}) {
+  const pre = protest && protest.against_cust;
+  return `<form method="post" action="#p${protest ? protest.id : "new"}" class="dec"><input type="hidden" name="action" value="decide">${protest ? `<input type="hidden" name="protest" value="${protest.id}">` : ""}
+    <div class="grid"><label>Driver<br><select name="cust">${race.map(r => `<option value="${r.cust_id}"${r.cust_id === pre ? " selected" : ""}>P${r.finish_pos} ${carName(r.car_number, r.name)}</option>`).join("")}</select></label>
+    <label>Decision<br><select name="kind">${Object.entries(KINDS).map(([k, t]) => `<option value="${k}">${t}</option>`).join("")}</select></label>
+    <label>Points / places<br><input type="number" name="amount" min="0" max="999" placeholder="for points or places"></label></div>
+    <label>Reason (public, on the report)</label><input type="text" name="reason" maxlength="300" required>
+    <p><button class="btn">Save decision</button></p></form>`;
+}
+
+function stewardsPage(ev, user, { protests = [], steward = false, msg = "" } = {}) {
+  const race = (ev.sessions.race || []).slice().sort((a, b) => a.finish_pos - b.finish_pos);
+  const decs = ev.decisions || [];
+  const ok = /^(Protest filed|Decision saved|Linked|Removed|Withdrawn|Reopened|Closed)/.test(msg);
+  let body = crumb(ev) + `<h1>Stewards: ${esc(ev.track)}</h1><p class="sub">${day(ev.start_time)}${ev.season_name ? " · " + esc(ev.season_name) : ""} · <a href="${BASE}/results/${ev.subsession_id}">Results</a></p>`
+    + (msg ? `<div class="msg ${ok ? "ok" : "bad"}">${esc(msg)}</div>` : "");
+  // the decisions: the report everyone sees
+  body += `<h2>Decisions</h2>` + (decs.length ? `<div class="wrap"><table><tr><th>Driver</th><th>Decision</th><th>Reason</th><th>When</th>${steward ? "<th></th>" : ""}</tr>` +
+    decs.map(d => `<tr><td>${driverLink(d.cust_id, `${d.car_number ? "#" + d.car_number + " " : ""}${d.name || d.cust_id}`)}</td><td><b>${esc(decisionText(d))}</b></td>
+      <td style="white-space:normal">${esc(d.reason)}${d.protest_id ? ` <span class="tag">(protest ${d.protest_id})</span>` : ""}</td><td>${day(d.made_at)}</td>
+      ${steward ? `<td><form method="post" action="#top" onsubmit="return confirm('Take this decision back? Any points or places it changed go back too.')"><input type="hidden" name="action" value="undo"><input type="hidden" name="id" value="${d.id}"><button class="link">Take back</button></form></td>` : ""}</tr>`).join("") + `</table></div>`
+    : `<p class="hint">No decisions for this race.</p>`);
+  // the protests: who protested whom, and where it stands. What was written is for the stewards and the driver who filed it.
+  body += `<h2>Protests</h2>`;
+  if (!protests.length) body += `<p class="hint">No protests filed.</p>`;
+  for (const p of protests) {
+    const mine = user && user.cust && p.filer_cust === user.cust;
+    const pd = decs.filter(d => d.protest_id === p.id);
+    body += `<div class="protest" id="p${p.id}"><p><b>Protest ${p.id}</b> · ${who(p)}${p.lap ? ` · ${esc(p.lap)}` : ""} · ${statusTag(p)}${pd.length ? ` · ${pd.map(d => esc(`${d.name || ""}: ${decisionText(d)}`)).join("; ")}` : ""}</p>`;
+    if (steward || mine) body += `<blockquote>${esc(p.what).replace(/\n/g, "<br>")}${p.video ? `<br><a href="${esc(p.video)}" target="_blank" rel="noopener noreferrer">Video</a>` : ""}</blockquote><p class="tag">Filed ${day(p.created_at)}${steward ? ` by ${esc(whoName(p.filed_by))}` : ""}</p>`;
+    if (mine && p.status === "open") body += `<form method="post" action="#p${p.id}" onsubmit="return confirm('Withdraw your protest?')"><input type="hidden" name="action" value="withdraw"><input type="hidden" name="id" value="${p.id}"><button class="link">Withdraw</button></form>`;
+    if (steward && p.status === "open") body += `<details><summary>Decide this protest</summary>${decisionForm(ev, race, { protest: p })}
+      <form method="post" action="#p${p.id}"><input type="hidden" name="action" value="close"><input type="hidden" name="id" value="${p.id}"><p class="tag">Or close it without a decision (filed by mistake, a duplicate): <button class="link">Close</button></p></form></details>`;
+    if (steward && p.status !== "open") body += `<form method="post" action="#p${p.id}"><input type="hidden" name="action" value="reopen"><input type="hidden" name="id" value="${p.id}"><button class="link">Reopen</button></form>`;
+    body += `</div>`;
+  }
+  // filing a protest
+  body += `<h2 id="file">File a protest</h2>`;
+  const inRace = user && user.cust && race.some(r => r.cust_id === user.cust);
+  if (!user) body += `<p class="hint">Drivers in this race can file a protest. <a href="${BASE}/login?back=${encodeURIComponent(`${BASE}/results/${ev.subsession_id}/stewards#file`)}">Sign in with Discord</a> first.</p>`;
+  else if (!user.cust) body += `<form method="post" action="#file"><input type="hidden" name="action" value="link">
+    <p class="hint">First, which driver are you? You only do this once. It's how the stewards know who filed.</p>
+    <label for="me">You are</label><select id="me" name="cust">${race.map(r => `<option value="${r.cust_id}">${carName(r.car_number, r.name)}</option>`).join("")}</select>
+    <p><button class="btn ghost">That's me</button></p></form>`;
+  else if (!inRace) body += `<p class="hint">You're signed in as ${esc(user.driverName || "a driver")}, who wasn't in this race. Only drivers in the race can protest it. <a href="${BASE}/protests">Not you?</a></p>`;
+  else body += `<form method="post" action="#file"><input type="hidden" name="action" value="protest">
+    <label for="vs">Driver you're protesting</label><select id="vs" name="against"><option value="">Nobody in particular (a general incident)</option>${race.filter(r => r.cust_id !== user.cust).map(r => `<option value="${r.cust_id}">${carName(r.car_number, r.name)}</option>`).join("")}</select>
+    <label for="lap">Where (lap, turn)</label><input type="text" id="lap" name="lap" maxlength="40" placeholder="e.g. lap 42, turn 3">
+    <label for="what">What happened</label><textarea id="what" name="what" rows="5" maxlength="2000" required></textarea>
+    <label for="vid">Video link (optional: YouTube, Twitch clip, Streamable...)</label><input type="text" id="vid" name="video" maxlength="500" placeholder="https://">
+    <p class="tag">The stewards see what you write. The report shows who protested whom and the decision.</p>
+    <p><button class="btn">File protest</button></p></form>`;
+  if (steward) body += `<h2 id="pnew">Stewards' decision</h2><p class="tag">A decision without a protest (something the stewards saw themselves). It shows on the report, changes the results for places and disqualifications, and goes on the series' penalties for points.</p>` + decisionForm(ev, race);
+  return page(`Stewards: ${ev.track}`, body, { user });
+}
+
+function protestsPage(user, { open = [], recent = [], mine = [], steward = false, msg = "" } = {}) {
+  const row = p => `<tr><td><a href="${BASE}/results/${p.subsession_id}/stewards#p${p.id}">${p.id}</a></td><td>${esc(p.series || "")}</td><td><a href="${BASE}/results/${p.subsession_id}/stewards">${esc(p.track)}</a><br><span class="tag">${day(p.start_time)}</span></td>
+    <td style="white-space:normal">${who(p)}${p.lap ? ` <span class="tag">· ${esc(p.lap)}</span>` : ""}</td><td>${statusTag(p)}</td><td>${day(p.created_at)}</td></tr>`;
+  const table = list => `<div class="wrap"><table><tr><th>#</th><th>Series</th><th>Race</th><th>Protest</th><th>Status</th><th>Filed</th></tr>${list.map(row).join("")}</table></div>`;
+  let body = `<h1>Protests</h1>${msg ? `<div class="msg ${/^Unlinked/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>` : ""}`;
+  if (steward) body += `<h2>Open</h2>` + (open.length ? table(open) : `<p class="hint">No open protests.</p>`) + (recent.length ? `<h2>Recently closed</h2>` + table(recent) : "");
+  body += `<h2>Yours</h2>`;
+  if (user.cust) body += `<p class="sub">Signed in as driver ${driverLink(user.cust, user.driverName || user.cust)}. <form method="post" style="display:inline" onsubmit="return confirm('Unlink? You pick your driver again next time you file a protest.')"><input type="hidden" name="action" value="unlink"><button class="link">Not you?</button></form></p>`
+    + (mine.length ? table(mine) : `<p class="hint">You haven't filed any protests. To file one, open the race's results and go to its stewards' report.</p>`);
+  else body += `<p class="hint">To file a protest, open the race's results and go to its stewards' report. You pick which driver you are the first time.</p>`;
+  return page("Protests", body, { user });
 }
 
 // in a multi-class race a driver's finish is their place in class
@@ -756,11 +842,13 @@ function historyPage(rows, user) {
   return page("History", body, { user });
 }
 
-function settingsPage(cur, short, user, msg = "") {
+function settingsPage(cur, short, user, msg = "", stewardRole = "") {
   let body = `<h1>Site settings</h1><p class="sub">How the site looks for everyone.</p>${msg ? `<div class="msg ${/^Saved/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>` : ""}
   <form method="post"><fieldset><legend>Theme</legend>${Object.entries(THEMES).map(([k, t]) => `<label class="chk"><input type="radio" name="theme" value="${k}"${k === cur ? " checked" : ""}>
     <span><b>${esc(t.label)}</b> <span class="tag">${esc(t.note)}</span> <a href="${BASE}?theme=${k}" target="_blank">Preview</a></span></label>`).join("")}</fieldset>
   <label for="ls">League short name (in the VSPEED theme's header, e.g. GLR)</label><input type="text" id="ls" name="short" value="${esc(short)}" maxlength="20">
+  <label for="sr">Race control role (Discord role ID; its members are stewards for every series)</label><input type="text" id="sr" name="steward_role" value="${esc(stewardRole)}" maxlength="25" inputmode="numeric">
+  <p class="tag">Stewards review protests and make decisions on each race's stewards' report. Each series' officials can steward their own series too. In Discord: Server Settings › Roles › right-click the role › Copy Role ID.</p>
   <p><button class="btn">Save</button></p></form>`;
   return page("Site settings", body, { user });
 }
@@ -954,11 +1042,12 @@ const site = {
           <p><a href="${BASE}/login">Try again</a></p>`, { status: 403 });
       }
       if (path === `${BASE}/logout` && request.method === "POST" && sameOrigin(request, url)) return logout(request, env);
-      const user = await currentUser(request, env);
-      if (path === `${BASE}/upload`) return user ? uploadPage(user) : Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/upload`, 302);
+      let user = await currentUser(request, env);
+      if (path === `${BASE}/upload`) return !user ? Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/upload`, 302) : user.official ? uploadPage(user) : notFound("Only series officials can upload results.", user);
       if (path === `${BASE}/api/upload`) {
         if (request.method !== "POST") return json({ ok: false, error: "Use POST." }, 405);
         if (!user) return json({ ok: false, error: "Sign in as an official first." }, 401);
+        if (!user.official) return json({ ok: false, error: "Only series officials can upload results." }, 403);
         if (!sameOrigin(request, url)) return json({ ok: false, error: "Upload from the site's upload page." }, 403);
         const res = await upload(request, env, user);
         kick();
@@ -1020,12 +1109,81 @@ const site = {
       if (path === `${BASE}/api/events`) return json({ ok: true, events: await listEvents(db, { season: Number(url.searchParams.get("season")) || 0 }) });
       if (path === `${BASE}/api/series`) return json({ ok: true, series: (await listSeries(db)).map(pub) });
       if ((m = path.match(/^\/glr\/api\/series\/([a-z0-9-]+)$/))) { const sr = await getSeries(db, m[1]); return sr ? json({ ok: true, series: pub(sr) }) : json({ ok: false, error: "No such series" }, 404); }
-      if ((m = path.match(/^\/glr\/api\/results\/(\d+)$/))) { const ev = await getEvent(db, Number(m[1])); return ev ? json({ ok: true, event: ev }) : json({ ok: false, error: "No such race" }, 404); }
+      if ((m = path.match(/^\/glr\/api\/results\/(\d+)$/))) { const ev = await getEvent(db, Number(m[1])); if (ev) ev.decisions = ev.decisions.map(({ made_by, adj_id, ...d }) => d); return ev ? json({ ok: true, event: ev }) : json({ ok: false, error: "No such race" }, 404); }
       if ((m = path.match(/^\/glr\/api\/drivers\/(\d+)$/))) { const d = await getDriver(db, Number(m[1])); return d ? json({ ok: true, driver: d }) : json({ ok: false, error: "No such driver" }, 404); }
       if (path === BASE) {
         const next = new Map();
         for (const r of await upcoming(db, 120)) if (!next.has(r.series_id)) next.set(r.series_id, r);
         return homePage(await listSeries(db), await listEvents(db, { limit: 15 }), user, next);
+      }
+      if ((m = path.match(/^\/glr\/results\/(\d+)\/stewards$/))) {
+        const sub = Number(m[1]);
+        let ev = await getEvent(db, sub);
+        if (!ev) return notFound("No race with that session number has been uploaded.", user);
+        const sr = await seriesById(db, ev.series_id), steward = canSteward(user, sr);
+        let msg = "";
+        if (request.method === "POST") {
+          if (!user || !sameOrigin(request, url)) return notFound("Sign in first.", user);
+          const f = await request.formData(), a = f.get("action"), by = `discord:${user.id}:${user.name}`;
+          const pid = Number(f.get("id")) || 0, p = pid ? await getProtest(db, pid) : null;
+          try {
+            if (a === "link") {
+              await linkDriver(db, user.id, user.name, Number(f.get("cust")));
+              user = await currentUser(request, env);
+              msg = `Linked: you're ${user.driverName}. Now fill in your protest.`;
+            } else if (a === "protest") {
+              if (!user.cust) throw new Error("First pick which driver you are (below).");
+              const id = await fileProtest(db, { sub, filedBy: by, filer: user.cust, against: f.get("against"), lap: f.get("lap"), what: f.get("what"), video: f.get("video") });
+              const vs = ev.sessions.race.find(r => r.cust_id === Number(f.get("against")));
+              await logChange(db, { by, seriesId: ev.series_id, sub, kind: "protest", summary: `Protest ${id} filed: ${ev.track}${vs ? `, against ${vs.name}` : ""}` });
+              msg = `Protest filed (number ${id}). The stewards will review it; check back here for their decision.`;
+            } else if (a === "withdraw" && p && p.subsession_id === sub && p.filer_cust === user.cust && p.status === "open") {
+              await setProtestStatus(db, pid, "withdrawn", by);
+              await logChange(db, { by, seriesId: ev.series_id, sub, kind: "protest", summary: `Protest ${pid} withdrawn: ${ev.track}` });
+              msg = "Withdrawn.";
+            } else if (!steward) {
+              return notFound("Only stewards can do that.", user);
+            } else if (a === "decide") {
+              const r = await addDecision(db, { sub, protestId: Number(f.get("protest")) || null, cust: Number(f.get("cust")), kind: String(f.get("kind")), amount: f.get("amount"), reason: f.get("reason") }, by);
+              ev = await getEvent(db, sub);
+              const d = ev.decisions.find(x => x.id === r.id);
+              await logChange(db, { by, seriesId: ev.series_id, sub, kind: "decision", summary: `Stewards: ${d.name}: ${r.text} (${d.reason})${d.protest_id ? `, protest ${d.protest_id}` : ""}` });
+              if (ev.status === "official" && d.kind !== "none") {
+                if (sr.hook_penalties) await enqueue(db, sr.id, "penalties", "decision", sub, decisionPost(sr, ev, { ...d, text: r.text }, url.origin));
+                if (d.kind === "positions" || d.kind === "dq") await updatePosted(db, sub, url.origin);
+                kick();
+              }
+              msg = `Decision saved: ${d.name}: ${r.text}.`;
+            } else if (a === "undo") {
+              const d = await deleteDecision(db, sub, Number(f.get("id")));
+              if (d) {
+                await logChange(db, { by, seriesId: ev.series_id, sub, kind: "decision", summary: `Stewards took back a decision: ${decisionText(d)} (${d.reason})` });
+                ev = await getEvent(db, sub);
+                if (ev.status === "official" && (d.kind === "positions" || d.kind === "dq")) { await updatePosted(db, sub, url.origin); kick(); }
+              }
+              msg = "Removed.";
+            } else if ((a === "close" || a === "reopen") && p && p.subsession_id === sub) {
+              await setProtestStatus(db, pid, a === "close" ? "withdrawn" : "open", by);
+              await logChange(db, { by, seriesId: ev.series_id, sub, kind: "protest", summary: `Protest ${pid} ${a === "close" ? "closed without a decision" : "reopened"}: ${ev.track}` });
+              msg = a === "close" ? "Closed." : "Reopened.";
+            }
+          } catch (e) { msg = e.message; }
+          ev = await getEvent(db, sub);
+        }
+        return stewardsPage(ev, user, { protests: await listProtests(db, { sub }), steward, msg });
+      }
+      if (path === `${BASE}/protests`) {
+        if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/protests`, 302);
+        let msg = "";
+        if (request.method === "POST" && sameOrigin(request, url)) {
+          const f = await request.formData();
+          if (f.get("action") === "unlink") { await unlinkDriver(db, user.id); user = await currentUser(request, env); msg = "Unlinked. You'll pick your driver again the next time you file a protest."; }
+        }
+        const all = await listSeries(db), mineSeries = user.steward ? null : all.filter(x => canSteward(user, x)).map(x => x.id);
+        const steward = user.steward || (mineSeries && mineSeries.length > 0);
+        const list = steward ? await listProtests(db, { seriesIds: mineSeries, limit: 80 }) : [];
+        return protestsPage(user, { steward, msg, open: list.filter(p => p.status === "open"), recent: list.filter(p => p.status !== "open").slice(0, 30),
+          mine: user.cust ? await listProtests(db, { filer: user.cust, limit: 50 }) : [] });
       }
       if ((m = path.match(/^\/glr\/results\/(\d+)$/))) {
         const sub = Number(m[1]);
@@ -1080,19 +1238,26 @@ const site = {
         if (request.method === "POST") {
           if (!sameOrigin(request, url)) return notFound("Save from this page.", user);
           const f = await request.formData(), theme = String(f.get("theme") || ""), short = String(f.get("short") || "").trim().slice(0, 20);
+          const rc = String(f.get("steward_role") || "").trim();
           if (!THEMES[theme]) msg = "Pick a theme.";
+          else if (rc && !/^\d{5,25}$/.test(rc)) msg = "The race control role should be a Discord role ID (numbers only), or empty.";
           else {
             await setSetting(db, "theme", theme); await setSetting(db, "league_short", short || "GLR");
+            if (rc !== await getSetting(db, "steward_role")) {
+              await setSetting(db, "steward_role", rc);
+              await logChange(db, { by: `discord:${user.id}:${user.name}`, kind: "series", summary: rc ? `Race control role set to ${rc}` : "Race control role removed" });
+            }
             themeCache = null;
             await logChange(db, { by: `discord:${user.id}:${user.name}`, kind: "series", summary: `Site theme set to ${THEMES[theme].label}${short ? `, short name ${short}` : ""}` });
             msg = "Saved.";
           }
         }
         const cur = await siteTheme(db, new URL(url.origin + BASE));
-        return settingsPage(cur.theme, cur.short, user, msg);
+        return settingsPage(cur.theme, cur.short, user, msg, await getSetting(db, "steward_role"));
       }
       if (path === `${BASE}/history`) {
         if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/history`, 302);
+        if (!user.official) return notFound("History is for series officials.", user);
         const mine = user.admin ? null : (await listSeries(db)).filter(x => x.role_id && user.roles.includes(x.role_id)).map(x => x.id);
         return historyPage(await listChanges(db, { seriesIds: mine }), user);
       }

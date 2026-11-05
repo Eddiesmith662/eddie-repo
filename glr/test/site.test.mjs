@@ -40,10 +40,14 @@ test("uploads need a signed-in official", async () => {
   assert.equal((await s.json("/glr/api/results/1")).event.status, "official");
 });
 
-test("people without a league role can't sign in", async () => {
-  const s = makeSite();
+test("league members without a role sign in as drivers, not officials", async () => {
+  const s = await seeded(1);
   await s.signIn({ id: "9", roles: [], nick: "Fan" });
-  assert.equal((await s.json("/glr/api/me")).user, null);
+  const me = (await s.json("/glr/api/me")).user;
+  assert.equal(me.official, false);
+  assert.equal((await s.upload(raceExport({ sub: 5, date: week(5) }))).status, 403);
+  assert.equal((await s.page("/glr/history")).status, 404);
+  assert.ok(!(await s.page("/glr")).html.includes("Upload results"));
 });
 
 test("a series official can only change their own series", async () => {
@@ -119,4 +123,79 @@ test("the GLR theme has a Dark switch that's remembered", async () => {
   await s.signIn();
   await s.post("/glr/settings", { theme: "vspeed" });                    // the VSPEED theme is dark already: no switch
   assert.ok(!(await s.page("/glr")).html.includes('id="modeSw"'));
+});
+
+test("a driver files a protest and a steward decides it", async () => {
+  const s = await seeded(2);
+  // admin sets the race control role
+  await s.signIn();
+  await s.post("/glr/settings", { theme: "glr", short: "GLR", steward_role: "333333" });
+  // a driver (Racer C, cust 102) signs in, links once and files
+  await s.signIn({ id: "50", roles: [], nick: "Driver C" });
+  let r = await s.post("/glr/results/1001/stewards", { action: "protest", against: "101", lap: "12", what: "Turned me in turn 3 without a lift." });
+  assert.match(text(r.html), /First pick which driver you are/);        // not linked yet: no driver to file as
+  r = await s.post("/glr/results/1001/stewards", { action: "link", cust: "102" });
+  assert.match(text(r.html), /Linked/);
+  r = await s.post("/glr/results/1001/stewards", { action: "protest", against: "101", lap: "12", what: "Turned me in turn 3 without a lift." });
+  assert.match(text(r.html), /Protest filed/);
+  const pid = Number(text(r.html).match(/number (\d+)/)[1]);
+  // the public report shows who protested whom, but not what was written
+  s.cookie = "";
+  let pub = text((await s.page("/glr/results/1001/stewards")).html);
+  assert.match(pub, /Racer C protests #2 Racer B/);
+  assert.ok(!pub.includes("without a lift"));
+  // a driver can't decide; a steward (race control role) can
+  await s.signIn({ id: "50", roles: [], nick: "Driver C" });
+  assert.equal((await s.post("/glr/results/1001/stewards", { action: "decide", protest: String(pid), cust: "101", kind: "positions", amount: "3", reason: "x" })).status, 404);
+  await s.signIn({ id: "60", roles: ["333333"], nick: "Steward" });
+  assert.ok((await s.page("/glr/protests")).html.includes(`stewards#p${pid}`));
+  r = await s.post("/glr/results/1001/stewards", { action: "decide", protest: String(pid), cust: "101", kind: "positions", amount: "3", reason: "Avoidable contact" });
+  assert.match(text(r.html), /Decision saved: Racer B: Moved back 3 places/);
+  const ev = (await s.json("/glr/api/results/1001")).event;
+  assert.equal(ev.sessions.race.find(x => x.cust_id === 101).finish_pos, 5);
+  assert.equal(ev.decisions[0].made_by, undefined);                  // steward names stay off the public data
+  assert.equal((await listStatus(s, pid)), "decided");
+  // the standings follow: Racer B scored 5th place points in race 2
+  const st = (await s.json("/glr/api/standings/test-cup")).groups[0].regular;
+  assert.equal(st.find(x => x.custId === 101).points, 39 + 36);
+  // a steward of the race control role can't edit the series
+  assert.ok(!(await s.page("/glr/test-cup/rules")).html.includes("Save rules"));
+  // take it back: the result goes back and the protest reopens
+  const did = s.DB.raw.prepare("select id from decisions").get().id;
+  await s.post("/glr/results/1001/stewards", { action: "undo", id: String(did) });
+  assert.equal((await s.json("/glr/api/results/1001")).event.sessions.race.find(x => x.cust_id === 101).finish_pos, 2);
+  assert.equal((await listStatus(s, pid)), "open");
+});
+
+const listStatus = async (s, id) => s.DB.raw.prepare("select status from protests where id = ?").get(id).status;
+
+test("points penalties and disqualifications from the stewards, and decisions survive a re-upload", async () => {
+  const s = await seeded(2);
+  await s.signIn();                                                    // admin: a steward everywhere
+  await s.post("/glr/results/1001/stewards", { action: "decide", cust: "103", kind: "points", amount: "10", reason: "Rough driving" });
+  await s.post("/glr/results/1001/stewards", { action: "decide", cust: "100", kind: "dq", reason: "Car failed inspection" });
+  let st = (await s.json("/glr/api/standings/test-cup")).groups[0].regular;
+  assert.equal(st.find(x => x.custId === 100).points, 40);             // race 1 only
+  assert.equal(st.find(x => x.custId === 103).points, 37 + 38 - 10);   // moved up to 3rd in race 2 (38), minus 10
+  assert.match(text((await s.page("/glr/test-cup/penalties")).html), /Stewards: Rough driving/);
+  // the results file comes in again: the decisions still apply
+  await s.upload(raceExport({ sub: 1001, date: week(1) }));
+  const race = (await s.json("/glr/api/results/1001")).event.sessions.race;
+  assert.equal(race.find(x => x.cust_id === 100).reason_out, "Disqualified");
+  assert.equal(race[0].cust_id, 101);
+  // the driver page shows the place after the stewards
+  assert.match(text((await s.page("/glr/drivers/100")).html), /Disqualified/);
+});
+
+test("a driver can't protest a race they weren't in, and can withdraw their own", async () => {
+  const s = await seeded(1);
+  await s.addRace({ sub: 2000, date: week(3), order: [20, 21, 22] });
+  await s.signIn({ id: "70", roles: [], nick: "Driver U" });
+  await s.post("/glr/results/2000/stewards", { action: "link", cust: "120" });
+  let r = await s.page("/glr/results/1000/stewards");
+  assert.match(text(r.html), /wasn't in this race/);
+  r = await s.post("/glr/results/2000/stewards", { action: "protest", against: "", lap: "", what: "Big crash on the restart, needs a look." });
+  const pid = Number(text(r.html).match(/number (\d+)/)[1]);
+  await s.post("/glr/results/2000/stewards", { action: "withdraw", id: String(pid) });
+  assert.equal(await listStatus(s, pid), "withdrawn");
 });

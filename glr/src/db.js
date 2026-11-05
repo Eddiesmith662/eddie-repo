@@ -5,6 +5,7 @@
  * and every name a driver has raced under is kept in driver_names (league nicknames make the sim and the export
  * disagree on names, the Cust ID never changes).
  */
+import { applyDecisions, decisionText } from "./stewards.js";
 
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS series (
@@ -72,6 +73,21 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS overlay_keys (
      id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE,
      created_at TEXT, created_by TEXT, last_used TEXT, uses INTEGER NOT NULL DEFAULT 0, revoked INTEGER NOT NULL DEFAULT 0)`,
+  // stewarding: which iRacing driver a Discord member is, protests they file, and the stewards' decisions
+  `CREATE TABLE IF NOT EXISTS driver_links (
+     discord_id TEXT PRIMARY KEY, cust_id INTEGER NOT NULL, discord_name TEXT, linked_at TEXT)`,
+  `CREATE TABLE IF NOT EXISTS protests (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, subsession_id INTEGER NOT NULL, series_id INTEGER,
+     filed_by TEXT NOT NULL, filer_cust INTEGER NOT NULL, against_cust INTEGER, lap TEXT NOT NULL DEFAULT '',
+     what TEXT NOT NULL, video TEXT NOT NULL DEFAULT '', status TEXT NOT NULL DEFAULT 'open',
+     created_at TEXT, closed_at TEXT, closed_by TEXT)`,
+  `CREATE INDEX IF NOT EXISTS protests_event ON protests (subsession_id)`,
+  `CREATE INDEX IF NOT EXISTS protests_open ON protests (status, series_id)`,
+  `CREATE TABLE IF NOT EXISTS decisions (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, subsession_id INTEGER NOT NULL, series_id INTEGER, protest_id INTEGER,
+     cust_id INTEGER NOT NULL, kind TEXT NOT NULL, amount INTEGER NOT NULL DEFAULT 0, reason TEXT NOT NULL DEFAULT '',
+     adj_id INTEGER, source TEXT NOT NULL DEFAULT 'site', made_at TEXT, made_by TEXT)`,
+  `CREATE INDEX IF NOT EXISTS decisions_event ON decisions (subsession_id)`,
 ];
 // columns added after the first version: [table, column, definition]
 const ADDED = [
@@ -301,6 +317,17 @@ export async function seasonEvents(db, seasonId) {
   const rows = (await db.prepare(`SELECT r.* FROM results r JOIN events e ON e.subsession_id = r.subsession_id
       WHERE e.season_id = ? AND r.session = 'race'`).bind(seasonId).all()).results;
   for (const e of evs) e.results = rows.filter(r => r.subsession_id === e.subsession_id);
+  return withDecisions(db, evs);
+}
+
+// the stewards' position penalties and disqualifications, applied to races read for pages, standings and stats
+async function withDecisions(db, evs) {
+  const acts = (await db.prepare(`SELECT * FROM decisions WHERE kind IN ('positions', 'dq') ORDER BY id`).all()).results;
+  if (!acts.length) return evs;
+  for (const e of evs) {
+    const mine = acts.filter(d => d.subsession_id === e.subsession_id);
+    if (mine.length) e.results = applyDecisions(e.results, mine);
+  }
   return evs;
 }
 
@@ -321,11 +348,13 @@ export async function addAdjustment(db, seasonId, { sub, cust, points, reason },
   if (!String(reason || "").trim()) throw new Error("Give a reason. Drivers see it on the standings.");
   await db.prepare(`INSERT INTO adjustments (subsession_id, cust_id, points, reason, created_at, created_by) VALUES (?, ?, ?, ?, ?, ?)`)
     .bind(sub, cust, pts, String(reason).trim().slice(0, 200), new Date().toISOString(), by).run();
+  return (await db.prepare(`SELECT MAX(id) AS id FROM adjustments WHERE subsession_id = ? AND cust_id = ?`).bind(sub, cust).first()).id;
 }
 
 export async function deleteAdjustment(db, seasonId, id) {
   await ensureSchema(db);
   await db.prepare(`DELETE FROM adjustments WHERE id = ? AND subsession_id IN (SELECT subsession_id FROM events WHERE season_id = ?)`).bind(id, seasonId).run();
+  await db.prepare(`DELETE FROM decisions WHERE adj_id = ? AND adj_id NOT IN (SELECT id FROM adjustments)`).bind(id).run();
 }
 
 export async function updateSeries(db, id, { shortName, slug }) {
@@ -351,6 +380,8 @@ export async function getEvent(db, sub) {
   const rows = (await db.prepare(`SELECT * FROM results WHERE subsession_id = ? ORDER BY session, finish_pos`).bind(sub).all()).results;
   ev.sessions = {};
   for (const r of rows) (ev.sessions[r.session] = ev.sessions[r.session] || []).push(r);
+  ev.decisions = await listDecisions(db, sub);
+  if (ev.sessions.race) ev.sessions.race = applyDecisions(ev.sessions.race, ev.decisions).sort((a, b) => (a.finish_pos || 999) - (b.finish_pos || 999));
   ev.classes = [...new Set((ev.sessions.race || []).map(r => r.car_class))];
   return ev;
 }
@@ -367,6 +398,14 @@ export async function getDriver(db, cust) {
       FROM results r JOIN events e ON e.subsession_id = r.subsession_id LEFT JOIN seasons se ON se.id = e.season_id
       LEFT JOIN series sr ON sr.id = e.series_id
       WHERE r.cust_id = ? AND r.session = 'race' ORDER BY e.start_time DESC`).bind(cust).all()).results;
+  // races where the stewards changed the order: this driver's place and points after their decisions
+  for (const x of d.races) {
+    const acts = (await db.prepare(`SELECT * FROM decisions WHERE subsession_id = ? AND kind IN ('positions', 'dq') ORDER BY id`).bind(x.subsession_id).all()).results;
+    if (!acts.length) continue;
+    const all = (await db.prepare(`SELECT * FROM results WHERE subsession_id = ? AND session = 'race'`).bind(x.subsession_id).all()).results;
+    const me = applyDecisions(all, acts).find(r => r.cust_id === x.cust_id);
+    if (me) Object.assign(x, { finish_pos: me.finish_pos, class_pos: me.class_pos, league_points: me.league_points, reason_out: me.reason_out });
+  }
   return d;
 }
 
@@ -417,12 +456,14 @@ export async function checkKey(db, key, kind = "overlay") {
   return row;
 }
 
-// remove a race: its results, its penalties and its fixes. Drivers left with no races go too.
+// remove a race: its results, penalties, fixes, protests and decisions. Drivers left with no races go too.
 export async function deleteEvent(db, sub) {
   await ensureSchema(db);
   await db.batch([
     db.prepare(`DELETE FROM adjustments WHERE subsession_id = ?`).bind(sub),
     db.prepare(`DELETE FROM result_fixes WHERE subsession_id = ?`).bind(sub),
+    db.prepare(`DELETE FROM decisions WHERE subsession_id = ?`).bind(sub),
+    db.prepare(`DELETE FROM protests WHERE subsession_id = ?`).bind(sub),
     db.prepare(`DELETE FROM results WHERE subsession_id = ?`).bind(sub),
     db.prepare(`DELETE FROM events WHERE subsession_id = ?`).bind(sub),
     db.prepare(`DELETE FROM driver_names WHERE cust_id NOT IN (SELECT cust_id FROM results)`),
@@ -619,7 +660,7 @@ export async function seriesEvents(db, seriesId, seasonId = null) {
   const rows = (await db.prepare(`SELECT r.* FROM results r JOIN events e ON e.subsession_id = r.subsession_id WHERE ${where} AND r.session = 'race'`).bind(...args).all()).results;
   const bySub = new Map(evs.map(e => [e.subsession_id, Object.assign(e, { results: [] })]));
   for (const r of rows) bySub.get(r.subsession_id)?.results.push(r);
-  return evs;
+  return withDecisions(db, evs);
 }
 
 // every race of every series, grouped by series (for the league driver list)
@@ -630,6 +671,7 @@ export async function allSeriesEvents(db) {
       r.class_laps_down, r.reason_out, r.best_lap_ms, r.incidents, r.subsession_id FROM results r WHERE r.session = 'race'`).all()).results;
   const bySub = new Map(evs.map(e => [e.subsession_id, Object.assign(e, { results: [] })]));
   for (const r of rows) bySub.get(r.subsession_id)?.results.push(r);
+  await withDecisions(db, evs);
   const out = new Map();
   for (const e of evs) { if (!out.has(e.series_id)) out.set(e.series_id, []); out.get(e.series_id).push(e); }
   return out;
@@ -795,4 +837,119 @@ export async function getSetting(db, key) {
 export async function setSetting(db, key, value) {
   await ensureSchema(db);
   await db.prepare(`INSERT INTO site_settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = ?2`).bind(key, String(value)).run();
+}
+
+/* ---------- stewarding: protests and decisions ---------- */
+
+// which iRacing driver a signed-in Discord member is (they pick themselves once, the first time they file a protest)
+export async function linkedDriver(db, discordId) {
+  await ensureSchema(db);
+  return db.prepare(`SELECT l.*, d.name FROM driver_links l LEFT JOIN drivers d ON d.cust_id = l.cust_id WHERE l.discord_id = ?`).bind(discordId).first();
+}
+export async function linkDriver(db, discordId, discordName, cust) {
+  await ensureSchema(db);
+  if (!await db.prepare(`SELECT 1 AS ok FROM drivers WHERE cust_id = ?`).bind(cust).first()) throw new Error("Pick yourself from the list.");
+  const taken = await db.prepare(`SELECT discord_name FROM driver_links WHERE cust_id = ? AND discord_id <> ?`).bind(cust, discordId).first();
+  if (taken) throw new Error(`That driver is already linked to another Discord account (${taken.discord_name}). Ask an admin if that's wrong.`);
+  await db.prepare(`INSERT INTO driver_links (discord_id, cust_id, discord_name, linked_at) VALUES (?1, ?2, ?3, ?4)
+      ON CONFLICT(discord_id) DO UPDATE SET cust_id = ?2, discord_name = ?3, linked_at = ?4`).bind(discordId, cust, discordName, new Date().toISOString()).run();
+}
+export async function unlinkDriver(db, discordId) {
+  await ensureSchema(db);
+  await db.prepare(`DELETE FROM driver_links WHERE discord_id = ?`).bind(discordId).run();
+}
+
+const PROTEST_COLS = `p.*, e.track, e.start_time, sr.short_name AS series, sr.slug,
+  (SELECT name FROM results r WHERE r.subsession_id = p.subsession_id AND r.session = 'race' AND r.cust_id = p.filer_cust) AS filer_name,
+  (SELECT car_number FROM results r WHERE r.subsession_id = p.subsession_id AND r.session = 'race' AND r.cust_id = p.filer_cust) AS filer_number,
+  (SELECT name FROM results r WHERE r.subsession_id = p.subsession_id AND r.session = 'race' AND r.cust_id = p.against_cust) AS against_name,
+  (SELECT car_number FROM results r WHERE r.subsession_id = p.subsession_id AND r.session = 'race' AND r.cust_id = p.against_cust) AS against_number`;
+
+export async function fileProtest(db, { sub, filedBy, filer, against, lap, what, video }) {
+  await ensureSchema(db);
+  const ev = await db.prepare(`SELECT series_id FROM events WHERE subsession_id = ?`).bind(sub).first();
+  if (!ev) throw new Error("No race with that session number.");
+  const inRace = async c => !!await db.prepare(`SELECT 1 AS ok FROM results WHERE subsession_id = ? AND session = 'race' AND cust_id = ?`).bind(sub, c).first();
+  if (!await inRace(filer)) throw new Error("Only drivers in this race can protest it.");
+  const vs = Number(against) || null;
+  if (vs && (vs === filer || !await inRace(vs))) throw new Error("Pick the driver you're protesting from this race's drivers.");
+  const text = String(what || "").trim();
+  if (text.length < 10) throw new Error("Say what happened (where, and what the other driver did).");
+  const link = String(video || "").trim();
+  if (link && !/^https?:\/\/\S+$/i.test(link)) throw new Error("The video link should start with https://");
+  await db.prepare(`INSERT INTO protests (subsession_id, series_id, filed_by, filer_cust, against_cust, lap, what, video, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .bind(sub, ev.series_id, filedBy, filer, vs, String(lap || "").trim().slice(0, 40), text.slice(0, 2000), link.slice(0, 500), new Date().toISOString()).run();
+  return (await db.prepare(`SELECT MAX(id) AS id FROM protests WHERE subsession_id = ?`).bind(sub).first()).id;
+}
+
+// protests: for one race, for some series (null = all), or filed by one driver; open first, newest first
+export async function listProtests(db, { sub = null, seriesIds = null, filer = null, open = false, limit = 200 } = {}) {
+  await ensureSchema(db);
+  const w = [], a = [];
+  if (sub) { w.push("p.subsession_id = ?"); a.push(sub); }
+  if (seriesIds) { if (!seriesIds.length) return []; w.push(`p.series_id IN (${seriesIds.map(() => "?").join(",")})`); a.push(...seriesIds); }
+  if (filer) { w.push("p.filer_cust = ?"); a.push(filer); }
+  if (open) w.push("p.status = 'open'");
+  return (await db.prepare(`SELECT ${PROTEST_COLS} FROM protests p JOIN events e ON e.subsession_id = p.subsession_id
+      LEFT JOIN series sr ON sr.id = p.series_id ${w.length ? "WHERE " + w.join(" AND ") : ""}
+      ORDER BY p.status = 'open' DESC, p.id DESC LIMIT ?`).bind(...a, limit).all()).results;
+}
+export async function getProtest(db, id) {
+  await ensureSchema(db);
+  return db.prepare(`SELECT ${PROTEST_COLS} FROM protests p JOIN events e ON e.subsession_id = p.subsession_id
+      LEFT JOIN series sr ON sr.id = p.series_id WHERE p.id = ?`).bind(id).first();
+}
+// status: open | decided | withdrawn
+export async function setProtestStatus(db, id, status, by) {
+  await ensureSchema(db);
+  await db.prepare(`UPDATE protests SET status = ?, closed_at = CASE WHEN ? = 'open' THEN NULL ELSE ? END, closed_by = CASE WHEN ? = 'open' THEN NULL ELSE ? END WHERE id = ?`)
+    .bind(status, status, new Date().toISOString(), status, by, id).run();
+}
+
+export async function listDecisions(db, sub) {
+  await ensureSchema(db);
+  return (await db.prepare(`SELECT d.*, (SELECT name FROM results r WHERE r.subsession_id = d.subsession_id AND r.session = 'race' AND r.cust_id = d.cust_id) AS name,
+      (SELECT car_number FROM results r WHERE r.subsession_id = d.subsession_id AND r.session = 'race' AND r.cust_id = d.cust_id) AS car_number
+      FROM decisions d WHERE d.subsession_id = ? ORDER BY d.id`).bind(sub).all()).results;
+}
+
+/**
+ * A steward's decision on a race (from a protest, or on their own). A points penalty goes on the series' penalties
+ * list too, so the standings take it off. Deciding a protest closes it.
+ */
+export async function addDecision(db, { sub, protestId = null, cust, kind, amount = 0, reason = "", source = "site" }, by) {
+  await ensureSchema(db);
+  const ev = await db.prepare(`SELECT series_id, season_id FROM events WHERE subsession_id = ?`).bind(sub).first();
+  if (!ev) throw new Error("No race with that session number.");
+  if (!["none", "warning", "points", "positions", "dq"].includes(kind)) throw new Error("Pick a decision.");
+  if (!await db.prepare(`SELECT 1 AS ok FROM results WHERE subsession_id = ? AND session = 'race' AND cust_id = ?`).bind(sub, cust).first())
+    throw new Error("That driver isn't in this race's results.");
+  const why = String(reason || "").trim().slice(0, 300);
+  if (!why) throw new Error("Give the reason. Drivers see it on the stewards' report.");
+  let n = Math.round(Number(amount) || 0), adj = null;
+  if (kind === "positions" && n < 1) throw new Error("Enter how many places to move the driver back.");
+  if (kind === "points") {
+    if (!n) throw new Error("Enter the points, like 10 to take 10 off.");
+    n = -Math.abs(n);                       // a points penalty always takes points off
+    if (!ev.season_id) throw new Error("This race isn't in a season, so there are no standings to take points from.");
+    adj = await addAdjustment(db, ev.season_id, { sub, cust, points: n, reason: `Stewards: ${why}` }, by);
+  }
+  if (!["points", "positions"].includes(kind)) n = 0;
+  if (protestId && !await db.prepare(`SELECT 1 AS ok FROM protests WHERE id = ? AND subsession_id = ?`).bind(protestId, sub).first()) throw new Error("That protest isn't for this race.");
+  await db.prepare(`INSERT INTO decisions (subsession_id, series_id, protest_id, cust_id, kind, amount, reason, adj_id, source, made_at, made_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(sub, ev.series_id, protestId, cust, kind, n, why, adj, source, new Date().toISOString(), by).run();
+  if (protestId) await setProtestStatus(db, protestId, "decided", by);
+  return { id: (await db.prepare(`SELECT MAX(id) AS id FROM decisions WHERE subsession_id = ?`).bind(sub).first()).id, text: decisionText({ kind, amount: n }) };
+}
+
+// take a decision back: its points penalty goes too, and its protest opens again if nothing else decided it
+export async function deleteDecision(db, sub, id) {
+  await ensureSchema(db);
+  const d = await db.prepare(`SELECT * FROM decisions WHERE id = ? AND subsession_id = ?`).bind(id, sub).first();
+  if (!d) return null;
+  if (d.adj_id) await db.prepare(`DELETE FROM adjustments WHERE id = ?`).bind(d.adj_id).run();
+  await db.prepare(`DELETE FROM decisions WHERE id = ?`).bind(id).run();
+  if (d.protest_id && !await db.prepare(`SELECT 1 AS ok FROM decisions WHERE protest_id = ?`).bind(d.protest_id).first())
+    await setProtestStatus(db, d.protest_id, "open", "");
+  return d;
 }

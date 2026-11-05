@@ -1,7 +1,10 @@
 /*
- * Sign in with Discord. Access is managed with roles in the league's Discord server: the admin role (DISCORD_ROLE_ID)
- * can edit every series, and each series can name its own role whose members edit only that series. Give someone a
- * role and they can sign in; take it away and they're out within 15 minutes.
+ * Sign in with Discord. Any member of the league's Discord server can sign in (drivers do, to file protests). What
+ * they can do comes from their roles there:
+ *   admin role (DISCORD_ROLE_ID)      edits every series, and is a steward everywhere
+ *   a series' role (Edit series)      edits that series, and stewards it
+ *   race control role (Site settings) steward for every series: reviews protests and makes decisions
+ * Roles are checked again every 15 minutes, so taking one away takes effect within that.
  *
  * Cloudflare secrets on the vspeed-glr worker (never in the repo):
  *   DISCORD_CLIENT_ID, DISCORD_CLIENT_SECRET   from the Discord application (Developer Portal > OAuth2)
@@ -10,7 +13,7 @@
  *
  * Sessions live in the database; the browser only holds a random token (the database keeps its hash).
  */
-import { ensureSchema, seriesRoles } from "./db.js";
+import { ensureSchema, seriesRoles, getSetting, linkedDriver } from "./db.js";
 
 const API = "https://discord.com/api/v10";
 const COOKIE = "glr_session", STATE = "glr_state";
@@ -35,10 +38,10 @@ async function schema(db) {
   return ready;
 }
 
-// the roles that matter here: the admin role plus any series' role
+// the roles that matter here: the admin role, any series' role and the race control role
 async function relevant(env, roles) {
-  const series = await seriesRoles(env.DB);
-  return roles.filter(r => r === env.DISCORD_ROLE_ID || series.some(s => s.role_id === r));
+  const series = await seriesRoles(env.DB), rc = await getSetting(env.DB, "steward_role");
+  return roles.filter(r => r === env.DISCORD_ROLE_ID || (rc && r === rc) || series.some(s => s.role_id === r));
 }
 
 const hex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
@@ -87,7 +90,6 @@ export async function callback(request, env, url) {
   if (!mem) return { error: "You're not in the league's Discord server.", name };
   await schema(env.DB);
   const roles = await relevant(env, mem.roles);
-  if (!roles.length) return { error: "You don't have an officials role in the league's Discord server.", name };
   const token = randomToken(), now = Date.now();
   await env.DB.prepare(`INSERT INTO sessions (token_hash, discord_id, name, avatar, access_token, refresh_token, token_expires, created, expires, checked, roles)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
@@ -106,7 +108,7 @@ export async function currentUser(request, env) {
   const s = await env.DB.prepare(`SELECT * FROM sessions WHERE token_hash = ?`).bind(h).first();
   if (!s || s.expires < now) return null;
   let roles = JSON.parse(s.roles || "[]");
-  if (now - s.checked > RECHECK_MS || !roles.length) {   // no roles saved: a session from before series roles, ask Discord now
+  if (now - s.checked > RECHECK_MS) {
     let access = s.access_token;
     try {
       if (s.token_expires < now + 60000 && s.refresh_token) {
@@ -117,7 +119,7 @@ export async function currentUser(request, env) {
       }
       const mem = await memberRoles(env, access);
       if (mem) roles = await relevant(env, mem.roles);
-      if (mem === null || (mem && !roles.length)) {
+      if (mem === null) {                                    // left the league's Discord server
         await env.DB.prepare(`DELETE FROM sessions WHERE token_hash = ?`).bind(h).run();
         return null;
       }
@@ -130,7 +132,16 @@ export async function currentUser(request, env) {
       return null;
     }
   }
-  return { id: s.discord_id, name: s.name, avatar: s.avatar, roles, admin: roles.includes(env.DISCORD_ROLE_ID) };
+  return describe(env, { id: s.discord_id, name: s.name, avatar: s.avatar, roles });
+}
+
+// what this person can do: admin, official (edits a series), steward (race control role), and their linked driver
+async function describe(env, u) {
+  const admin = u.roles.includes(env.DISCORD_ROLE_ID);
+  const series = await seriesRoles(env.DB), rc = await getSetting(env.DB, "steward_role");
+  const official = admin || series.some(x => x.role_id && u.roles.includes(x.role_id));
+  const link = await linkedDriver(env.DB, u.id);
+  return { ...u, admin, official, steward: admin || (!!rc && u.roles.includes(rc)), cust: link ? link.cust_id : null, driverName: link ? link.name || "" : "" };
 }
 
 // POST /glr/logout
@@ -142,3 +153,5 @@ export async function logout(request, env) {
 
 // may this signed-in person edit this series? (admins: every series)
 export const canEdit = (user, series) => !!user && (user.admin || (!!series && !!series.role_id && user.roles.includes(series.role_id)));
+// may they review protests and make decisions for this series? (race control role, or the series' officials)
+export const canSteward = (user, series) => !!user && (user.steward || canEdit(user, series));

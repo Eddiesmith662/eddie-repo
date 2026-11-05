@@ -71,14 +71,15 @@ function scoreRaces(rules, events, adj, inClass, cls) {
     rows.forEach((r, i) => {
       const pos = inClass ? i + 1 : r.finish_pos || i + 1;
       const B = rules.bonus;
-      const base = rules.points.source === "iracing" ? int(r.league_points) : (rules.points.table[pos - 1] ?? rules.points.others);
-      const why = [[pos === 1, B.win, "Win"], [r.start_pos && r.start_pos === pole, B.pole, "Pole"], [(r.laps_led || 0) > 0, B.led, "Led a lap"],
+      // disqualified by the stewards: no points and no bonuses
+      const base = r.dq ? 0 : rules.points.source === "iracing" ? int(r.league_points) : (rules.points.table[pos - 1] ?? rules.points.others);
+      const why = r.dq ? [] : [[pos === 1, B.win, "Win"], [r.start_pos && r.start_pos === pole, B.pole, "Pole"], [(r.laps_led || 0) > 0, B.led, "Led a lap"],
         [most > 0 && r.laps_led === most, B.mostLed, "Most laps led"], [r.best_lap_ms && r.best_lap_ms === fast, B.fastLap, "Fastest lap"]].filter(([on, v]) => on && v);
       const bonus = why.reduce((s, [, v]) => s + v, 0);
       const pen = adj.filter(a => a.subsession_id === ev.subsession_id && a.cust_id === r.cust_id);
       const adjPts = pen.reduce((s, a) => s + int(a.points), 0);
       by.set(r.cust_id, { pos, pts: base + bonus + adjPts, base, bonus, bonusReasons: why.map(([, v, t]) => `${v > 0 ? "+" : ""}${v} ${t}`), adj: adjPts,
-        adjReasons: pen.map(a => `${int(a.points) > 0 ? "+" : ""}${int(a.points)} ${a.reason || "adjustment"}`),
+        adjReasons: [...(r.stewards || []), ...pen.map(a => `${int(a.points) > 0 ? "+" : ""}${int(a.points)} ${a.reason || "adjustment"}`)],
         lapsLed: r.laps_led || 0, row: r });
     });
     races.push({ ev, by, ran: true });
