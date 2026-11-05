@@ -139,6 +139,7 @@ export function ensureSchema(db) {
     }
     await nameSeries(db);
     await backfillChanges(db);
+    await setDropWeeksOnce(db);
   })().catch(e => { readyFor.delete(db); throw e; }));
   return ready;
 }
@@ -545,7 +546,7 @@ export async function setHook(db, id, kind, url) {
 /* ---------- change history ---------- */
 
 // who did it, from the "discord:<id>:<name>" / "overlay:<id>:<name>" stamps the site keeps
-export const whoName = by => { const m = /^(discord|overlay|import):[^:]*:(.*)$/.exec(by || ""); return m ? (m[1] === "overlay" ? `Overlay (${m[2]})` : m[1] === "import" ? `Import (${m[2]})` : m[2]) : by || ""; };
+export const whoName = by => { const m = /^(discord|overlay|import|site):[^:]*:(.*)$/.exec(by || ""); return m ? (m[1] === "overlay" ? `Overlay (${m[2]})` : m[1] === "import" ? `Import (${m[2]})` : m[2]) : by || ""; };
 
 export async function logChange(db, { by = "", seriesId = null, sub = null, kind, summary }) {
   try {
@@ -553,6 +554,26 @@ export async function logChange(db, { by = "", seriesId = null, sub = null, kind
     await db.prepare(`INSERT INTO changes (at, by, series_id, subsession_id, kind, summary) VALUES (?, ?, ?, ?, ?, ?)`)
       .bind(new Date().toISOString(), String(by || ""), seriesId, sub, kind, String(summary || "").slice(0, 300)).run();
   } catch (e) { console.error("history", e); }      // the history is a record; never let it block the change itself
+}
+
+// one time (November 2026, at the league's request): every season drops each driver's 2 worst races. Seasons without
+// their own rules take the rules they were carrying over. Later changes are made on each series' Rules page as usual.
+export async function setDropWeeksOnce(db) {
+  if (await db.prepare(`SELECT 1 AS ok FROM site_settings WHERE key = 'once_drops_2'`).first()) return;
+  const seasons = (await db.prepare(`SELECT id, series_id, name FROM seasons`).all()).results;
+  const now = new Date().toISOString(), by = "site:0:Site update (league request)", st = [];
+  for (const se of seasons) {
+    const own = await db.prepare(`SELECT rules FROM season_rules WHERE season_id = ?`).bind(se.id).first();
+    const prev = own ? null : await db.prepare(`SELECT sr.rules FROM season_rules sr JOIN seasons x ON x.id = sr.season_id
+        WHERE x.series_id = ? AND x.id <> ? ORDER BY (SELECT MAX(start_time) FROM events e WHERE e.season_id = x.id) DESC LIMIT 1`).bind(se.series_id, se.id).first();
+    const rules = { ...JSON.parse((own || prev || {}).rules || "{}"), drops: 2 };
+    st.push(db.prepare(`INSERT INTO season_rules (season_id, rules, updated_at, updated_by) VALUES (?1, ?2, ?3, ?4)
+        ON CONFLICT(season_id) DO UPDATE SET rules = ?2, updated_at = ?3, updated_by = ?4`).bind(se.id, JSON.stringify(rules), now, by));
+    st.push(db.prepare(`INSERT INTO changes (at, by, series_id, subsession_id, kind, summary) VALUES (?, ?, ?, NULL, 'rules', ?)`)
+      .bind(now, by, se.series_id, `Drop weeks set to 2 for ${se.name}`));
+  }
+  st.push(db.prepare(`INSERT INTO site_settings (key, value) VALUES ('once_drops_2', ?)`).bind(now));
+  await db.batch(st);
 }
 
 // the first time: fill the history from what the site already recorded before it had one

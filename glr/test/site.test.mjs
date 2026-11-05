@@ -199,3 +199,23 @@ test("a driver can't protest a race they weren't in, and can withdraw their own"
   await s.post("/glr/results/2000/stewards", { action: "withdraw", id: String(pid) });
   assert.equal(await listStatus(s, pid), "withdrawn");
 });
+
+test("the one-time drop weeks change sets 2 on every season, once", async () => {
+  const { setDropWeeksOnce } = await import("../src/db.js");
+  const s = await seeded(3);
+  await s.addRace({ sub: 2000, date: week(0), league: 5555, leagueName: "GLR Other SERIES", season: 600 });
+  s.DB.raw.prepare("INSERT INTO season_rules (season_id, rules) VALUES (600, ?)").run(JSON.stringify({ bonus: { win: 3 } }));
+  s.DB.raw.prepare("DELETE FROM site_settings WHERE key = 'once_drops_2'").run();   // as on the live site before the change
+  await setDropWeeksOnce(s.DB);
+  const rules = id => JSON.parse(s.DB.raw.prepare("SELECT rules FROM season_rules WHERE season_id = ?").get(id).rules);
+  assert.equal(rules(500).drops, 2);
+  assert.equal(rules(600).drops, 2);
+  assert.equal(rules(600).bonus.win, 3);                                   // the rest of a season's rules stay
+  const a = (await s.json("/glr/api/standings/test-cup")).groups[0].regular.find(x => x.custId === 100);
+  assert.equal(a.points, 40);                                              // 3 races, 2 dropped
+  s.DB.raw.prepare("UPDATE season_rules SET rules = ? WHERE season_id = 500").run(JSON.stringify({ drops: 0 }));
+  await setDropWeeksOnce(s.DB);                                            // already done: changes nothing
+  assert.equal(rules(500).drops, 0);
+  await s.signIn();
+  assert.match(text((await s.page("/glr/history")).html), /Drop weeks set to 2 for Test Cup Season 1/);
+});
