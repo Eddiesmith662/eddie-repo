@@ -586,6 +586,10 @@ async function raceScore(db, ev) {
 }
 
 const num = v => (v > 0 ? `+${v}` : `${v}`);
+// the regular season's cut line: the row after the last driver in on points (0 = none)
+const cutRow = g => { const i = g.cutAfter == null ? -1 : g.regular.findIndex(s => s.custId === g.cutAfter); return i >= 0 && i < g.regular.length - 1 ? i + 1 : 0; };
+const playoffTag = s => s.withdrawn ? `<span class="st bad" title="${esc(s.withdrawn)}">Out: ${esc(s.withdrawn)}</span>` : s.inByWin ? '<span class="st good">In (win)</span>'
+  : s.inField ? '<span class="st good">In</span>' : s.needStarts ? `<span class="st">Needs ${s.needStarts} more start${s.needStarts === 1 ? "" : "s"}</span>` : "";
 // places moved since the race before: ▲2 up, ▼1 down, nothing for no change or a driver's first race
 const chgCell = c => `<td class="n chg">${c > 0 ? `<span class="up">▲${c}</span>` : c < 0 ? `<span class="dn">▼${-c}</span>` : ""}</td>`;
 
@@ -596,7 +600,7 @@ function regularTable(list, rules, { cutAfter = 0, playoffNote = false } = {}) {
     list.map((s, i) => `<tr${cutAfter && i === cutAfter ? ' class="cut"' : ""}><td class="n">${s.pos}</td>${chgCell(s.chg)}<td>${esc(s.number)}</td><td>${driverLink(s.custId, s.name)}</td>
       <td class="n"><b>${s.points}</b></td><td class="n">${s.behind ? -s.behind : ""}</td>${drops ? `<td class="n tag">${s.dropped || ""}</td>` : ""}
       <td class="n">${s.starts}</td><td class="n">${s.wins || ""}</td><td class="n">${s.top5 || ""}</td><td class="n">${s.top10 || ""}</td><td class="n">${s.lapsLed || ""}</td>
-      ${playoffNote ? `<td>${s.inField ? '<span class="st good">In</span>' : s.needStarts ? `<span class="st">Needs ${s.needStarts} more start${s.needStarts === 1 ? "" : "s"}</span>` : ""}</td>` : ""}</tr>`).join("") + `</table></div>`;
+      ${playoffNote ? `<td>${playoffTag(s)}</td>` : ""}</tr>`).join("") + `</table></div>`;
 }
 
 function roundTable(rd) {
@@ -635,10 +639,9 @@ function standingsBody(st) {
       body += `<details><summary>Regular season</summary>${regularTable(g.regular, rules, { playoffNote: true })}</details>`;
       body += raceGrid(g, [...cur.rows, ...p.eliminated, ...p.others]);
     } else {
-      const inField = g.regular.filter(s => s.inField).length;
-      const cutAfter = po.enabled ? g.regular.findIndex((s, i) => i > 0 && !s.inField && g.regular.slice(0, i).filter(x => x.inField).length === inField) : 0;
+      const cutAfter = po.enabled ? cutRow(g) : 0;
       body += `<h2>${po.enabled ? "Regular season" : "Standings"} · ${g.regularRan} of ${po.enabled ? g.regularRaces : g.races.length} race${g.regularRan === 1 ? "" : "s"}</h2>`;
-      if (po.enabled) body += `<p class="tag">Top ${po.field}${po.minStarts ? ` with at least ${po.minStarts} starts` : ""} make the playoffs${g.regularComplete ? "" : " (as things stand)"}.</p>`;
+      if (po.enabled) body += `<p class="tag">${po.field} make the playoffs${po.minStarts ? ` (at least ${po.minStarts} starts)` : ""}: ${po.winIn ? "every regular-season winner, then the best of the rest on points" : "the top on points"}${g.regularComplete ? "" : ", as things stand"}.</p>`;
       body += regularTable(g.regular, rules, { cutAfter: cutAfter > 0 ? cutAfter : 0, playoffNote: po.enabled });
       body += raceGrid(g, g.regular);
     }
@@ -663,7 +666,7 @@ function rulesSummary(rules, events) {
   const skipped = events.filter(e => rules.skip.includes(e.subsession_id));
   if (skipped.length) h += `<p><b>Not counted:</b> ${skipped.map(e => `${esc(e.track)} (${day(e.start_time)})`).join(", ")}.</p>`;
   if (po.enabled) {
-    h += `<p><b>Playoffs:</b> after ${po.regularRaces} regular-season races, the top ${po.field}${po.minStarts ? ` with at least ${po.minStarts} starts` : ""} go into the playoffs.`;
+    h += `<p><b>Playoffs:</b> after ${po.regularRaces} regular-season races, ${po.field} drivers${po.minStarts ? ` with at least ${po.minStarts} starts` : ""} go into the playoffs: ${po.winIn ? "every regular-season winner, then the best of the rest on points" : "the top on points"}.`;
     if (po.seedBonus.length || po.winBonus) h += ` Bonus points: ${[po.seedBonus.length && `${po.seedBonus.join("/")} for finishing ${po.seedBonus.map((_, i) => i + 1).join("/")} in the regular season`, po.winBonus && `${po.winBonus} per win`].filter(Boolean).join(", ")}.`;
     h += `</p><div class="wrap"><table><tr><th>Round</th><th class="n">Races</th><th class="n">Drivers</th><th class="n">Points reset to</th><th>Bonuses</th><th>Notes</th></tr>` +
       po.rounds.map(r => `<tr><td>${esc(r.name)}</td><td class="n">${r.races}</td><td class="n">${r.drivers}</td><td class="n">${r.reset}</td><td>${r.bonuses ? "Added" : "None"}</td>
@@ -694,6 +697,7 @@ function rulesForm(rules, events) {
     <label class="chk"><input type="checkbox" name="po" id="po"${po.enabled ? " checked" : ""}> This season has playoffs</label>
     <p><button type="button" class="btn ghost" id="glr">Fill in the GLR playoff format</button></p>
     <div class="grid">${n("regularRaces", po.regularRaces, "Regular season races")}${n("minStarts", po.minStarts, "Minimum starts")}${n("field", po.field, "Drivers in")}${n("winBonus", po.winBonus, "Bonus per win")}</div>
+    <label class="chk"><input type="checkbox" name="winIn"${po.winIn ? " checked" : ""}> A regular-season win gets a driver in (if they have the minimum starts)</label>
     <label for="seed">Bonus for regular-season 1st, 2nd, 3rd… (commas)</label><input type="text" id="seed" name="seedBonus" value="${esc(po.seedBonus.join(", "))}">
     <div class="wrap" style="margin-top:12px"><table><tr><th>Round name</th><th>Races</th><th>Drivers</th><th>Reset to</th><th>Add bonuses</th><th>Win goes through</th><th>Miss = must win</th><th>Final</th></tr>
     ${rounds.map((r, i) => `<tr><td><input type="text" name="r${i}_name" value="${esc(r.name)}" style="width:150px"></td><td><input type="number" name="r${i}_races" value="${esc(r.races)}" style="width:64px"></td>
@@ -706,7 +710,7 @@ function rulesForm(rules, events) {
 <script>
 const G=${JSON.stringify(GLR_PLAYOFFS)},F=document.getElementById('rf');
 document.getElementById('glr').onclick=()=>{const s=(k,v)=>{const e=F.elements[k];if(e.type==='checkbox')e.checked=!!v;else e.value=v;};
-  s('po',1);s('regularRaces',G.regularRaces);s('minStarts',G.minStarts);s('field',G.field);s('winBonus',G.winBonus);s('seedBonus',G.seedBonus.join(', '));s('drops',0);
+  s('po',1);s('regularRaces',G.regularRaces);s('minStarts',G.minStarts);s('field',G.field);s('winBonus',G.winBonus);s('seedBonus',G.seedBonus.join(', '));s('winIn',G.winIn);
   for(let i=0;i<5;i++){const r=G.rounds[i]||{name:'',races:'',drivers:'',reset:'',bonuses:0,winAdvances:1,missMustWin:1,finale:0};
     s('r'+i+'_name',r.name);s('r'+i+'_races',r.races);s('r'+i+'_drivers',r.drivers);s('r'+i+'_reset',r.reset);s('r'+i+'_bonuses',r.bonuses);s('r'+i+'_win',r.winAdvances);s('r'+i+'_miss',r.missMustWin);s('r'+i+'_final',r.finale);}};
 </script>`;
@@ -725,7 +729,7 @@ function rulesFromForm(f, events) {
     drops: f.get("drops"), byClass: !!f.get("byClass"), ties: f.get("ties"),
     skip: events.filter(e => !counted.has(e.subsession_id)).map(e => e.subsession_id),
     playoffs: { enabled: !!f.get("po"), regularRaces: f.get("regularRaces"), minStarts: f.get("minStarts"), field: f.get("field"),
-      seedBonus: list(f.get("seedBonus")), winBonus: f.get("winBonus"), rounds },
+      seedBonus: list(f.get("seedBonus")), winBonus: f.get("winBonus"), winIn: !!f.get("winIn"), rounds },
   });
 }
 
@@ -742,14 +746,31 @@ function rulesProblems(r) {
   return out;
 }
 
+function outList(rules, events, edit) {
+  const names = new Map();
+  for (const e of events) for (const r of e.results) names.set(r.cust_id, `${r.car_number ? "#" + r.car_number + " " : ""}${r.name}`);
+  const out = rules.playoffs.out;
+  let h = `<h2 id="out">Not in the playoffs</h2>`;
+  h += out.length ? `<div class="wrap"><table><tr><th>Driver</th><th>Why</th>${edit ? "<th></th>" : ""}</tr>` + out.map(o => `<tr><td>${driverLink(o.cust, names.get(o.cust) || o.cust)}</td>
+    <td style="white-space:normal">${esc(o.reason)}</td>${edit ? `<td><form method="post" action="#out"><input type="hidden" name="action" value="out_remove"><input type="hidden" name="cust" value="${o.cust}"><button class="link">Put back</button></form></td>` : ""}</tr>`).join("") + `</table></div>`
+    : `<p class="hint">Nobody. Every driver with enough starts can make the playoffs.</p>`;
+  if (edit) h += `<form method="post" action="#out"><input type="hidden" name="action" value="out_add">
+    <p class="tag">For a driver who withdrew or isn't allowed in. They're skipped when the field is filled and the next driver takes the spot; their points and wins stay.</p>
+    <div class="grid"><label>Driver<br><select name="cust">${[...names].sort((a, b) => a[1].localeCompare(b[1])).filter(([c]) => !out.some(o => o.cust === c)).map(([c, n]) => `<option value="${c}">${esc(n)}</option>`).join("")}</select></label>
+</div><label for="outwhy">Why (shown on the standings)</label><input type="text" id="outwhy" name="reason" maxlength="120" placeholder="Withdrew from the playoffs" required style="width:100%;max-width:520px">
+    <p><button class="btn ghost">Take out of the playoffs</button></p></form>`;
+  return h;
+}
+
 function rulesPage(sr, seasons, season, info, rules, events, user, msg = "") {
   let body = seriesTabs(sr, "rules", seasons, season && season.id, user);
   if (!season) return page(`${sr.short_name} rules`, body + `<p class="hint">No races uploaded yet.</p>`, { user });
   body += `<p class="tag">${esc(season.name)}${info.own && info.updatedAt ? ` · last changed ${day(info.updatedAt)}` : ""}</p>`;
   if (!info.rules) body += `<p class="hint">No rules set for this season yet, so standings use iRacing's league points.</p>`;
   else if (!info.own) body += `<p class="hint">Carried over from ${esc(info.from)}. Saving below makes them this season's own.</p>`;
-  if (msg) body += `<div class="msg ${/^Saved/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>`;
+  if (msg) body += `<div class="msg ${/^(Saved|Taken out|Put back)/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>`;
   body += rulesSummary(rules, events);
+  if (rules.playoffs.enabled) body += outList(rules, events, canEdit(user, sr));
   if (canEdit(user, sr)) body += `<h2>Change the rules</h2>` + rulesForm(rules, events);
   return page(`${sr.short_name} rules`, body, { user });
 }
@@ -928,9 +949,9 @@ function standingsWidget(sr, season, st, rows, cls) {
           <td class="n"><b>${r.points}</b></td><td class="n">${cur.finale ? (r.behind ? -r.behind : "") : r.toCut != null && !/win/.test(r.status) ? (r.toCut > 0 ? "+" : "") + r.toCut : ""}</td>
           <td>${r.status ? `<span class="st ${/Advanced|Champion/.test(r.status) ? "good" : /Out/.test(r.status) ? "bad" : ""}">${esc(r.status)}</span>` : ""}</td></tr>`).join("") + `</table></div>`;
     } else {
-      const field = g.regular.filter(s => s.inField).length;
+      const cut = po.enabled ? cutRow(g) : 0;
       body += `<div class="box"><table><tr><th class="n">Pos</th><th></th><th>Driver</th><th class="n">Pts</th><th class="n">Behind</th><th class="n">Wins</th></tr>` +
-        g.regular.slice(0, rows).map((s, i) => `<tr${po.enabled && i > 0 && !s.inField && g.regular.slice(0, i).filter(x => x.inField).length === field ? ' class="cut"' : ""}>
+        g.regular.slice(0, rows).map((s, i) => `<tr${cut && i === cut ? ' class="cut"' : ""}>
           <td class="n">${s.pos}</td>${chgCell(s.chg)}<td class="nm">${s.number ? `<span class="tag">#${esc(s.number)}</span> ` : ""}${wDriver(s.custId, s.name)}</td>
           <td class="n"><b>${s.points}</b></td><td class="n">${s.behind ? -s.behind : ""}</td><td class="n">${s.wins || ""}</td></tr>`).join("") + `</table></div>`;
     }
@@ -1397,7 +1418,26 @@ const site = {
           const events = season ? await seasonEvents(db, season.id) : [];
           let rules = cleanRules(info.rules || DEFAULT_RULES);
           if (request.method === "POST") {
-            rules = rulesFromForm(await request.formData(), events);
+            const f = await request.formData(), by = `discord:${user.id}:${user.name}`, a = f.get("action");
+            if (a === "out_add" || a === "out_remove") {
+              const cust = Number(f.get("cust")), reason = String(f.get("reason") || "").trim().slice(0, 120);
+              const name = (events.flatMap(e => e.results).find(r => r.cust_id === cust) || {}).name || String(cust);
+              let note;
+              if (a === "out_add") {
+                if (!cust || !reason) return rulesPage(sr, seasons, season, info, rules, events, user, "Pick the driver and say why.");
+                rules = cleanRules({ ...rules, playoffs: { ...rules.playoffs, out: [...rules.playoffs.out.filter(o => o.cust !== cust), { cust, reason }] } });
+                note = `Taken out of the playoffs: ${name} (${reason})`;
+              } else {
+                rules = cleanRules({ ...rules, playoffs: { ...rules.playoffs, out: rules.playoffs.out.filter(o => o.cust !== cust) } });
+                note = `Put back in the playoff picture: ${name}`;
+              }
+              await saveRules(db, season.id, rules, by);
+              await logChange(db, { by, seriesId: sr.id, kind: "rules", summary: `${note}, ${season.name}` });
+              return rulesPage(sr, seasons, season, { rules, own: true, updatedAt: new Date().toISOString() }, rules, events, user, note + ".");
+            }
+            const keepOut = rules.playoffs.out;               // the form doesn't carry the not-in-the-playoffs list: keep it
+            rules = rulesFromForm(f, events);
+            rules.playoffs.out = keepOut;
             const bad = rulesProblems(rules);
             if (bad.length) return rulesPage(sr, seasons, season, info, rules, events, user, "Not saved: " + bad.join(" "));
             await saveRules(db, season.id, rules, `discord:${user.id}:${user.name}`);

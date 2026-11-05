@@ -144,3 +144,35 @@ test("a series that changes cars during the season has one set of standings", ()
   const mixed = asEvent(raceExport({ sub: 4000, date: week(5), classes: { 0: "GTP", 1: "GT3", 2: "GTP", 3: "GT3" }, order: [0, 1, 2, 3] }));
   assert.equal(computeStandings({}, [mixed]).groups.length, 2);
 });
+
+// ten regular-season races where Racer A..N finish in order, except driver 13 wins race 5
+const playoffSeason = () => season(10, i => ({ order: i === 4 ? [13, ...[...Array(13).keys()]] : [...Array(14).keys()] }));
+const field = (st) => st.groups[0].regular.filter(s => s.inField).map(s => s.custId);
+
+test("win and in: a regular-season winner makes the field even low on points", () => {
+  const po = { ...GLR_PLAYOFFS, minStarts: 7 };
+  const st = computeStandings({ playoffs: po }, playoffSeason());
+  const f = field(st);
+  assert.equal(f.length, 12);
+  assert.ok(f.includes(113));                              // the winner, 14th on points
+  assert.ok(!f.includes(111));                             // the 12th on points loses the last spot
+  assert.equal(st.groups[0].cutAfter, 110);                // the cut line sits after the last driver in on points
+  assert.equal(st.groups[0].regular.find(s => s.custId === 113).inByWin, true);
+  const off = computeStandings({ playoffs: { ...po, winIn: false } }, playoffSeason());
+  assert.ok(!field(off).includes(113));
+});
+
+test("a driver taken out of the playoffs is skipped and the next one moves in", () => {
+  const po = { ...GLR_PLAYOFFS, winIn: false, out: [{ cust: 101, reason: "Withdrew from the playoffs" }] };
+  const st = computeStandings({ playoffs: po }, playoffSeason());
+  const f = field(st);
+  assert.ok(!f.includes(101));
+  assert.equal(f.length, 12);                               // the next driver on points took the spot
+  assert.ok(f.includes(field(computeStandings({ playoffs: { ...po, out: [] } }, playoffSeason())).length === 12 ? 113 : 0));
+  const b = st.groups[0].regular.find(s => s.custId === 101);
+  assert.equal(b.withdrawn, "Withdrew from the playoffs");
+  assert.ok(b.points > 0);                                   // their points stay
+  // seeding skips them too: Racer A seeds 1st, Racer C 2nd
+  const r = computeStandings({ playoffs: po }, [...playoffSeason(), ...season(1, () => ({ sub: 9999 }))]).groups[0].playoffs.current.rows;
+  assert.equal(r.find(x => x.custId === 102).bonus, 3);
+});

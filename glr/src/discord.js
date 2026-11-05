@@ -60,11 +60,11 @@ export function standingsPost(sr, season, st, ev, origin) {
       });
     } else {
       title = `${po.enabled ? "Regular season" : "Standings"} · ${g.regularRan} race${g.regularRan === 1 ? "" : "s"}`;
-      const field = g.regular.filter(s => s.inField).length;
+      const ci = g.cutAfter == null ? -1 : g.regular.findIndex(s => s.custId === g.cutAfter);
       lines = [];
       g.regular.slice(0, 15).forEach((s, i) => {
-        if (po.enabled && i > 0 && !s.inField && g.regular.slice(0, i).filter(x => x.inField).length === field && !lines.includes("── playoff cut ──")) lines.push("── playoff cut ──");
-        lines.push(`${s.pos}. ${s.number ? `#${md(s.number)} ` : ""}${md(s.name)}: **${s.points}**${s.behind ? ` (−${s.behind})` : ""}`);
+        if (po.enabled && ci >= 0 && i === ci + 1) lines.push("── playoff cut ──");
+        lines.push(`${s.pos}. ${s.number ? `#${md(s.number)} ` : ""}${md(s.name)}: **${s.points}**${s.behind ? ` (−${s.behind})` : ""}${po.enabled && s.inByWin ? " ✅ in on a win" : ""}${po.enabled && s.withdrawn ? " · out of the playoffs" : ""}`);
       });
       if (g.regular.length > 15) lines.push(`…and ${g.regular.length - 15} more`);
     }

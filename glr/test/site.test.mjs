@@ -219,3 +219,23 @@ test("the one-time drop weeks change sets 2 on every season, once", async () => 
   await s.signIn();
   assert.match(text((await s.page("/glr/history")).html), /Drop weeks set to 2 for Test Cup Season 1/);
 });
+
+test("officials take a driver out of the playoffs on the Rules page, and saving the rules keeps it", async () => {
+  const s = await seeded(3);
+  await s.signIn();
+  let r = await s.post("/glr/test-cup/rules", { action: "out_add", cust: "101", reason: "Withdrew from the playoffs" });
+  assert.equal(r.status, 200);   // playoffs are off: the list only shows once they're on, but the choice is kept
+  const { GLR_PLAYOFFS } = await import("../src/standings.js");
+  const form = [["source", "iracing"], ["drops", "0"], ["byClass", "on"], ["ties", "share"], ...[1000, 1001, 1002].map(x => ["count", String(x)]),
+    ["po", "on"], ["winIn", "on"], ["regularRaces", "10"], ["minStarts", "0"], ["field", "4"], ["winBonus", "3"], ["seedBonus", "5, 3, 1"],
+    ["r0_name", "Final"], ["r0_races", "1"], ["r0_drivers", "4"], ["r0_reset", "1000"], ["r0_win", "on"], ["r0_final", "on"]];
+  r = await s.post("/glr/test-cup/rules", form);
+  assert.match(text(r.html), /Saved/);
+  const page = text((await s.page("/glr/test-cup/rules")).html);
+  assert.match(page, /Not in the playoffs .*Racer B Withdrew from the playoffs/);
+  assert.match(text((await s.page("/glr/test-cup/standings")).html), /Out: Withdrew from the playoffs/);
+  r = await s.post("/glr/test-cup/rules", { action: "out_remove", cust: "101" });
+  assert.match(text(r.html), /Put back/);
+  assert.match(text((await s.page("/glr/history")).html), /Taken out of the playoffs: Racer B/);
+  assert.ok(GLR_PLAYOFFS.winIn);
+});

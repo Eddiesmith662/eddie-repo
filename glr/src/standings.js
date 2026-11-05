@@ -24,11 +24,11 @@ export const DEFAULT_RULES = {
   points: { source: "iracing", table: [], others: 0 },
   bonus: { win: 0, pole: 0, led: 0, mostLed: 0, fastLap: 0 },
   drops: 0, byClass: true, ties: "share", skip: [],
-  playoffs: { enabled: false, regularRaces: 10, minStarts: 0, field: 12, seedBonus: [], winBonus: 0, rounds: [] },
+  playoffs: { enabled: false, regularRaces: 10, minStarts: 0, field: 12, seedBonus: [], winBonus: 0, winIn: true, out: [], rounds: [] },
 };
 
 export const GLR_PLAYOFFS = {
-  enabled: true, regularRaces: 10, minStarts: 7, field: 12, seedBonus: [5, 3, 1], winBonus: 3,
+  enabled: true, regularRaces: 10, minStarts: 7, field: 12, seedBonus: [5, 3, 1], winBonus: 3, winIn: true,
   rounds: [
     { name: "Round of 12", races: 2, drivers: 12, reset: 1000, bonuses: true, winAdvances: true, missMustWin: true, finale: false },
     { name: "Round of 8", races: 2, drivers: 8, reset: 2000, bonuses: true, winAdvances: true, missMustWin: true, finale: false },
@@ -51,6 +51,10 @@ export function cleanRules(r) {
       enabled: !!po.enabled, regularRaces: Math.max(1, int(po.regularRaces, 10)), minStarts: Math.max(0, int(po.minStarts)),
       field: Math.max(2, int(po.field, 12)), seedBonus: (Array.isArray(po.seedBonus) ? po.seedBonus : []).map(x => int(x)).slice(0, 50),
       winBonus: int(po.winBonus),
+      // a regular-season win puts an eligible driver in the field (filled up with the best of the rest on points)
+      winIn: po.winIn !== false,
+      // drivers out of the playoffs by the officials' decision (withdrew, ...): skipped when the field is filled
+      out: (Array.isArray(po.out) ? po.out : []).map(o => ({ cust: int(o && o.cust), reason: String((o && o.reason) || "").slice(0, 120) })).filter(o => o.cust).slice(0, 50),
       rounds: (Array.isArray(po.rounds) ? po.rounds : []).filter(x => x && int(x.races) > 0).slice(0, 10).map((x, i) => ({
         name: String(x.name || `Round ${i + 1}`).slice(0, 40), races: Math.max(1, int(x.races)), drivers: Math.max(1, int(x.drivers)),
         reset: int(x.reset), bonuses: !!x.bonuses, winAdvances: x.winAdvances !== false, missMustWin: x.missMustWin !== false, finale: !!x.finale })),
@@ -130,15 +134,31 @@ function standingsFor(rules, races) {
   const regRan = races.slice(0, R).filter(r => r.ran).length;
   const regular = rank([...driverStats(races, 0, R, rules.drops).values()], rules.ties);
   const all = driverStats(races, 0, races.length, rules.drops);
-  for (const s of regular) { s.eligible = s.starts >= po.minStarts; s.needStarts = Math.max(0, po.minStarts - s.starts); }
+  const outBy = new Map(po.out.map(o => [o.cust, o.reason || "Not in the playoffs"]));
+  for (const s of regular) {
+    s.withdrawn = outBy.get(s.custId) || "";
+    s.eligible = s.starts >= po.minStarts && !s.withdrawn;
+    s.needStarts = s.withdrawn ? 0 : Math.max(0, po.minStarts - s.starts);
+  }
   const out = { regular, regularRaces: R, regularRan: regRan, playoffs: null };
   if (!po.enabled || !po.rounds.length) { out.regularComplete = regRan >= R; return out; }
 
   // the playoff field (projected until the regular season is over)
   const regularDone = regRan >= R;
-  const field = regular.filter(s => s.eligible).slice(0, po.field);
+  // the field, in regular-season order (that's the seeding): winners first if a win gets you in, then the rest on points.
+  // cutAfter: the last driver in on points, where the cut line goes; winners further down are in on their win.
+  const elig = regular.filter(s => s.eligible);
+  let field, onPoints;
+  if (po.winIn) {
+    const winners = elig.filter(s => s.wins > 0).slice(0, po.field);
+    onPoints = elig.filter(s => !s.wins).slice(0, po.field - winners.length);
+    field = elig.filter(s => winners.includes(s) || onPoints.includes(s));
+  } else field = onPoints = elig.slice(0, po.field);
   const fieldIds = new Set(field.map(s => s.custId));
-  regular.forEach(s => { s.inField = fieldIds.has(s.custId); });
+  const last = (onPoints.length ? onPoints : field)[(onPoints.length ? onPoints : field).length - 1];
+  out.cutAfter = last ? last.custId : null;
+  const cutIdx = last ? regular.indexOf(last) : -1;
+  regular.forEach((s, i) => { s.inField = fieldIds.has(s.custId); s.inByWin = s.inField && i > cutIdx; });
   if (!regularDone) { out.regularComplete = false; out.playoffs = { started: false, projected: true }; return out; }
 
   const bonus = new Map(field.map((s, i) => [s.custId, (po.seedBonus[i] || 0) + po.winBonus * s.wins]));
