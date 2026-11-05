@@ -19,6 +19,8 @@
  *         /glr/health
  *         /glr/upload             officials upload iRacing result files (JSON or CSV)
  *         /glr/keys               admins: overlay keys, for producers' overlays to send their race results
+ *         /glr/settings           admins: the site's theme and the league's short name
+ *         /glr/theme/<file>       the themes' images (the GLR logo)
  *         /glr/history            officials: who changed what (admins: every series; series officials: their own)
  *         /glr/api/overlay/results  POST from an overlay (Authorization: Bearer <key>): provisional results
  *         /glr/api/overlay/check    GET with the same header: is this key good?
@@ -31,10 +33,12 @@ import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, i
   importOverlay, listKeys, createKey, revokeKey, checkKey, deleteEvent, listFixes, fixResult, FIX_FIELDS, markOfficial, setHook, HOOKS,
   logChange, listChanges, whoName, mergeDrivers, separateDriver, aliasesOf, findDrivers,
   seriesEvents, allSeriesEvents, listRoster, addRoster, removeRoster, listSchedule, upcoming, addSchedule, addScheduleLines, deleteSchedule,
-  scheduleEntry, linkScheduleTo } from "./db.js";
+  scheduleEntry, linkScheduleTo, getSetting, setSetting } from "./db.js";
 import { resultsPost, standingsPost, penaltyPost, fixPost, enqueue, processQueue, queueFor, retryQueued, discardQueued, isRecent } from "./discord.js";
 import { computeStandings, cleanRules, DEFAULT_RULES, GLR_PLAYOFFS } from "./standings.js";
 import { computeStats, leaders, COLUMNS } from "./stats.js";
+import { THEMES, themeOf } from "./themes.js";
+import { ASSETS } from "./assets.js";
 import { parseExport, parseOverlay } from "./parse.js";
 import { configured, login, callback, currentUser, logout, canEdit } from "./auth.js";
 
@@ -52,18 +56,18 @@ const gap = (r, inClass) => {
 const day = t => { const d = new Date(t); return isNaN(d) ? esc(t) : d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "America/New_York" }); };
 
 const page = (title, body, { status = 200, user = null } = {}) => new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(title)}</title><style>
-:root{--bg:#141416;--card:#1d1d21;--line:#2c2c32;--text:#eee;--dim:#9a9aa3;--accent:#FF0D40}
+<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(title)}</title>__THEME_FONTS__<style>
+:root{__THEME_VARS__}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,Segoe UI,Arial,sans-serif}
 header{border-bottom:1px solid var(--line);padding:12px 16px}header a{color:var(--text);text-decoration:none;font-weight:700;letter-spacing:.04em}
 header a span{color:var(--accent)}main{max-width:1000px;margin:0 auto;padding:20px 16px 48px}
 h1{font-size:22px;margin:0 0 4px;border-left:4px solid var(--accent);padding-left:10px}h2{font-size:16px;margin:28px 0 8px}
-.sub{color:var(--dim);margin:0 0 18px;padding-left:14px}a{color:#7fb6ff}.hint{color:var(--dim)}
+.sub{color:var(--dim);margin:0 0 18px;padding-left:14px}a{color:var(--link)}.hint{color:var(--dim)}
 .wrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--card)}
 table{border-collapse:collapse;width:100%;font-variant-numeric:tabular-nums}th,td{padding:7px 10px;text-align:left;white-space:nowrap}
 th{font-size:12px;color:var(--dim);font-weight:600;text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--line)}
 tr+tr td{border-top:1px solid var(--line)}header{display:flex;align-items:center;gap:14px}header .me{margin-left:auto;display:flex;gap:12px;align-items:center;font-size:14px}
-header .me a{font-weight:400;letter-spacing:0;color:#7fb6ff}header form{margin:0}button.link{background:none;border:0;color:#7fb6ff;font:inherit;cursor:pointer;padding:0}
+header .me a{font-weight:400;letter-spacing:0;color:var(--link)}header form{margin:0}button.link{background:none;border:0;color:var(--link);font:inherit;cursor:pointer;padding:0}
 .drop{border:2px dashed var(--line);border-radius:10px;padding:28px;text-align:center;background:var(--card)}.drop.on{border-color:var(--accent)}
 .btn{background:var(--accent);color:#fff;border:0;border-radius:6px;padding:9px 16px;font:inherit;font-weight:600;cursor:pointer}
 .msg{margin:6px 0;padding:8px 12px;border-radius:6px;background:var(--card);border:1px solid var(--line)}.msg.bad{border-color:#a33}.msg.ok{border-color:#2a7}td.n,th.n{text-align:right}.stats{display:flex;flex-wrap:wrap;gap:10px;margin:0 0 8px}
@@ -90,15 +94,15 @@ header{flex-wrap:wrap;row-gap:6px}header .me{flex-wrap:wrap;justify-content:flex
 .lead{display:grid;grid-template-columns:repeat(auto-fill,minmax(160px,1fr));gap:10px;margin:0 0 18px}.lead div{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:10px 12px}
 .lead small{display:block;color:var(--dim);font-size:12px}.lead b{font-size:18px}.lead span{display:block;font-size:14px}
 th.sort{cursor:pointer;user-select:none}th.sort:hover{color:var(--text)}th.sort.on{color:var(--text)}th.sort.on::after{content:" ▾"}th.sort.on.asc::after{content:" ▴"}
-label.up{margin:0 0 0 10px;display:inline;color:#7fb6ff;font-size:13px;cursor:pointer;text-decoration:underline}.ups{font-size:13px;color:var(--dim)}.ups.bad{color:#ff8a8a}
+label.up{margin:0 0 0 10px;display:inline;color:var(--link);font-size:13px;cursor:pointer;text-decoration:underline}.ups{font-size:13px;color:var(--dim)}.ups.bad{color:#ff8a8a}
 .grid-r td,.grid-r th{padding:5px 6px;text-align:center}.grid-r td.d{text-align:left;position:sticky;left:0;background:var(--card);z-index:1}
 .grid-r .c{border-radius:4px;display:inline-block;min-width:26px;padding:1px 3px}.grid-r .w{background:#6b5313;color:#ffe08a;font-weight:700}
 .grid-r .t5{background:#1f4630}.grid-r .t10{background:#1f3550}.grid-r .dnf{color:#ff8a8a}.grid-r .p{display:none}.grid-r.pts .p{display:inline}.grid-r.pts .f{display:none}
 .seg2{display:inline-flex;border:1px solid var(--line);border-radius:6px;overflow:hidden;margin:0 0 10px}.seg2 button{background:none;border:0;color:var(--dim);padding:6px 12px;font:inherit;cursor:pointer}
 .seg2 button.on{background:#2c2c32;color:var(--text)}time{white-space:nowrap}
 input.search{width:100%;max-width:360px;margin:0 0 12px;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
-</style></head><body><header><a href="${BASE}">VSPEED <span>GLR</span></a><div class="me"><a href="${BASE}/schedule">Schedule</a><a href="${BASE}/drivers">Drivers</a>${user
-  ? `<a href="${BASE}/history">History</a>${user.admin ? `<a href="${BASE}/keys">Overlay keys</a>` : ""}<a href="${BASE}/upload">Upload results</a><span class="tag">${esc(user.name)}</span><form method="post" action="${BASE}/logout"><button class="link">Sign out</button></form>`
+__THEME_CSS__</style></head><body><header><a class="brand" href="${BASE}">__THEME_BRAND__</a><div class="me"><a href="${BASE}/schedule">Schedule</a><a href="${BASE}/drivers">Drivers</a>${user
+  ? `<a href="${BASE}/history">History</a>${user.admin ? `<a href="${BASE}/keys">Overlay keys</a><a href="${BASE}/settings">Settings</a>` : ""}<a href="${BASE}/upload">Upload results</a><span class="tag">${esc(user.name)}</span><form method="post" action="${BASE}/logout"><button class="link">Sign out</button></form>`
   : `<a href="${BASE}/login">Official sign-in</a>`}</div></header><main>${body}</main></body></html>`,
   { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
 
@@ -715,6 +719,37 @@ function historyPage(rows, user) {
   return page("History", body, { user });
 }
 
+function settingsPage(cur, short, user, msg = "") {
+  let body = `<h1>Site settings</h1><p class="sub">How the site looks for everyone.</p>${msg ? `<div class="msg ${/^Saved/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>` : ""}
+  <form method="post"><fieldset><legend>Theme</legend>${Object.entries(THEMES).map(([k, t]) => `<label class="chk"><input type="radio" name="theme" value="${k}"${k === cur ? " checked" : ""}>
+    <span><b>${esc(t.label)}</b> <span class="tag">${esc(t.note)}</span> <a href="${BASE}?theme=${k}" target="_blank">Preview</a></span></label>`).join("")}</fieldset>
+  <label for="ls">League short name (in the VSPEED theme's header, e.g. GLR)</label><input type="text" id="ls" name="short" value="${esc(short)}" maxlength="20">
+  <p><button class="btn">Save</button></p></form>`;
+  return page("Site settings", body, { user });
+}
+
+// fill in a page's theme: the chosen theme, or ?theme= to preview another
+let themeCache = null;
+async function siteTheme(db, url) {
+  if (!themeCache || Date.now() - themeCache.t > 60000) {
+    let theme = "", short = "";
+    try { [theme, short] = await Promise.all([getSetting(db, "theme"), getSetting(db, "league_short")]); } catch (e) { console.error(e); }
+    themeCache = { t: Date.now(), theme: themeOf(theme || "glr"), short: short || "GLR" };
+  }
+  const want = url.searchParams.get("theme");
+  return { ...themeCache, theme: want && THEMES[want] ? want : themeCache.theme };
+}
+async function applyTheme(res, db, url) {
+  if (!(res.headers.get("content-type") || "").startsWith("text/html")) return res;
+  const { theme, short } = await siteTheme(db, url), t = THEMES[theme];
+  const html = (await res.text())
+    .replace("__THEME_VARS__", t.vars)
+    .replace("__THEME_FONTS__", t.fonts ? `<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="${t.fonts}">` : "")
+    .replace("__THEME_CSS__", t.css)
+    .replace("__THEME_BRAND__", t.brand(esc(short)));
+  return new Response(html, { status: res.status, headers: res.headers });
+}
+
 // series as the public sees them: never the webhook links
 const pub = ({ hook_results, hook_standings, hook_penalties, ...rest }) => rest;
 const sameOrigin = (request, url) => request.headers.get("origin") === url.origin;
@@ -733,12 +768,16 @@ function keysPage(keys, user, { newKey = "", newKind = "overlay", msg = "" } = {
   return page("Overlay keys", body, { user });
 }
 
-export default {
+const site = {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(processQueue(env.DB));       // retry Discord posts that are waiting
   },
 
   async fetch(request, env, ctx) {
+    return applyTheme(await site.route(request, env, ctx), env.DB, new URL(request.url));
+  },
+
+  async route(request, env, ctx) {
     const url = new URL(request.url);
     const kick = () => { if (ctx) ctx.waitUntil(processQueue(env.DB).catch(e => console.error(e))); };
     const path = url.pathname.replace(/\/+$/, "") || "/";
@@ -874,6 +913,29 @@ export default {
           } catch (e) { msg = e.message; }
         }
         return resultPage(ev, user, { fixes: await listFixes(db, sub), edit, msg });
+      }
+      if ((m = path.match(/^\/glr\/theme\/([\w.-]+)$/))) {
+        const a = ASSETS[m[1]];
+        if (!a) return new Response("Not found", { status: 404 });
+        return new Response(Uint8Array.from(atob(a.data), c => c.charCodeAt(0)), { headers: { "content-type": a.type, "cache-control": "public, max-age=86400" } });
+      }
+      if (path === `${BASE}/settings`) {
+        if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/settings`, 302);
+        if (!user.admin) return notFound("Only admins can change the site settings.", user);
+        let msg = "";
+        if (request.method === "POST") {
+          if (!sameOrigin(request, url)) return notFound("Save from this page.", user);
+          const f = await request.formData(), theme = String(f.get("theme") || ""), short = String(f.get("short") || "").trim().slice(0, 20);
+          if (!THEMES[theme]) msg = "Pick a theme.";
+          else {
+            await setSetting(db, "theme", theme); await setSetting(db, "league_short", short || "GLR");
+            themeCache = null;
+            await logChange(db, { by: `discord:${user.id}:${user.name}`, kind: "series", summary: `Site theme set to ${THEMES[theme].label}${short ? `, short name ${short}` : ""}` });
+            msg = "Saved.";
+          }
+        }
+        const cur = await siteTheme(db, new URL(url.origin + BASE));
+        return settingsPage(cur.theme, cur.short, user, msg);
       }
       if (path === `${BASE}/history`) {
         if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/history`, 302);
@@ -1080,3 +1142,5 @@ export default {
     }
   },
 };
+
+export default site;

@@ -68,6 +68,7 @@ const SCHEMA = [
      id INTEGER PRIMARY KEY AUTOINCREMENT, series_id INTEGER NOT NULL, starts_at TEXT NOT NULL, track TEXT NOT NULL,
      notes TEXT NOT NULL DEFAULT '', subsession_id INTEGER, created_at TEXT, created_by TEXT)`,
   `CREATE INDEX IF NOT EXISTS schedule_series ON schedule (series_id, starts_at)`,
+  `CREATE TABLE IF NOT EXISTS site_settings (key TEXT PRIMARY KEY, value TEXT NOT NULL DEFAULT '')`,
   `CREATE TABLE IF NOT EXISTS overlay_keys (
      id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, key_hash TEXT NOT NULL UNIQUE,
      created_at TEXT, created_by TEXT, last_used TEXT, uses INTEGER NOT NULL DEFAULT 0, revoked INTEGER NOT NULL DEFAULT 0)`,
@@ -86,7 +87,7 @@ const ADDED = [
 // short names for the GLR series (by iRacing league id); officials can change them on the site
 const SHORT = { 9310: "ARCA", 9309: "Grand National", 11390: "Foundation", 12070: "Sports Car", 11059: "Warrior", 6838: "Next Gen" };
 // words in the site's own addresses, which a series can't use as its address
-export const RESERVED = new Set(["api", "results", "drivers", "upload", "login", "logout", "auth", "health", "series", "edit", "admin", "keys", "history", "schedule"]);
+export const RESERVED = new Set(["api", "results", "drivers", "upload", "login", "logout", "auth", "health", "series", "edit", "admin", "keys", "history", "schedule", "settings", "theme"]);
 
 export const slugify = s => String(s || "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
 const shortFrom = (id, name) => SHORT[id] || String(name || "").replace(/^\s*GLR\s+/i, "").replace(/\s+SERIES\s*$/i, "").trim() || `Series ${id}`;
@@ -759,4 +760,14 @@ export async function linkScheduleTo(db, id, sub) {
   if (other) return { ok: false, error: `Those results are already on the schedule (${other.track}).` };
   await db.prepare(`UPDATE schedule SET subsession_id = ? WHERE id = ?`).bind(sub, id).run();
   return { ok: true };
+}
+
+export async function getSetting(db, key) {
+  await ensureSchema(db);
+  const r = await db.prepare(`SELECT value FROM site_settings WHERE key = ?`).bind(key).first();
+  return r ? r.value : "";
+}
+export async function setSetting(db, key, value) {
+  await ensureSchema(db);
+  await db.prepare(`INSERT INTO site_settings (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = ?2`).bind(key, String(value)).run();
 }
