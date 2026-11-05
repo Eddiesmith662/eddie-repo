@@ -43,7 +43,7 @@ import { computeStats, leaders, COLUMNS } from "./stats.js";
 import { THEMES, themeOf } from "./themes.js";
 import { ASSETS } from "./assets.js";
 import { parseExport, parseOverlay } from "./parse.js";
-import { configured, login, callback, currentUser, logout, canEdit } from "./auth.js";
+import { configured, login, callback, currentUser, logout, canEdit, cookies } from "./auth.js";
 
 const BASE = "/glr";
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -58,7 +58,7 @@ const gap = (r, inClass) => {
 };
 const day = t => { const d = new Date(t); return isNaN(d) ? esc(t) : d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "America/New_York" }); };
 
-const page = (title, body, { status = 200, user = null } = {}) => new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8">
+const page = (title, body, { status = 200, user = null } = {}) => new Response(`<!doctype html><html lang="en"__THEME_MODE__><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(title)}</title>__THEME_FONTS__<style>
 :root{__THEME_VARS__}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,Segoe UI,Arial,sans-serif}
@@ -107,7 +107,7 @@ label.up{margin:0 0 0 10px;display:inline;color:var(--link);font-size:13px;curso
 .seg2 button.on{background:#2c2c32;color:var(--text)}time{white-space:nowrap}
 .chg{font-size:12px;font-weight:600;width:42px}.chg .up{color:#1e9d46}.chg .dn{color:#d33}.bon{font-size:12px;color:var(--dim);white-space:normal;min-width:120px}
 input.search{width:100%;max-width:360px;margin:0 0 12px;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
-__THEME_CSS__</style></head><body><header><a class="brand" href="${BASE}">__THEME_BRAND__</a><div class="me"><a href="${BASE}/schedule">Schedule</a><a href="${BASE}/drivers">Drivers</a>${user
+__THEME_CSS__</style></head><body><header><a class="brand" href="${BASE}">__THEME_BRAND__</a><div class="me"><a href="${BASE}/schedule">Schedule</a><a href="${BASE}/drivers">Drivers</a>__THEME_SWITCH__${user
   ? `<a href="${BASE}/history">History</a>${user.admin ? `<a href="${BASE}/keys">Overlay keys</a><a href="${BASE}/settings">Settings</a>` : ""}<a href="${BASE}/upload">Upload results</a><span class="tag">${esc(user.name)}</span><form method="post" action="${BASE}/logout"><button class="link">Sign out</button></form>`
   : `<a href="${BASE}/login">Official sign-in</a>`}</div></header><main>${body}</main></body></html>`,
   { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
@@ -776,13 +776,20 @@ async function siteTheme(db, url) {
   const want = url.searchParams.get("theme");
   return { t: themeCache.t, short: themeCache.short, theme: want && THEMES[want] ? want : themeCache.theme };
 }
-async function applyTheme(res, db, url) {
+// the Dark / Light switch (themes with a dark mode): flips the page and remembers the choice in a cookie for a year
+const MODE_SWITCH = `<button type="button" class="link" id="modeSw">Dark</button><script>(()=>{const b=document.getElementById("modeSw"),h=document.documentElement,
+show=()=>{b.textContent=h.classList.contains("dark")?"Light":"Dark"};show();b.onclick=()=>{const d=h.classList.toggle("dark");
+document.cookie="glr_mode="+(d?"dark":"light")+";path=${BASE};max-age=31536000;samesite=lax";show()}})()</script>`;
+async function applyTheme(res, db, url, request) {
   if (!(res.headers.get("content-type") || "").startsWith("text/html")) return res;
   const { theme, short } = await siteTheme(db, url), t = THEMES[theme];
+  const dark = !!t.dark && request && cookies(request).glr_mode === "dark";
   const html = (await res.text())
+    .replace("__THEME_MODE__", dark ? ` class="dark"` : "")
     .replace("__THEME_VARS__", t.vars)
     .replace("__THEME_FONTS__", t.fonts ? `<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="${t.fonts}">` : "")
-    .replace("__THEME_CSS__", t.css)
+    .replace("__THEME_CSS__", t.css + (t.dark || ""))
+    .replace("__THEME_SWITCH__", t.dark ? MODE_SWITCH : "")
     .replace("__THEME_BRAND__", t.brand(esc(short)));
   return new Response(html, { status: res.status, headers: res.headers });
 }
@@ -918,7 +925,7 @@ const site = {
   },
 
   async fetch(request, env, ctx) {
-    return applyTheme(await site.route(request, env, ctx), env.DB, new URL(request.url));
+    return applyTheme(await site.route(request, env, ctx), env.DB, new URL(request.url), request);
   },
 
   async route(request, env, ctx) {

@@ -106,3 +106,17 @@ test("the site theme can be changed by an admin", async () => {
   await s.post("/glr/settings", { theme: "vspeed" });
   assert.ok(!(await s.page("/glr")).html.includes("glr-logo.png"));
 });
+
+test("the GLR theme has a Dark switch that's remembered", async () => {
+  const s = await seeded(1);
+  let html = (await s.page("/glr/test-cup/standings")).html;
+  assert.ok(html.includes('id="modeSw"'));
+  assert.ok(!html.includes('<html lang="en" class="dark">'));
+  s.cookie = "glr_mode=dark";
+  html = (await s.page("/glr/test-cup/standings")).html;
+  assert.ok(html.includes('<html lang="en" class="dark">'));
+  assert.equal((await s.go("/glr/theme/glr-logo-dark.png")).status, 200);
+  await s.signIn();
+  await s.post("/glr/settings", { theme: "vspeed" });                    // the VSPEED theme is dark already: no switch
+  assert.ok(!(await s.page("/glr")).html.includes('id="modeSw"'));
+});
