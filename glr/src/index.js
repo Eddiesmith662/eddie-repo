@@ -107,7 +107,7 @@ label.up{margin:0 0 0 10px;display:inline;color:var(--link);font-size:13px;curso
 .seg2 button.on{background:#2c2c32;color:var(--text)}time{white-space:nowrap}
 .chg{font-size:12px;font-weight:600;width:42px}.chg .up{color:#1e9d46}.chg .dn{color:#d33}.bon{font-size:12px;color:var(--dim);white-space:normal;min-width:120px}
 input.search{width:100%;max-width:360px;margin:0 0 12px;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
-__THEME_CSS__</style></head><body><header><a class="brand" href="${BASE}">__THEME_BRAND__</a><div class="me"><a href="${BASE}/schedule">Schedule</a><a href="${BASE}/drivers">Drivers</a>__THEME_SWITCH__${user
+__THEME_CSS__</style></head><body><header><a class="brand" href="${BASE}">__THEME_BRAND__</a>__THEME_SWITCH__<div class="me"><a href="${BASE}/schedule">Schedule</a><a href="${BASE}/drivers">Drivers</a>${user
   ? `<a href="${BASE}/history">History</a>${user.admin ? `<a href="${BASE}/keys">Overlay keys</a><a href="${BASE}/settings">Settings</a>` : ""}<a href="${BASE}/upload">Upload results</a><span class="tag">${esc(user.name)}</span><form method="post" action="${BASE}/logout"><button class="link">Sign out</button></form>`
   : `<a href="${BASE}/login">Official sign-in</a>`}</div></header><main>${body}</main></body></html>`,
   { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
@@ -776,10 +776,13 @@ async function siteTheme(db, url) {
   const want = url.searchParams.get("theme");
   return { t: themeCache.t, short: themeCache.short, theme: want && THEMES[want] ? want : themeCache.theme };
 }
-// the Dark / Light switch (themes with a dark mode): flips the page and remembers the choice in a cookie for a year
-const MODE_SWITCH = `<button type="button" class="link" id="modeSw">Dark</button><script>(()=>{const b=document.getElementById("modeSw"),h=document.documentElement,
-show=()=>{b.textContent=h.classList.contains("dark")?"Light":"Dark"};show();b.onclick=()=>{const d=h.classList.toggle("dark");
-document.cookie="glr_mode="+(d?"dark":"light")+";path=${BASE};max-age=31536000;samesite=lax";show()}})()</script>`;
+// the dark mode switch in the header (themes with a dark mode): flips the page and remembers the choice in a cookie for a year
+const SUN = `<svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1 7 17M17 7l2.1-2.1"/></svg>`;
+const MOON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5z"/></svg>`;
+const MODE_SWITCH = `<button type="button" class="mode" id="modeSw" role="switch" aria-checked="false" aria-label="Dark mode" title="Dark mode">
+<span class="knob">${SUN}${MOON}</span></button><script>(()=>{const b=document.getElementById("modeSw"),h=document.documentElement,
+show=()=>b.setAttribute("aria-checked",h.classList.contains("dark"));show();b.onclick=()=>{const d=h.classList.toggle("dark");show();
+try{document.cookie="glr_mode="+(d?"dark":"light")+";path=${BASE};max-age=31536000;samesite=lax"}catch(e){}}})()</script>`;
 async function applyTheme(res, db, url, request) {
   if (!(res.headers.get("content-type") || "").startsWith("text/html")) return res;
   const { theme, short } = await siteTheme(db, url), t = THEMES[theme];
