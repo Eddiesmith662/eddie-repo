@@ -85,7 +85,8 @@ header .me a{font-weight:400;letter-spacing:0;color:var(--link)}header form{marg
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px}
 .card{display:block;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:14px 16px;color:var(--text);text-decoration:none}
 .card:hover{border-color:#44444c}.card b{display:block;font-size:18px;border-left:3px solid var(--accent);padding-left:8px;margin-bottom:2px}
-.card .full{color:var(--dim);font-size:12px;padding-left:11px;margin-bottom:10px}.card .row{font-size:14px}.card .row span{color:var(--dim)}
+.card .full{color:var(--dim);font-size:12px;padding-left:11px;margin-bottom:10px}
+.card .slogo{height:120px;display:flex;align-items:center;justify-content:center;margin:2px 0 12px}.card .slogo img{max-height:120px;max-width:100%;object-fit:contain}.card .row{font-size:14px}.card .row span{color:var(--dim)}
 .row2{display:flex;gap:8px;flex-wrap:wrap}.row2 input{flex:1 1 260px;max-width:none}form.hook{margin:0 0 6px}
 .prov{display:inline-block;font-size:11px;font-weight:700;padding:1px 6px;border-radius:4px;background:#4a3a12;color:#ffcf66;margin-left:6px;vertical-align:1px}
 code.key{display:block;padding:10px 12px;background:#000;border:1px solid var(--line);border-radius:6px;word-break:break-all;font-size:14px;margin:8px 0}
@@ -145,7 +146,7 @@ t.textContent=d.toLocaleString(undefined,Object.assign(t.dataset.day==='1'?{week
 function homePage(series, recent, user, next = new Map()) {
   if (!series.length) return page("VSPEED GLR", `<h1>Results</h1><p class="sub">No races uploaded yet.</p>`, { user });
   let body = `<h1>Series</h1><p class="sub">${series.length} series</p><div class="cards">` +
-    series.map(s => { const e = s.latestEvent; return `<a class="card" href="${BASE}/${esc(s.slug)}"><b>${esc(s.short_name)}</b><div class="full">${esc(s.name)}</div>
+    series.map(s => { const e = s.latestEvent, logo = ASSETS[`series-${s.id}.png`]; return `<a class="card${logo ? " has-logo" : ""}" href="${BASE}/${esc(s.slug)}">${logo ? `<div class="slogo"><img src="${BASE}/theme/series-${s.id}.png" alt="${esc(s.short_name)} logo" loading="lazy"></div>` : ""}<b>${esc(s.short_name)}</b><div class="full">${esc(s.name)}</div>
       ${e ? `<div class="row"><span>Latest:</span> ${esc(e.track)}, ${day(e.start_time)}</div>
         <div class="row"><span>Won by</span> ${e.winners.map(w => (e.winners.length > 1 ? cls(w.carClass) : "") + esc(w.name)).join(" · ")}</div>` : ""}
       ${next.get(s.id) ? `<div class="row"><span>Next:</span> ${esc(next.get(s.id).track)}, ${when(next.get(s.id).starts_at)}</div>` : ""}
