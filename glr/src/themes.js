@@ -21,27 +21,38 @@ export const THEMES = {
   },
   glr: {
     label: "Goat Locker Racing",
-    note: "GLR's own look: the goat logo, black, white and GLR red, with headings in the style of the GLR graphics.",
-    vars: "--bg:#0c0c0c;--card:#161616;--line:#2a2a2a;--text:#f2f2f2;--dim:#a3a3a3;--accent:#e31b1b;--link:#ff6b6b",
-    fonts: "https://fonts.googleapis.com/css2?family=Barlow+Condensed:ital,wght@0,600;0,800;1,800;1,900&family=Barlow:wght@400;600&display=swap",
+    note: "Matches goatlockerracing.org: white pages, the black goat logo, Roboto headings, Poppins text and the site's monospace menu.",
+    vars: "--bg:#ffffff;--card:#ffffff;--line:#e2e2e2;--text:#171717;--dim:#6f6f6f;--accent:#d7141a;--link:#b5121b",
+    fonts: "https://fonts.googleapis.com/css2?family=Roboto:wght@500;600;700;800&family=Poppins:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap",
     css: `
-body{font-family:Barlow,system-ui,Segoe UI,Arial,sans-serif;background:var(--bg) radial-gradient(rgba(255,255,255,.035) 1px,transparent 1px) 0 0/6px 6px}
-header{background:#000;border-bottom:3px solid var(--accent);padding:6px 16px}
-header .brand{display:flex;align-items:center;gap:10px}header .brand img{height:48px;width:auto;display:block}
-header .brand b{font:italic 900 20px/1 "Barlow Condensed",sans-serif;letter-spacing:.02em;text-transform:uppercase;color:#fff}
-header .me a,header .me .tag,button.link{font-family:"Barlow Condensed",sans-serif;font-weight:600;font-size:16px;text-transform:uppercase;letter-spacing:.03em}
-header .me a{color:#fff}header .me a:hover{color:var(--link)}
-h1{font:italic 900 34px/1.05 "Barlow Condensed",sans-serif;text-transform:uppercase;letter-spacing:.01em;border-left:0;padding:4px 18px 4px 14px;
-  display:inline-block;background:var(--accent);color:#fff;transform:skewX(-6deg);box-shadow:4px 4px 0 #000}
-h2{font:italic 800 22px/1.2 "Barlow Condensed",sans-serif;text-transform:uppercase;letter-spacing:.02em}
-.sub{padding-left:2px;margin-top:8px}.crumb{padding-left:2px}
-th{font-family:"Barlow Condensed",sans-serif;font-size:13px;letter-spacing:.06em}
-.tabs a{font:italic 800 17px "Barlow Condensed",sans-serif;text-transform:uppercase;letter-spacing:.02em}
-.card b{font:italic 900 24px "Barlow Condensed",sans-serif;text-transform:uppercase;border-left-width:4px}
-.stat b,.lead b{font-family:"Barlow Condensed",sans-serif;font-weight:800;font-size:24px}
-.btn{font:italic 800 17px "Barlow Condensed",sans-serif;text-transform:uppercase;letter-spacing:.03em;border-radius:3px}
-.cls{background:#2a2a2a}`,
-    brand: () => `<img src="${BASE}/theme/glr-logo.png" alt="Goat Locker Racing" width="80" height="48"><b>Results &amp; standings</b>`,
+:root{color-scheme:light}
+body{font-family:Poppins,system-ui,Segoe UI,Arial,sans-serif;background:#f6f6f6}
+header{background:#fff;border-bottom:1px solid var(--line);box-shadow:0 2px 10px rgba(0,0,0,.06);padding:8px 20px}
+header .brand{display:flex;align-items:center;gap:12px}header .brand img{height:56px;width:auto;display:block}
+header .brand b{font:600 13px/1 "JetBrains Mono",monospace;text-transform:uppercase;letter-spacing:-.04em;color:var(--dim)}
+header .me{column-gap:0}
+header .me a,header .me .tag,button.link{font:600 13px "JetBrains Mono",monospace;text-transform:uppercase;letter-spacing:-.04em;color:#33373d}
+header .me > a,header .me > span,header .me > form{padding:0 9px;border-left:1px solid #d5d5d5}header .me > :first-child{border-left:0}
+header .me a:hover{color:var(--accent)}
+main{background:#fff;max-width:1040px;margin:24px auto;padding:24px 20px 48px;border:1px solid var(--line);border-radius:6px}
+h1,h2,.card b{font-family:Roboto,Arial,sans-serif;text-transform:uppercase}
+h1{font-size:28px;font-weight:800;border-left-color:var(--accent)}h2{font-size:18px;font-weight:700}
+.tabs a{font:600 13px "JetBrains Mono",monospace;text-transform:uppercase;letter-spacing:-.03em;color:#33373d}.tabs a.on{color:var(--text)}
+th{font-family:"JetBrains Mono",monospace;letter-spacing:-.02em;color:#54595f;background:#fafafa}
+.wrap{background:#fff}tr:hover td{background:#fafafa}
+.card{background:#fff;color:var(--text)}.card:hover{border-color:#bdbdbd;box-shadow:0 2px 10px rgba(0,0,0,.06)}
+.stat,.lead div{background:#fafafa}
+.btn{font:600 14px Roboto,Arial,sans-serif;text-transform:uppercase;letter-spacing:.03em;border-radius:4px}
+.btn.ghost{background:#33373d;color:#fff}
+.cls{background:#ececec;color:#33373d}.prov{background:#fff3cd;color:#7a5a00}
+.msg.ok{background:#eef8f0}.msg.bad{background:#fdeeee}
+.seg2 button.on{background:#ececec;color:var(--text)}
+select,input[type=number],input[type=date],input[type=time],input[type=text],textarea{color-scheme:light}
+.grid-r td.d{background:#fff}.grid-r .w{background:#ffe08a;color:#5a4300}.grid-r .t5{background:#d9f2df}.grid-r .t10{background:#dde9f8}.grid-r .dnf{color:#c62828}
+.st{color:#a15c00}.st.good{color:#1e7d36}.st.bad{color:#c62828}
+code.key{background:#f3f3f3;color:var(--text)}
+@media (max-width:640px){main{margin:0;border:0;border-radius:0;padding:18px 16px 40px}header .brand img{height:44px}header .me > a,header .me > span,header .me > form{padding:0 6px}}`,
+    brand: () => `<img src="${BASE}/theme/glr-logo.png" alt="Goat Locker Racing" width="93" height="56"><b>Results &amp; standings</b>`,
   },
 };
 
