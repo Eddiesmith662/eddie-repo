@@ -455,11 +455,12 @@ export async function revokeKey(db, id) {
   await db.prepare(`UPDATE overlay_keys SET revoked = 1 WHERE id = ?`).bind(id).run();
 }
 
-export async function checkKey(db, key, kind = "overlay") {
+// count = false: a read (the penalty box's calls), not a race sent: doesn't add to the key's "races sent"
+export async function checkKey(db, key, kind = "overlay", count = true) {
   if (!/^vsglr_[0-9a-f]{48}$/.test(String(key || ""))) return null;
   await ensureSchema(db);
   const row = await db.prepare(`SELECT * FROM overlay_keys WHERE key_hash = ? AND revoked = 0 AND kind = ?`).bind(await sha(key), kind).first();
-  if (row) await db.prepare(`UPDATE overlay_keys SET last_used = ?, uses = uses + 1 WHERE id = ?`).bind(new Date().toISOString(), row.id).run();
+  if (row && count) await db.prepare(`UPDATE overlay_keys SET last_used = ?, uses = uses + 1 WHERE id = ?`).bind(new Date().toISOString(), row.id).run();
   return row;
 }
 

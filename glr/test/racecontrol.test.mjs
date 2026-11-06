@@ -149,3 +149,17 @@ test("a time penalty only re-sorts cars on the same lap", () => {
   assert.deepEqual([pos(101), pos(102), pos(100), pos(103)], [1, 2, 3, 4]);   // behind the lead-lap cars, never behind the lapped car
   assert.equal(out.find(r => r.cust_id === 100).league_points, 38);
 });
+
+test("the overlay reads a race's calls with its key, without the stewards' names, and it doesn't count as a race sent", async () => {
+  const s = await setup();
+  const token = await signedIn(s);
+  await rc(s, token, "PUT", "/glr/api/rc/races/1000", file(1000, [call(1, { kind: "stopgo", amount: 30, reason: "Jumped the restart" })]));
+  await s.signIn({ id: "1", roles: ["111111"], nick: "Test Admin" });
+  const key = (await s.post("/glr/keys", { name: "Producer" })).html.match(/vsglr_[0-9a-f]{48}/)[0];
+  const r = await rc(s, key, "GET", "/glr/api/overlay/calls/1000");
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.calls.map(c => [c.kind, c.amount, c.reason, c.carNumber]), [["stopgo", 30, "Jumped the restart", "2"]]);
+  assert.equal(r.body.calls[0].madeBy, undefined);
+  assert.equal(s.DB.raw.prepare("SELECT uses FROM overlay_keys").get().uses, 0);
+  assert.equal((await rc(s, "vsglr_" + "0".repeat(48), "GET", "/glr/api/overlay/calls/1000")).status, 401);
+});

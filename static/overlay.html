@@ -417,7 +417,7 @@
   <div class="info" id="lInfo"></div>
 </div>
 
-<div id="penalty" class="widget off"><div class="ic"><span id="pnNum"></span></div><div class="tx"><div class="t1">PENALTY</div><div class="t2"><span id="pnName"></span><span class="lt" id="pnPos"></span></div></div><div class="rs"><span class="why" id="pnWhy"></span><span class="st">BLACK FLAG</span></div></div>
+<div id="penalty" class="widget off"><div class="ic"><span id="pnNum"></span></div><div class="tx"><div class="t1">PENALTY</div><div class="t2"><span id="pnName"></span><span class="lt" id="pnPos"></span></div></div><div class="rs"><span class="why" id="pnWhy"></span><span class="st" id="pnSt">BLACK FLAG</span></div></div>
 <div id="nextrace" class="widget off"><div class="h"><span id="nrTitle"></span></div><div class="b"><div class="lg"><img id="nrLogo" alt=""></div><div class="tx"><div class="ev" id="nrEvent"></div><div class="dt"><span id="nrDate"></span><i></i><span id="nrTime"></span></div></div></div><div class="bar"></div></div>
 <div id="movers" class="widget off"><div class="h"><span>Biggest movers</span><small id="mvSub">SINCE THE START</small></div><div id="mvBody"></div></div>
 <div id="board" class="widget off">
@@ -1057,7 +1057,10 @@ function renderPenalty() {
     $('pnNum').textContent = ev.num;
     $('pnName').textContent = tickerName(ev.name);
     $('pnPos').textContent = ev.pos ? 'P' + ev.pos : '';
-    if ($('pnWhy').textContent !== (ev.reason || '')) $('pnWhy').textContent = ev.reason || '';   // picked live in the timing window
+    const why = ev.reason || ev.rcReason || '';   // picked live in the timing window, or race control's reason
+    if ($('pnWhy').textContent !== why) $('pnWhy').textContent = why;
+    const tag = ev.rcLabel || 'BLACK FLAG';         // race control's penalty for this car, when the league site has it
+    if ($('pnSt').textContent !== tag) $('pnSt').textContent = tag;
   }
   show('penalty', !!ev);
 }

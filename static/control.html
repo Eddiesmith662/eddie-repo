@@ -187,6 +187,8 @@
   .pen .ps { color: var(--dim); }
   .pen .sf { font-size: 11px; letter-spacing: 1.5px; padding: 2px 7px; border-radius: 3px; background: #fff; color: #111; }
   .pen .sf.done { background: #3a3a3b; color: #bbb; }
+  .pen .rcw { color: var(--dim); font-size: 12px; max-width: 220px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .pens .rch { border-top: 1px solid var(--line, #333); margin-top: 4px; }
   .pen button { padding: 6px 10px; font-size: 13px; }
   .pen button.on { background: var(--red); border-color: var(--red); }
   .pen.old { opacity: .55; }
@@ -1483,17 +1485,23 @@ $('incList').ondblclick = async e => {   // double click: replay from the incide
 const reasonLabel = r => r.charAt(0) + r.slice(1).toLowerCase();
 function pensRender() {
   const now = PEN.now || Date.now() / 1000;
-  const list = (PEN.list || []).filter(e => now - e.t < 30).slice().reverse();   // each penalty stays in the list for 30 seconds, served or not
+  const list = (PEN.list || []).filter(e => now - e.t < 30 && !e.fromRc).slice().reverse();   // each penalty stays in the list for 30 seconds, served or not
+  const rc = PEN.rc || [];   // race control's calls with no black flag (from the league site), each with its own Show
   const box = $('pens');
-  box.hidden = !list.length;
-  const html = !list.length ? '' : `<div class="ph"><span>Penalties · pick a reason, then Show to put it on screen</span><button class="vis" data-vis="penAir" data-vrole="hide" data-pcmd="hide">Hide box</button></div>` +
+  box.hidden = !list.length && !rc.length;
+  const html = (!list.length && !rc.length) ? '' : `<div class="ph"><span>Penalties · pick a reason, then Show to put it on screen</span><button class="vis" data-vis="penAir" data-vrole="hide" data-pcmd="hide">Hide box</button></div>` +
     list.map(e => `<div class="pen ${e.active ? '' : 'old'}" data-pid="${e.id}"><span class="pn">#${esc(e.num)}</span><span class="nm">${esc(e.name)} <span class="ps">${e.pos ? 'P' + e.pos : ''}</span></span>
-      <span class="sf ${e.active ? '' : 'done'}">${e.active ? 'BLACK FLAG' : 'SERVED'}</span>
+      <span class="sf ${e.active ? '' : 'done'}">${e.active ? esc(e.rcLabel || 'BLACK FLAG') : 'SERVED'}</span>
+      ${e.rcLabel ? `<span class="rcw" title="Race control's reason (shown in the box unless you pick one)">${esc(e.rcReason)}</span>` : ''}
       ${(PEN.reasons || []).map(r => `<button data-reason="${esc(r)}" class="${e.reason === r ? 'on' : ''}">${esc(reasonLabel(r))}</button>`).join('')}
-      <button class="vis" data-vis="pen-${e.id}" data-vrole="show" data-pcmd="show">Show</button></div>`).join('');
+      <button class="vis" data-vis="pen-${e.id}" data-vrole="show" data-pcmd="show">Show</button></div>`).join('') +
+    (rc.length ? `<div class="ph rch"><span>Race control · calls with no black flag</span></div>` + rc.map(c => `<div class="pen rc" data-uid="${esc(c.uid)}"><span class="pn">#${esc(c.num)}</span>
+      <span class="nm">${esc(c.name)}${c.lap != null ? ` <span class="ps">lap ${esc(c.lap)}</span>` : ''}</span><span class="sf">${esc(c.label)}</span>
+      <span class="rcw">${esc(c.reason)}</span><button class="vis" data-vis="rc-${esc(c.uid)}" data-vrole="show" data-pcmd="showrc">Show</button></div>`).join('') : '');
   if (box._h !== html) { box._h = html; box.innerHTML = html; }
-  const onId = penOnAir();
+  const onId = penOnAir(), onEv = (PEN.list || []).find(e => e.id === onId);
   list.forEach(e => vis('pen-' + e.id, e.id === onId));
+  rc.forEach(c => vis('rc-' + c.uid, !!onEv && onEv.rcUid === c.uid));
   vis('penAir', onId != null);
 }
 /* which penalty the overlay has on screen: same queue as overlay.html (8 s each, 0.9 s apart, Hide box clears it) */
@@ -1513,6 +1521,7 @@ $('pens').onclick = e => {
   const row = b.closest('[data-pid]'), id = row ? +row.dataset.pid : null;
   if (b.dataset.pcmd === 'hide') return post('/api/penalty', { cmd: 'hide' });
   if (b.dataset.pcmd === 'show') return post('/api/penalty', { cmd: 'show', id });
+  if (b.dataset.pcmd === 'showrc') return post('/api/penalty', { cmd: 'showrc', uid: b.closest('[data-uid]').dataset.uid });
   if (b.dataset.reason) {
     const ev = (PEN.list || []).find(x => x.id === id);
     post('/api/penalty', { cmd: 'reason', id, reason: ev && ev.reason === b.dataset.reason ? '' : b.dataset.reason });   // click again to clear

@@ -42,6 +42,7 @@ import announcer
 import leagueupload
 import racecontrol
 import rcsite
+import rcfeed     # race control's calls for the penalty box, read from the league site
 import simchat
 
 ROOT = datafiles.ROOT
@@ -190,7 +191,7 @@ class State:
 
     def snapshot(self):
         return json.dumps({"settings": self.public_settings(), "live": self.live, "standings": standings.summary(), "app": APP,
-                           "penalties": {"list": PEN["list"], "hide": PEN["hide"], "reasons": PEN_REASONS, "now": time.time()},
+                           "penalties": dict(penalty_view(), hide=PEN["hide"], reasons=PEN_REASONS, now=time.time()),
                            "incidentsVer": incidents.STATE["ver"], "pitrace": pitrace.snapshot(), "series": profiles.summary(),
                            "announcer": announcer.status(), "leagueUpload": leagueupload.status(),
                            **({"raceControl": racecontrol.version()} if RC["on"] else {})})
@@ -752,6 +753,7 @@ class IRacingSource:
                 "source": "iracing",
                 "track": self.info.get("track", ""),
                 "subId": self.info.get("subId"),
+                "leagueId": self.info.get("leagueId"),          # race control and the league site need it (0/None: not a league race)
                 "sessionName": (sess.get("SessionName") or "").upper(),
                 "sessionType": stype,
                 "isRace": is_race,
@@ -1537,7 +1539,7 @@ SOURCE = None
 SOURCE_LOCK = threading.Lock()
 
 
-PEN = {"seq": 0, "list": [], "prev": {}, "init": False, "hide": 0}
+PEN = {"seq": 0, "list": [], "prev": {}, "init": False, "hide": 0, "rcShown": {}}
 PEN_REASONS = ["SPEEDING", "PASSING UNDER YELLOW"]   # picked in the live timing window
 
 
@@ -1569,8 +1571,49 @@ def track_penalties(live):
         PEN["list"] = events[-20:]
 
 
+def rc_feed_changed():
+    """New calls from race control: the control panel and the overlay get them."""
+    with STATE.lock:
+        STATE.bump()
+
+
+def penalty_view():
+    """The penalties for the pages: the black flags, each with race control's penalty for that car when there is one
+    (rcLabel, rcReason: what the box says), and race control's calls with no black flag (rc: the live timing window's
+    Race control rows, each with its own Show)."""
+    try:
+        out = []
+        for e in PEN["list"]:
+            c = None if e.get("fromRc") else rcfeed.for_black_flag(e.get("num"), e.get("t", 0))
+            out.append(dict(e, rcLabel=rcfeed.label(c), rcReason=c.get("reason") or "") if c else e)
+        rc = [{"uid": c["uid"], "num": c.get("carNumber") or "", "name": c.get("driverName") or "", "label": rcfeed.label(c),
+               "reason": c.get("reason") or "", "lap": c.get("lap"), "shown": PEN["rcShown"].get(c["uid"], 0)} for c in rcfeed.listed()]
+        return {"list": out, "rc": rc}
+    except Exception as e:                  # the feed must never stop the pages: show the black flags as before
+        diag.error("Race control feed error: %r" % (e,), e)
+        return {"list": PEN["list"], "rc": []}
+
+
 def penalty_command(data):
     cmd = str(data.get("cmd") or "")
+    if cmd == "showrc":                     # Show on a Race control row: it goes in the box's queue like a black flag
+        c = next((x for x in rcfeed.listed() if x["uid"] == data.get("uid")), None)
+        if not c:
+            return {"ok": False, "error": "That call isn't there any more (withdrawn?)"}
+        with STATE.lock:
+            cars = (STATE.live or {}).get("cars") or []
+            multi = len((STATE.live or {}).get("classes") or []) > 1
+            car = next((x for x in cars if str(x.get("num")) == str(c.get("carNumber"))), {})
+            now = time.time()
+            PEN["seq"] += 1
+            PEN["list"] = (PEN["list"] + [{"id": PEN["seq"], "idx": car.get("idx", -1), "num": c.get("carNumber") or "",
+                                          "name": car.get("name") or c.get("driverName") or "",
+                                          "pos": (car.get("classPos") if multi else car.get("pos")) if car else None, "reason": "",
+                                          "rcLabel": rcfeed.label(c), "rcReason": c.get("reason") or "", "fromRc": True, "rcUid": c["uid"],
+                                          "active": False, "t": now, "show": now}])[-20:]
+            PEN["rcShown"][c["uid"]] = now
+            STATE.bump()
+        return {"ok": True}
     with STATE.lock:
         if cmd == "hide":
             PEN["hide"] = time.time()
@@ -1787,6 +1830,10 @@ def process_reading(live):
     """Everything done with each reading once the source has made it: penalties, the incident log, race control (when
     it's on), race off pit road, live points, then it goes to every page. The replay tests (tests/replay.py) run recorded races through this too."""
     track_penalties(live)
+    try:
+        rcfeed.update(live)
+    except Exception as e:      # race control's feed must never stop the overlay
+        diag.error("Race control feed error: %r" % (e,), e)
     try:
         incidents.update(live, log=diag.log)
     except Exception as e:      # the incident log must never stop the overlay
@@ -2946,6 +2993,7 @@ def main():
     else:
         announcer.start(STATE, on_air_now, diag.log)    # the announcer page feed (does nothing until it's set up)
     leagueupload.start(STATE.settings.get("leagueUpload"), diag.log)   # league site upload (does nothing until it's switched on)
+    rcfeed.start(rc_feed_changed, diag.log)    # race control's calls for the penalty box (league races, with an overlay key)
     threading.Thread(target=telemetry_loop, args=(args.demo, args.multiclass, args.qual), daemon=True).start()
     server = QuietServer(("0.0.0.0", args.port), Handler)
     ip = local_ip()

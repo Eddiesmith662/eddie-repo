@@ -30,6 +30,7 @@
  *         /glr/history            officials: who changed what (admins: every series; series officials: their own)
  *         /glr/api/overlay/results  POST from an overlay (Authorization: Bearer <key>): provisional results
  *         /glr/api/overlay/check    GET with the same header: is this key good?
+ *         /glr/api/overlay/calls/<session>  GET with the same header: race control's calls on a race (penalty box)
  *         /glr/api/rc/...           race control (Authorization: Bearer vsrc_...): link + link/poll to sign in, check,
  *                                   signout, races/<session> (PUT the race's calls, GET every call on it). See the plan
  *                                   doc, "Sending calls to the site (phase 5c)".
@@ -1128,6 +1129,14 @@ const site = {
           await logChange(db, { by, seriesId: ev.league.id, sub: r.subsessionId, kind: "upload", summary: `Results imported from iRacing: ${ev.track}${had ? " (replaced the earlier copy)" : ""}` });
           return cj({ ok: true, subsessionId: r.subsessionId, track: ev.track, drivers: r.results, replaced: !!had });
         } catch (e) { return cj({ ok: false, error: e.message }, 400); }
+      }
+      // the broadcast overlay reads race control's calls for the race it's showing (for the penalty box). Same as race
+      // control's GET, without the stewards' names.
+      if ((m = path.match(/^\/glr\/api\/overlay\/calls\/(\d+)$/))) {
+        if (!await checkKey(db, bearer(request), "overlay", false) && !await raceControlUser(request, env))
+          return json({ ok: false, error: "The site doesn't recognise this key. Make a new one on the site's Overlay keys page." }, 401);
+        const calls = (await raceCalls(db, Number(m[1]))).map(({ madeBy, withdrawnBy, ...c }) => c);
+        return json({ ok: true, subsessionId: Number(m[1]), calls });
       }
       if (path === `${BASE}/api/overlay/check` || path === `${BASE}/api/overlay/results`) {
         let key = await checkKey(db, bearer(request));
