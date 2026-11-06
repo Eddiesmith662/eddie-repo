@@ -12,6 +12,11 @@
  *   DISCORD_ROLE_ID                            the admin role (every series)
  *
  * Sessions live in the database; the browser only holds a random token (the database keeps its hash).
+ *
+ * Race control signs in the same way, from the steward's PC: the program asks for a code, the steward opens the site's
+ * link page, signs in with Discord as usual and presses Allow. The program then gets a race control token ("vsrc_...")
+ * that acts as that steward: a session of its own (kind 'rc'), with the same role checks as the browser. Signing out
+ * in the program, or revoking it on the Keys page, ends it.
  */
 import { ensureSchema, seriesRoles, getSetting, linkedDriver } from "./db.js";
 
@@ -34,6 +39,12 @@ async function schema(db) {
     await db.prepare(SCHEMA).run();
     const cols = (await db.prepare(`PRAGMA table_info(sessions)`).all()).results.map(c => c.name);
     if (!cols.includes("roles")) await db.prepare(`ALTER TABLE sessions ADD COLUMN roles TEXT NOT NULL DEFAULT '[]'`).run();
+    if (!cols.includes("kind")) await db.prepare(`ALTER TABLE sessions ADD COLUMN kind TEXT NOT NULL DEFAULT 'web'`).run();
+    if (!cols.includes("label")) await db.prepare(`ALTER TABLE sessions ADD COLUMN label TEXT`).run();
+    if (!cols.includes("last_used")) await db.prepare(`ALTER TABLE sessions ADD COLUMN last_used INTEGER`).run();
+    // race control sign-in codes waiting for a steward to press Allow (10 minutes)
+    await db.prepare(`CREATE TABLE IF NOT EXISTS rc_links (code TEXT PRIMARY KEY, poll_hash TEXT NOT NULL, pc TEXT,
+      created INTEGER, expires INTEGER, token TEXT, user_id TEXT, user_name TEXT)`).run();
   })().catch(e => { readyFor.delete(db); throw e; }));
   return ready;
 }
@@ -99,14 +110,27 @@ export async function callback(request, env, url) {
   return { response: redirect(decodeURIComponent(back || "/glr"), [setCookie(COOKIE, token, DAYS * 86400), setCookie(STATE, "", 0)]) };
 }
 
-// the signed-in official, or null. Re-asks Discord about the role every 15 minutes.
+// the signed-in person (browser cookie), or null. Re-asks Discord about their roles every 15 minutes.
 export async function currentUser(request, env) {
   const token = cookies(request)[COOKIE];
   if (!token || !configured(env)) return null;
+  return userFor(request, env, token, "web");
+}
+
+// race control: the steward behind an "Authorization: Bearer vsrc_..." token, or null
+export async function raceControlUser(request, env) {
+  const m = /^Bearer\s+(vsrc_[0-9a-f]{64})$/.exec(request.headers.get("authorization") || "");
+  if (!m || !configured(env)) return null;
+  return userFor(request, env, m[1], "rc");
+}
+
+async function userFor(request, env, token, kind) {
   await schema(env.DB);
   const h = await sha256(token), now = Date.now();
-  const s = await env.DB.prepare(`SELECT * FROM sessions WHERE token_hash = ?`).bind(h).first();
+  const s = await env.DB.prepare(`SELECT * FROM sessions WHERE token_hash = ? AND kind = ?`).bind(h, kind).first();
   if (!s || s.expires < now) return null;
+  if (kind === "rc" && now - (s.last_used || 0) > 60000)         // a signed-in race control PC stays signed in while it's used
+    await env.DB.prepare(`UPDATE sessions SET last_used = ?, expires = ? WHERE token_hash = ?`).bind(now, now + 365 * 864e5, h).run();
   let roles = JSON.parse(s.roles || "[]");
   if (now - s.checked > RECHECK_MS) {
     let access = s.access_token;
@@ -114,17 +138,19 @@ export async function currentUser(request, env) {
       if (s.token_expires < now + 60000 && s.refresh_token) {
         const t = await discordToken(env, new URL(request.url), { grant_type: "refresh_token", refresh_token: s.refresh_token });
         access = t.access_token;
-        await env.DB.prepare(`UPDATE sessions SET access_token = ?, refresh_token = ?, token_expires = ? WHERE token_hash = ?`)
-          .bind(t.access_token, t.refresh_token || s.refresh_token, now + (t.expires_in || 0) * 1000, h).run();
+        // Discord replaces the refresh token each time: give the new one to every session sharing it (the browser and
+        // any race control PCs of the same person), or the others would be signed out on their next check
+        await env.DB.prepare(`UPDATE sessions SET access_token = ?, refresh_token = ?, token_expires = ? WHERE discord_id = ? AND refresh_token = ?`)
+          .bind(t.access_token, t.refresh_token || s.refresh_token, now + (t.expires_in || 0) * 1000, s.discord_id, s.refresh_token).run();
       }
       const mem = await memberRoles(env, access);
       if (mem) roles = await relevant(env, mem.roles);
       if (mem === null) {                                    // left the league's Discord server
-        await env.DB.prepare(`DELETE FROM sessions WHERE token_hash = ?`).bind(h).run();
+        await env.DB.prepare(`DELETE FROM sessions WHERE discord_id = ?`).bind(s.discord_id).run();
         return null;
       }
-      if (mem) await env.DB.prepare(`UPDATE sessions SET checked = ?, roles = ?, name = COALESCE(NULLIF(?, ''), name) WHERE token_hash = ?`)
-        .bind(now, JSON.stringify(roles), mem.nick, h).run();
+      if (mem) await env.DB.prepare(`UPDATE sessions SET checked = ?, roles = ?, name = COALESCE(NULLIF(?, ''), name) WHERE discord_id = ?`)
+        .bind(now, JSON.stringify(roles), mem.nick, s.discord_id).run();
       // mem === false: Discord is down; keep the session and ask again next time
     } catch (e) {
       // refresh refused (the person disconnected the app in Discord): sign them out
@@ -133,6 +159,75 @@ export async function currentUser(request, env) {
     }
   }
   return describe(env, { id: s.discord_id, name: s.name, avatar: s.avatar, roles });
+}
+
+/* ---------- race control sign-in: code, Allow, token ---------- */
+
+const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";      // no 0/O or 1/I to mix up
+const LINK_MS = 10 * 60 * 1000;
+
+// POST /glr/api/rc/link -> { code, url, poll, expiresIn }
+export async function rcLinkStart(env, url, pc = "") {
+  await schema(env.DB);
+  const pick = crypto.getRandomValues(new Uint8Array(8));
+  const code = [...pick].map(b => CODE_CHARS[b % CODE_CHARS.length]).join("").replace(/^(.{4})/, "$1-");
+  const poll = randomToken(), now = Date.now();
+  await env.DB.prepare(`DELETE FROM rc_links WHERE expires < ?`).bind(now).run();
+  await env.DB.prepare(`INSERT INTO rc_links (code, poll_hash, pc, created, expires) VALUES (?, ?, ?, ?, ?)`)
+    .bind(code, await sha256(poll), String(pc || "").slice(0, 40), now, now + LINK_MS).run();
+  return { code, url: `${url.origin}/glr/rc/link?code=${code}`, poll, expiresIn: LINK_MS / 1000 };
+}
+
+// POST /glr/api/rc/link/poll -> { state: "waiting" | "ok" | "expired", token, user }
+export async function rcLinkPoll(env, poll) {
+  await schema(env.DB);
+  const l = await env.DB.prepare(`SELECT * FROM rc_links WHERE poll_hash = ?`).bind(await sha256(String(poll || ""))).first();
+  if (!l || l.expires < Date.now()) return { state: "expired" };
+  if (!l.token) return { state: "waiting" };
+  await env.DB.prepare(`DELETE FROM rc_links WHERE code = ?`).bind(l.code).run();      // the token is handed over once
+  return { state: "ok", token: l.token, user: { id: l.user_id, name: l.user_name } };
+}
+
+export async function rcLinkFind(env, code) {
+  await schema(env.DB);
+  const l = await env.DB.prepare(`SELECT code, pc, expires, token FROM rc_links WHERE code = ?`).bind(String(code || "").toUpperCase()).first();
+  return l && l.expires > Date.now() ? l : null;
+}
+
+// the signed-in steward pressed Allow: a race control session for them, sharing their Discord sign-in
+export async function rcLinkAllow(request, env, code, user) {
+  const l = await rcLinkFind(env, code);
+  if (!l || l.token) return false;
+  const web = await env.DB.prepare(`SELECT * FROM sessions WHERE token_hash = ?`).bind(await sha256(cookies(request)[COOKIE] || "")).first();
+  if (!web) return false;
+  const token = "vsrc_" + randomToken(), now = Date.now();
+  await env.DB.prepare(`INSERT INTO sessions (token_hash, discord_id, name, avatar, access_token, refresh_token, token_expires, created, expires, checked, roles, kind, label, last_used)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'rc', ?, ?)`)
+    .bind(await sha256(token), web.discord_id, web.name, web.avatar, web.access_token, web.refresh_token, web.token_expires,
+          now, now + 365 * 864e5, web.checked, web.roles, l.pc || "", now).run();
+  await env.DB.prepare(`UPDATE rc_links SET token = ?, user_id = ?, user_name = ? WHERE code = ?`).bind(token, user.id, user.name, l.code).run();
+  return true;
+}
+
+// sign out from the program (its own token)
+export async function rcSignOut(request, env) {
+  const m = /^Bearer\s+(vsrc_[0-9a-f]{64})$/.exec(request.headers.get("authorization") || "");
+  if (!m) return false;
+  await schema(env.DB);
+  await env.DB.prepare(`DELETE FROM sessions WHERE token_hash = ? AND kind = 'rc'`).bind(await sha256(m[1])).run();
+  return true;
+}
+
+// the Keys page: race control PCs signed in, and turning one off
+export async function listRcSessions(env) {
+  await schema(env.DB);
+  return (await env.DB.prepare(`SELECT substr(token_hash, 1, 16) AS id, name, label, created, last_used FROM sessions WHERE kind = 'rc' ORDER BY last_used DESC`).all()).results;
+}
+export async function revokeRcSession(env, id) {
+  await schema(env.DB);
+  const s = await env.DB.prepare(`SELECT name FROM sessions WHERE kind = 'rc' AND substr(token_hash, 1, 16) = ?`).bind(String(id || "")).first();
+  await env.DB.prepare(`DELETE FROM sessions WHERE kind = 'rc' AND substr(token_hash, 1, 16) = ?`).bind(String(id || "")).run();
+  return s;
 }
 
 // what this person can do: admin, official (edits a series), steward (race control role), and their linked driver

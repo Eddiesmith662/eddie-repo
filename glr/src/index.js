@@ -30,6 +30,10 @@
  *         /glr/history            officials: who changed what (admins: every series; series officials: their own)
  *         /glr/api/overlay/results  POST from an overlay (Authorization: Bearer <key>): provisional results
  *         /glr/api/overlay/check    GET with the same header: is this key good?
+ *         /glr/api/rc/...           race control (Authorization: Bearer vsrc_...): link + link/poll to sign in, check,
+ *                                   signout, races/<session> (PUT the race's calls, GET every call on it). See the plan
+ *                                   doc, "Sending calls to the site (phase 5c)".
+ *         /glr/rc/link?code=...     where a steward presses Allow for race control on their PC
  *         /glr/api/import         POST official iRacing results (the results JSON) with an import key, from the iRacing
  *                                 members site (CORS): for one-time backfills of past races
  *         /glr/login, /glr/auth/callback, /glr/logout    Discord sign-in (auth.js)
@@ -40,15 +44,17 @@ import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, i
   logChange, listChanges, whoName, mergeDrivers, separateDriver, aliasesOf, findDrivers,
   seriesEvents, allSeriesEvents, listRoster, addRoster, removeRoster, listSchedule, upcoming, addSchedule, addScheduleLines, deleteSchedule,
   scheduleEntry, linkScheduleTo, getSetting, setSetting, editSchedule,
-  linkDriver, unlinkDriver, fileProtest, listProtests, getProtest, setProtestStatus, listDecisions, addDecision, deleteDecision } from "./db.js";
-import { KINDS, decisionText } from "./stewards.js";
+  linkDriver, unlinkDriver, fileProtest, listProtests, getProtest, setProtestStatus, listDecisions, addDecision, deleteDecision,
+  saveRaceCalls, raceCalls } from "./db.js";
+import { KINDS, AMOUNT, CHANGES_ORDER, decisionText } from "./stewards.js";
 import { resultsPost, standingsPost, penaltyPost, fixPost, decisionPost, enqueue, processQueue, queueFor, retryQueued, discardQueued, isRecent } from "./discord.js";
 import { computeStandings, cleanRules, DEFAULT_RULES, GLR_PLAYOFFS } from "./standings.js";
 import { computeStats, leaders, COLUMNS } from "./stats.js";
 import { THEMES, themeOf } from "./themes.js";
 import { ASSETS } from "./assets.js";
 import { parseExport, parseOverlay } from "./parse.js";
-import { configured, login, callback, currentUser, logout, canEdit, canSteward, cookies } from "./auth.js";
+import { configured, login, callback, currentUser, logout, canEdit, canSteward, cookies,
+  raceControlUser, rcLinkStart, rcLinkPoll, rcLinkFind, rcLinkAllow, rcSignOut, listRcSessions, revokeRcSession } from "./auth.js";
 
 const BASE = "/glr";
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -116,7 +122,7 @@ label.up{margin:0 0 0 10px;display:inline;color:var(--link);font-size:13px;curso
 .chg{font-size:12px;font-weight:600;width:42px}.chg .up{color:#1e9d46}.chg .dn{color:#d33}.bon{font-size:12px;color:var(--dim);white-space:normal;min-width:120px}
 .protest{border:1px solid var(--line);border-radius:8px;padding:2px 14px 10px;margin:10px 0;background:var(--card)}.protest blockquote{margin:6px 0;padding:8px 12px;border-left:3px solid var(--line);color:var(--text);white-space:normal}
 .protest details{margin-top:6px}.protest summary{cursor:pointer;color:var(--link);font-size:14px}.dec .grid select,.dec .grid input,.dec input[type=text]{width:100%}
-.stw{margin:18px 0 4px;font-size:14px}textarea{width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
+.stw{margin:18px 0 4px;font-size:14px}tr.wd td b,tr.wd td:first-child{text-decoration:line-through;opacity:.6}textarea{width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
 input.search{width:100%;max-width:360px;margin:0 0 12px;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
 __THEME_CSS__</style></head><body><header><a class="brand" href="${BASE}">__THEME_BRAND__</a>__THEME_SWITCH__<div class="me"><a href="${BASE}/schedule">Schedule</a><a href="${BASE}/drivers">Drivers</a>${user
   ? `<a href="${BASE}/protests">Protests</a>${user.official ? `<a href="${BASE}/history">History</a>${user.admin ? `<a href="${BASE}/keys">Overlay keys</a><a href="${BASE}/settings">Settings</a>` : ""}<a href="${BASE}/upload">Upload results</a>` : ""}<span class="tag">${esc(user.name)}</span><form method="post" action="${BASE}/logout"><button class="link">Sign out</button></form>`
@@ -261,6 +267,14 @@ function resultPage(ev, user, { fixes = [], edit = false, msg = "", score = null
 
 /* ---------- stewards: protests and decisions ---------- */
 
+// penalties given during the race: was it served? (from race control)
+const servedText = d => {
+  if (!["drivethrough", "stopgo", "eol"].includes(d.kind)) return "";
+  const sim = (d.info || {}).sim;
+  if (!sim) return "";
+  return sim.state === "served" ? ` <span class="st good">served${sim.servedLap != null ? " lap " + esc(sim.servedLap) : ""}</span>`
+    : ["notTaken", "failed", "cleared"].includes(sim.state) ? ` <span class="st bad">not served</span>` : "";
+};
 const carName = (num, name) => `${num ? `#${esc(num)} ` : ""}${esc(name || "")}`;
 const STATUS = { open: ["Open", ""], decided: ["Decided", "good"], withdrawn: ["Withdrawn", "bad"] };
 const statusTag = p => `<span class="st ${STATUS[p.status]?.[1] || ""}">${STATUS[p.status]?.[0] || esc(p.status)}</span>`;
@@ -271,7 +285,7 @@ function decisionForm(ev, race, { protest = null } = {}) {
   return `<form method="post" action="#p${protest ? protest.id : "new"}" class="dec"><input type="hidden" name="action" value="decide">${protest ? `<input type="hidden" name="protest" value="${protest.id}">` : ""}
     <div class="grid"><label>Driver<br><select name="cust">${race.map(r => `<option value="${r.cust_id}"${r.cust_id === pre ? " selected" : ""}>P${r.finish_pos} ${carName(r.car_number, r.name)}</option>`).join("")}</select></label>
     <label>Decision<br><select name="kind">${Object.entries(KINDS).map(([k, t]) => `<option value="${k}">${t}</option>`).join("")}</select></label>
-    <label>Points / places<br><input type="number" name="amount" min="0" max="999" placeholder="for points or places"></label></div>
+    <label>Points / places / seconds<br><input type="number" name="amount" min="0" max="999" placeholder="for points, places or seconds"></label></div>
     <label>Reason (public, on the report)</label><input type="text" name="reason" maxlength="300" required>
     <p><button class="btn">Save decision</button></p></form>`;
 }
@@ -284,9 +298,12 @@ function stewardsPage(ev, user, { protests = [], steward = false, msg = "" } = {
     + (msg ? `<div class="msg ${ok ? "ok" : "bad"}">${esc(msg)}</div>` : "");
   // the decisions: the report everyone sees
   body += `<h2>Decisions</h2>` + (decs.length ? `<div class="wrap"><table><tr><th>Driver</th><th>Decision</th><th>Reason</th><th>When</th>${steward ? "<th></th>" : ""}</tr>` +
-    decs.map(d => `<tr><td>${driverLink(d.cust_id, `${d.car_number ? "#" + d.car_number + " " : ""}${d.name || d.cust_id}`)}</td><td><b>${esc(decisionText(d))}</b></td>
-      <td style="white-space:normal">${esc(d.reason)}${d.protest_id ? ` <span class="tag">(protest ${d.protest_id})</span>` : ""}</td><td>${day(d.made_at)}</td>
-      ${steward ? `<td><form method="post" action="#top" onsubmit="return confirm('Take this decision back? Any points or places it changed go back too.')"><input type="hidden" name="action" value="undo"><input type="hidden" name="id" value="${d.id}"><button class="link">Take back</button></form></td>` : ""}</tr>`).join("") + `</table></div>`
+    decs.map(d => { const off = d.status === "withdrawn", rc = d.source === "race control", info = d.info || {};
+      return `<tr${off ? ' class="wd"' : ""}><td>${driverLink(d.cust_id, `${d.car_number ? "#" + d.car_number + " " : ""}${d.name || d.cust_id}`)}</td>
+      <td><b>${esc(decisionText(d))}</b>${servedText(d)}${rc ? ` <span class="tag">race control${info.lap != null ? `, lap ${esc(info.lap)}` : ""}</span>` : ""}</td>
+      <td style="white-space:normal">${esc(d.reason)}${d.protest_id ? ` <span class="tag">(protest ${d.protest_id})</span>` : ""}${off ? `<br><span class="tag">Withdrawn${d.withdrawn_reason ? ": " + esc(d.withdrawn_reason) : ""}</span>` : ""}</td><td>${day(d.made_at)}</td>
+      ${steward ? `<td>${off ? "" : rc ? `<form method="post" action="#top" onsubmit="return confirm('Withdraw this race control call? It stays on the report, crossed out, and anything it changed goes back. Race control can\\'t bring it back.')"><input type="hidden" name="action" value="undo"><input type="hidden" name="id" value="${d.id}"><button class="link">Withdraw</button></form>`
+        : `<form method="post" action="#top" onsubmit="return confirm('Take this decision back? Any points or places it changed go back too.')"><input type="hidden" name="action" value="undo"><input type="hidden" name="id" value="${d.id}"><button class="link">Take back</button></form>`}</td>` : ""}</tr>`; }).join("") + `</table></div>`
     : `<p class="hint">No decisions for this race.</p>`);
   // the protests: who protested whom, and where it stands. What was written is for the stewards and the driver who filed it.
   body += `<h2>Protests</h2>`;
@@ -1022,7 +1039,7 @@ const pub = ({ hook_results, hook_standings, hook_penalties, ...rest }) => rest;
 const sameOrigin = (request, url) => request.headers.get("origin") === url.origin;
 const bearer = request => (/^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") || "") || [])[1] || "";
 
-function keysPage(keys, user, { newKey = "", newKind = "overlay", msg = "" } = {}) {
+function keysPage(keys, user, { newKey = "", newKind = "overlay", msg = "", rc = [] } = {}) {
   let body = `<h1>Overlay keys</h1><p class="sub">A key lets a producer's overlay send its race results here when a race ends. They arrive as Provisional and the official iRacing results file replaces them when it's uploaded. A key can only send results: it can't change rules, penalties or anything else.</p>`;
   if (newKey) body += `<div class="msg ok"><b>New key, shown only this once.</b> ${newKind === "import" ? "Use it for the backfill, then turn it off below." : "Paste it into the overlay: control panel › Setup › League site upload."}<code class="key">${esc(newKey)}</code></div>`;
   if (msg) body += `<div class="msg bad">${esc(msg)}</div>`;
@@ -1032,7 +1049,24 @@ function keysPage(keys, user, { newKey = "", newKind = "overlay", msg = "" } = {
   body += keys.length ? `<h2>Keys</h2><div class="wrap"><table><tr><th>Name</th><th>Made</th><th>Last used</th><th class="n">Races sent</th><th></th></tr>` +
     keys.map(k => `<tr><td>${esc(k.name)}${k.kind === "import" ? ` <span class="cls">Import</span>` : ""}${k.revoked ? ` <span class="tag">(turned off)</span>` : ""}</td><td>${day(k.created_at)}</td><td>${k.last_used ? day(k.last_used) : "Never"}</td>
       <td class="n">${k.uses}</td><td>${k.revoked ? "" : `<form method="post"><input type="hidden" name="revoke" value="${k.id}"><button class="link" onclick="return confirm('Turn this key off? That overlay stops sending results until it gets a new key.')">Turn off</button></form>`}</td></tr>`).join("") + `</table></div>` : "";
+  body += `<h2>Race control sign-ins</h2><p class="sub">Stewards' PCs signed in to race control. Each acts as that steward, with their Discord roles. They sign in from race control; turn one off here if a PC is lost or shouldn't send calls any more.</p>`
+    + (rc.length ? `<div class="wrap"><table><tr><th>Steward</th><th>PC</th><th>Signed in</th><th>Last used</th><th></th></tr>` + rc.map(r => `<tr><td>${esc(r.name)}</td><td><code>${esc(r.label || "")}</code></td>
+      <td>${day(new Date(r.created).toISOString())}</td><td>${r.last_used ? day(new Date(r.last_used).toISOString()) : ""}</td>
+      <td><form method="post"><input type="hidden" name="rc_revoke" value="${esc(r.id)}"><button class="link" onclick="return confirm('Sign this PC out of race control?')">Sign out</button></form></td></tr>`).join("") + `</table></div>`
+      : `<p class="hint">None yet.</p>`);
   return page("Overlay keys", body, { user });
+}
+
+// the page a steward opens from race control to let it act as them
+function rcLinkPage(code, user, { done = false, msg = "" } = {}) {
+  let body = `<h1>Race control sign-in</h1>`;
+  if (msg) body += `<div class="msg bad">${esc(msg)}</div>`;
+  if (done) return page("Race control sign-in", body + `<div class="msg ok">Done. Race control on that PC is signed in as ${esc(user.name)}. You can close this page.</div>`, { user });
+  body += `<p class="sub">Race control on a PC is asking to send calls to this site as you, <b>${esc(user.name)}</b>.</p>
+    <p>Check this code matches the one race control shows:</p><p style="font:700 28px/1.2 'JetBrains Mono',monospace;letter-spacing:.08em">${esc(code)}</p>
+    <form method="post"><input type="hidden" name="code" value="${esc(code)}"><p><button class="btn">Allow</button> <a href="${BASE}">Cancel</a></p></form>
+    <p class="tag">It keeps working while you have a steward role in the league's Discord. Sign it out in race control, or on the Keys page.</p>`;
+  return page("Race control sign-in", body, { user });
 }
 
 const site = {
@@ -1096,16 +1130,89 @@ const site = {
         } catch (e) { return cj({ ok: false, error: e.message }, 400); }
       }
       if (path === `${BASE}/api/overlay/check` || path === `${BASE}/api/overlay/results`) {
-        const key = await checkKey(db, bearer(request));
+        let key = await checkKey(db, bearer(request));
+        const rcUser = key ? null : await raceControlUser(request, env);     // race control's token works for results too
+        if (rcUser) key = { id: 0, name: `race control (${rcUser.name})`, user: rcUser };
         if (!key) return json({ ok: false, error: "The site doesn't recognise this key. Make a new one on the site's Overlay keys page." }, 401);
         if (path.endsWith("/check")) return json({ ok: true, name: key.name });
         if (request.method !== "POST") return json({ ok: false, error: "Use POST." }, 405);
         let ev;
         try { ev = parseOverlay(await request.json()); } catch (e) { return json({ ok: false, error: e.message }, 400); }
-        const r = await importOverlay(db, ev, `overlay:${key.id}:${key.name}`);
-        if (r.ok && !r.skipped) await logChange(db, { by: `overlay:${key.id}:${key.name}`, seriesId: ev.league.id, sub: ev.subsessionId, kind: "overlay",
+        if (key.user && !canSteward(key.user, await seriesById(db, ev.league.id)))
+          return json({ ok: false, error: "You're not a steward for this series." }, 403);
+        const r = await importOverlay(db, ev, key.user ? `discord:${key.user.id}:${key.user.name}` : `overlay:${key.id}:${key.name}`);
+        if (r.ok && !r.skipped) await logChange(db, { by: key.user ? `discord:${key.user.id}:${key.user.name}` : `overlay:${key.id}:${key.name}`, seriesId: ev.league.id, sub: ev.subsessionId, kind: "overlay",
           summary: `Provisional results from the overlay: ${ev.track}${r.replaced ? " (updated)" : ""}` });
         return json(r, r.status || 200);
+      }
+      if (path === `${BASE}/api/rc/link` && request.method === "POST") {
+        let pc = "";
+        try { pc = ((await request.json()) || {}).pc || ""; } catch (e) { /* no body is fine */ }
+        return json({ ok: true, ...await rcLinkStart(env, url, pc) });
+      }
+      if (path === `${BASE}/api/rc/link/poll` && request.method === "POST") {
+        let poll = "";
+        try { poll = ((await request.json()) || {}).poll || ""; } catch (e) { /* answered as expired */ }
+        return json({ ok: true, ...await rcLinkPoll(env, poll) });
+      }
+      if (path === `${BASE}/rc/link`) {
+        const code = String(url.searchParams.get("code") || "").toUpperCase();
+        if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${encodeURIComponent(`${BASE}/rc/link?code=${code}`)}`, 302);
+        const l = await rcLinkFind(env, code);
+        if (!l) return rcLinkPage(code, user, { msg: "That code has expired or was already used. Press Sign in in race control again." });
+        const mine = (await listSeries(db)).filter(x => canSteward(user, x));
+        if (!mine.length) return rcLinkPage(code, user, { msg: "Race control needs the race control role (or a series' role) in the league's Discord. Ask an admin." });
+        if (request.method === "POST" && sameOrigin(request, url)) {
+          const f = await request.formData();
+          if (!await rcLinkAllow(request, env, String(f.get("code") || ""), user)) return rcLinkPage(code, user, { msg: "That code has expired. Press Sign in in race control again." });
+          await logChange(db, { by: `discord:${user.id}:${user.name}`, kind: "key", summary: `Race control signed in on PC ${l.pc || "(unnamed)"}` });
+          return rcLinkPage(code, user, { done: true });
+        }
+        return rcLinkPage(code, user);
+      }
+      if (path.startsWith(`${BASE}/api/rc/`)) {
+        if (path === `${BASE}/api/rc/signout` && request.method === "POST") return json({ ok: await rcSignOut(request, env) });
+        const rcu = await raceControlUser(request, env);
+        if (!rcu) return json({ ok: false, error: "Race control isn't signed in to the site (or the sign-in was turned off). Sign in again from race control." }, 401);
+        const all = await listSeries(db), mine = all.filter(x => canSteward(rcu, x));
+        if (path === `${BASE}/api/rc/check`) {
+          if (!mine.length) return json({ ok: false, error: "You don't have a steward role in the league's Discord any more." }, 403);
+          return json({ ok: true, user: { id: rcu.id, name: rcu.name }, series: rcu.steward ? "all" : mine.map(x => x.id) });
+        }
+        if ((m = path.match(/^\/glr\/api\/rc\/races\/(\d+)$/))) {
+          const sub = Number(m[1]), by = `discord:${rcu.id}:${rcu.name}`;
+          if (request.method === "PUT") {
+            let file;
+            try { file = await request.json(); } catch (e) { return json({ ok: false, error: "The race file isn't valid JSON." }, 400); }
+            if (!file || file.type !== "vspeed_race_control") return json({ ok: false, error: "That isn't a race control file." }, 400);
+            if (Number(file.subsessionId) !== sub) return json({ ok: false, error: "The race file is for another session." }, 400);
+            const sr = all.find(x => x.id === Number(file.leagueId));
+            if (!sr) return json({ ok: false, error: `iRacing league ${file.leagueId} isn't a GLR series on this site.` }, 404);
+            if (!canSteward(rcu, sr)) return json({ ok: false, error: `You're not a steward for ${sr.short_name}.` }, 403);
+            const ev0 = await db.prepare(`SELECT series_id FROM events WHERE subsession_id = ?`).bind(sub).first();
+            if (ev0 && ev0.series_id !== sr.id) return json({ ok: false, error: "That session belongs to another series on the site." }, 400);
+            let r;
+            try { r = await saveRaceCalls(db, sub, file, by); } catch (e) { return json({ ok: false, error: e.message }, 400); }
+            if (r.added.length || r.changed.length) {
+              await logChange(db, { by, seriesId: sr.id, sub, kind: "decision", summary: `Race control: ${r.added.length} new call${r.added.length === 1 ? "" : "s"}${r.changed.length ? `, ${r.changed.length} changing the order` : ""}, ${String(file.track || "")}` });
+              const ev = await getEvent(db, sub);
+              if (ev && ev.status === "official") {           // the site's rule: Discord posts once the race is official
+                for (const a of r.added) {
+                  const d = ev.decisions.find(x => x.rc_uid === a.uid);
+                  if (d && d.kind !== "none" && sr.hook_penalties) await enqueue(db, sr.id, "penalties", "decision", sub, decisionPost(sr, ev, { ...d, text: decisionText(d) }, url.origin));
+                }
+                if (r.changed.length) await updatePosted(db, sub, url.origin);
+                kick();
+              }
+            }
+            return json({ ok: true, decisions: await raceCalls(db, sub) });
+          }
+          // the race's series: from its results, or (before they're in) from the calls already sent
+          const ev0 = await db.prepare(`SELECT series_id FROM events WHERE subsession_id = ? UNION ALL SELECT series_id FROM decisions WHERE subsession_id = ? LIMIT 1`).bind(sub, sub).first();
+          if (ev0 && !canSteward(rcu, all.find(x => x.id === ev0.series_id))) return json({ ok: false, error: "You're not a steward for that series." }, 403);
+          return json({ ok: true, subsessionId: sub, decisions: await raceCalls(db, sub) });
+        }
+        return json({ ok: false, error: "Unknown race control request." }, 404);
       }
       if (path === `${BASE}/keys`) {
         if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/keys`, 302);
@@ -1114,6 +1221,11 @@ const site = {
           if (!sameOrigin(request, url)) return keysPage(await listKeys(db), user, { msg: "Do this from this page." });
           const f = await request.formData();
           const who = `discord:${user.id}:${user.name}`;
+          if (f.get("rc_revoke")) {
+            const r = await revokeRcSession(env, f.get("rc_revoke"));
+            if (r) await logChange(db, { by: who, kind: "key", summary: `Race control signed out: ${r.name}` });
+            return Response.redirect(`${url.origin}${BASE}/keys`, 303);
+          }
           if (f.get("revoke")) {
             const k = (await listKeys(db)).find(x => x.id === Number(f.get("revoke")));
             await revokeKey(db, Number(f.get("revoke")));
@@ -1124,11 +1236,11 @@ const site = {
             const kind = f.get("import") ? "import" : "overlay";
             const k = await createKey(db, f.get("name"), who, kind);
             await logChange(db, { by: who, kind: "key", summary: `${kind === "import" ? "Import" : "Overlay"} key made: ${String(f.get("name")).trim()}` });
-            return keysPage(await listKeys(db), user, { newKey: k, newKind: kind });
+            return keysPage(await listKeys(db), user, { newKey: k, newKind: kind, rc: await listRcSessions(env) });
           }
-          catch (e) { return keysPage(await listKeys(db), user, { msg: e.message }); }
+          catch (e) { return keysPage(await listKeys(db), user, { msg: e.message, rc: await listRcSessions(env) }); }
         }
-        return keysPage(await listKeys(db), user);
+        return keysPage(await listKeys(db), user, { rc: await listRcSessions(env) });
       }
       if (path === `${BASE}/api/me`) return json({ ok: true, user, signIn: configured(env) });
       if (path === `${BASE}/api/events`) return json({ ok: true, events: await listEvents(db, { season: Number(url.searchParams.get("season")) || 0 }) });
@@ -1175,18 +1287,18 @@ const site = {
               await logChange(db, { by, seriesId: ev.series_id, sub, kind: "decision", summary: `Stewards: ${d.name}: ${r.text} (${d.reason})${d.protest_id ? `, protest ${d.protest_id}` : ""}` });
               if (ev.status === "official" && d.kind !== "none") {
                 if (sr.hook_penalties) await enqueue(db, sr.id, "penalties", "decision", sub, decisionPost(sr, ev, { ...d, text: r.text }, url.origin));
-                if (d.kind === "positions" || d.kind === "dq") await updatePosted(db, sub, url.origin);
+                if (CHANGES_ORDER(d.kind)) await updatePosted(db, sub, url.origin);
                 kick();
               }
               msg = `Decision saved: ${d.name}: ${r.text}.`;
             } else if (a === "undo") {
-              const d = await deleteDecision(db, sub, Number(f.get("id")));
+              const d = await deleteDecision(db, sub, Number(f.get("id")), by, "Withdrawn on the site");
               if (d) {
-                await logChange(db, { by, seriesId: ev.series_id, sub, kind: "decision", summary: `Stewards took back a decision: ${decisionText(d)} (${d.reason})` });
+                await logChange(db, { by, seriesId: ev.series_id, sub, kind: "decision", summary: `Stewards ${d.withdrawn ? "withdrew a race control call" : "took back a decision"}: ${decisionText(d)} (${d.reason})` });
                 ev = await getEvent(db, sub);
-                if (ev.status === "official" && (d.kind === "positions" || d.kind === "dq")) { await updatePosted(db, sub, url.origin); kick(); }
+                if (ev.status === "official" && CHANGES_ORDER(d.kind)) { await updatePosted(db, sub, url.origin); kick(); }
               }
-              msg = "Removed.";
+              msg = d && d.withdrawn ? "Withdrawn." : "Removed.";
             } else if ((a === "close" || a === "reopen") && p && p.subsession_id === sub) {
               await setProtestStatus(db, pid, a === "close" ? "withdrawn" : "open", by);
               await logChange(db, { by, seriesId: ev.series_id, sub, kind: "protest", summary: `Protest ${pid} ${a === "close" ? "closed without a decision" : "reopened"}: ${ev.track}` });

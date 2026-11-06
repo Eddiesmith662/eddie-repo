@@ -5,7 +5,7 @@
  * and every name a driver has raced under is kept in driver_names (league nicknames make the sim and the export
  * disagree on names, the Cust ID never changes).
  */
-import { applyDecisions, decisionText } from "./stewards.js";
+import { applyDecisions, decisionText, KINDS, AMOUNT, CHANGES_ORDER } from "./stewards.js";
 
 const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS series (
@@ -99,12 +99,16 @@ const ADDED = [
   ["events", "official_at", "TEXT"], ["events", "official_by", "TEXT"], ["events", "discord", "TEXT NOT NULL DEFAULT '{}'"],
   ["results", "car_class", "TEXT NOT NULL DEFAULT ''"], ["results", "class_pos", "INTEGER"],
   ["results", "class_interval_ms", "INTEGER"], ["results", "class_laps_down", "INTEGER"],
+  // race control's calls (phase 5c): its own id for the call, what it sent (lap, served or not, ...), and withdrawals
+  ["decisions", "rc_uid", "TEXT"], ["decisions", "info", "TEXT NOT NULL DEFAULT '{}'"], ["decisions", "status", "TEXT NOT NULL DEFAULT 'active'"],
+  ["decisions", "withdrawn_at", "TEXT"], ["decisions", "withdrawn_by", "TEXT"], ["decisions", "withdrawn_reason", "TEXT"],
+  ["decisions", "withdrawn_site", "INTEGER NOT NULL DEFAULT 0"],
 ];
 
 // short names for the GLR series (by iRacing league id); officials can change them on the site
 const SHORT = { 9310: "ARCA", 9309: "Grand National", 11390: "Foundation", 12070: "Sports Car", 11059: "Warrior", 6838: "Next Gen" };
 // words in the site's own addresses, which a series can't use as its address
-export const RESERVED = new Set(["api", "results", "drivers", "upload", "login", "logout", "auth", "health", "series", "edit", "admin", "keys", "history", "schedule", "settings", "theme"]);
+export const RESERVED = new Set(["api", "results", "drivers", "upload", "login", "logout", "auth", "health", "series", "edit", "admin", "keys", "history", "schedule", "settings", "theme", "protests", "rc"]);
 
 export const slugify = s => String(s || "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
 const shortFrom = (id, name) => SHORT[id] || String(name || "").replace(/^\s*GLR\s+/i, "").replace(/\s+SERIES\s*$/i, "").trim() || `Series ${id}`;
@@ -137,6 +141,7 @@ export function ensureSchema(db) {
       const cols = (await db.prepare(`PRAGMA table_info(${table})`).all()).results.map(c => c.name);
       if (!cols.includes(col)) await db.prepare(`ALTER TABLE ${table} ADD COLUMN ${col} ${def}`).run();
     }
+    await db.prepare(`CREATE INDEX IF NOT EXISTS decisions_rc ON decisions (rc_uid)`).run();
     await nameSeries(db);
     await backfillChanges(db);
     await setDropWeeksOnce(db);
@@ -204,6 +209,7 @@ export async function importEvent(db, ev, by = "") {
   }
   await db.batch(st);
   await nameSeries(db);
+  await rcSync(db, ev.subsessionId);           // race control's points penalties made before the results came in
   return { subsessionId: ev.subsessionId, drivers: seen.size, results: race.results.length, fixesCleared: fixes,
            nowOfficial: status === "official" && (!before || before.status !== "official"), wasOfficial: !!before && before.status === "official",
            sessions: ev.sessions.map(s => s.name) };
@@ -323,7 +329,7 @@ export async function seasonEvents(db, seasonId) {
 
 // the stewards' position penalties and disqualifications, applied to races read for pages, standings and stats
 async function withDecisions(db, evs) {
-  const acts = (await db.prepare(`SELECT * FROM decisions WHERE kind IN ('positions', 'dq') ORDER BY id`).all()).results;
+  const acts = (await db.prepare(`SELECT * FROM decisions WHERE kind IN ('positions', 'time', 'dq') AND status = 'active' ORDER BY id`).all()).results;
   if (!acts.length) return evs;
   for (const e of evs) {
     const mine = acts.filter(d => d.subsession_id === e.subsession_id);
@@ -382,7 +388,7 @@ export async function getEvent(db, sub) {
   ev.sessions = {};
   for (const r of rows) (ev.sessions[r.session] = ev.sessions[r.session] || []).push(r);
   ev.decisions = await listDecisions(db, sub);
-  if (ev.sessions.race) ev.sessions.race = applyDecisions(ev.sessions.race, ev.decisions).sort((a, b) => (a.finish_pos || 999) - (b.finish_pos || 999));
+  if (ev.sessions.race) ev.sessions.race = applyDecisions(ev.sessions.race, ev.decisions.filter(d => d.status === "active")).sort((a, b) => (a.finish_pos || 999) - (b.finish_pos || 999));
   ev.classes = [...new Set((ev.sessions.race || []).map(r => r.car_class))];
   return ev;
 }
@@ -401,7 +407,7 @@ export async function getDriver(db, cust) {
       WHERE r.cust_id = ? AND r.session = 'race' ORDER BY e.start_time DESC`).bind(cust).all()).results;
   // races where the stewards changed the order: this driver's place and points after their decisions
   for (const x of d.races) {
-    const acts = (await db.prepare(`SELECT * FROM decisions WHERE subsession_id = ? AND kind IN ('positions', 'dq') ORDER BY id`).bind(x.subsession_id).all()).results;
+    const acts = (await db.prepare(`SELECT * FROM decisions WHERE subsession_id = ? AND kind IN ('positions', 'time', 'dq') AND status = 'active' ORDER BY id`).bind(x.subsession_id).all()).results;
     if (!acts.length) continue;
     const all = (await db.prepare(`SELECT * FROM results WHERE subsession_id = ? AND session = 'race'`).bind(x.subsession_id).all()).results;
     const me = applyDecisions(all, acts).find(r => r.cust_id === x.cust_id);
@@ -929,9 +935,15 @@ export async function setProtestStatus(db, id, status, by) {
 
 export async function listDecisions(db, sub) {
   await ensureSchema(db);
-  return (await db.prepare(`SELECT d.*, (SELECT name FROM results r WHERE r.subsession_id = d.subsession_id AND r.session = 'race' AND r.cust_id = d.cust_id) AS name,
+  const rows = (await db.prepare(`SELECT d.*, (SELECT name FROM results r WHERE r.subsession_id = d.subsession_id AND r.session = 'race' AND r.cust_id = d.cust_id) AS name,
       (SELECT car_number FROM results r WHERE r.subsession_id = d.subsession_id AND r.session = 'race' AND r.cust_id = d.cust_id) AS car_number
       FROM decisions d WHERE d.subsession_id = ? ORDER BY d.id`).bind(sub).all()).results;
+  for (const d of rows) {                       // race control's calls can come before the results: use the name it sent
+    d.info = JSON.parse(d.info || "{}");
+    if (!d.name) d.name = d.info.driverName || String(d.cust_id);
+    if (!d.car_number) d.car_number = d.info.carNumber || "";
+  }
+  return rows;
 }
 
 /**
@@ -942,20 +954,22 @@ export async function addDecision(db, { sub, protestId = null, cust, kind, amoun
   await ensureSchema(db);
   const ev = await db.prepare(`SELECT series_id, season_id FROM events WHERE subsession_id = ?`).bind(sub).first();
   if (!ev) throw new Error("No race with that session number.");
-  if (!["none", "warning", "points", "positions", "dq"].includes(kind)) throw new Error("Pick a decision.");
+  if (!KINDS[kind]) throw new Error("Pick a decision.");
   if (!await db.prepare(`SELECT 1 AS ok FROM results WHERE subsession_id = ? AND session = 'race' AND cust_id = ?`).bind(sub, cust).first())
     throw new Error("That driver isn't in this race's results.");
   const why = String(reason || "").trim().slice(0, 300);
   if (!why) throw new Error("Give the reason. Drivers see it on the stewards' report.");
   let n = Math.round(Number(amount) || 0), adj = null;
   if (kind === "positions" && n < 1) throw new Error("Enter how many places to move the driver back.");
+  if (kind === "time" && n < 1) throw new Error("Enter how many seconds to add.");
   if (kind === "points") {
     if (!n) throw new Error("Enter the points, like 10 to take 10 off.");
     n = -Math.abs(n);                       // a points penalty always takes points off
     if (!ev.season_id) throw new Error("This race isn't in a season, so there are no standings to take points from.");
     adj = await addAdjustment(db, ev.season_id, { sub, cust, points: n, reason: `Stewards: ${why}` }, by);
   }
-  if (!["points", "positions"].includes(kind)) n = 0;
+  if (!AMOUNT[kind]) n = 0;
+  n = kind === "points" ? n : Math.abs(n);
   if (protestId && !await db.prepare(`SELECT 1 AS ok FROM protests WHERE id = ? AND subsession_id = ?`).bind(protestId, sub).first()) throw new Error("That protest isn't for this race.");
   await db.prepare(`INSERT INTO decisions (subsession_id, series_id, protest_id, cust_id, kind, amount, reason, adj_id, source, made_at, made_by)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).bind(sub, ev.series_id, protestId, cust, kind, n, why, adj, source, new Date().toISOString(), by).run();
@@ -964,13 +978,103 @@ export async function addDecision(db, { sub, protestId = null, cust, kind, amoun
 }
 
 // take a decision back: its points penalty goes too, and its protest opens again if nothing else decided it
-export async function deleteDecision(db, sub, id) {
+export async function deleteDecision(db, sub, id, by = "", reason = "") {
   await ensureSchema(db);
   const d = await db.prepare(`SELECT * FROM decisions WHERE id = ? AND subsession_id = ?`).bind(id, sub).first();
   if (!d) return null;
+  if (d.source === "race control") {           // race control's calls stay on the report, withdrawn, and stay withdrawn
+    if (d.adj_id) await db.prepare(`DELETE FROM adjustments WHERE id = ?`).bind(d.adj_id).run();
+    await db.prepare(`UPDATE decisions SET status = 'withdrawn', withdrawn_site = 1, withdrawn_at = ?, withdrawn_by = ?, withdrawn_reason = ?, adj_id = NULL WHERE id = ?`)
+      .bind(new Date().toISOString(), by, String(reason || "Withdrawn on the site").slice(0, 200), id).run();
+    return { ...d, withdrawn: true };
+  }
   if (d.adj_id) await db.prepare(`DELETE FROM adjustments WHERE id = ?`).bind(d.adj_id).run();
   await db.prepare(`DELETE FROM decisions WHERE id = ?`).bind(id).run();
   if (d.protest_id && !await db.prepare(`SELECT 1 AS ok FROM decisions WHERE protest_id = ?`).bind(d.protest_id).first())
     await setProtestStatus(db, d.protest_id, "open", "");
   return d;
+}
+
+/* ---------- race control: the calls for a race (phase 5c) ---------- */
+
+const RC_KIND = { noaction: "none" };                         // race control's names that differ from the site's
+const RC_NAME = { none: "noaction" };
+
+/**
+ * A race file from race control (one steward's PC, every call it has for the race). Each call is added or updated by
+ * its uid; calls from other PCs and from the site are left alone. A call withdrawn on the site stays withdrawn.
+ * Works before the race's results are on the site: points penalties wait for the race's season (rcSync).
+ * -> { changed: [...decisions that changed the order], added: [...new active decisions] }
+ */
+export async function saveRaceCalls(db, sub, file, by) {
+  await ensureSchema(db);
+  const pc = String(file.pc || "").trim();
+  if (!pc) throw new Error("The race file has no pc id.");
+  const calls = Array.isArray(file.calls) ? file.calls.slice(0, 300) : [];
+  const now = new Date().toISOString(), seriesId = Number(file.leagueId);
+  const res = { changed: [], added: [] };
+  for (const c of calls) {
+    const uid = String(c.uid || "");
+    if (!uid.startsWith(pc + ":")) throw new Error(`Call ${uid || "(no uid)"} isn't from this pc.`);
+    const kind = RC_KIND[c.kind] || c.kind;
+    if (!KINDS[kind]) throw new Error(`Call ${uid}: unknown kind ${c.kind}.`);
+    const cust = Math.round(Number(c.custId)) || 0;
+    if (!cust) throw new Error(`Call ${uid}: no driver (custId).`);
+    let amount = Math.round(Number(c.amount) || 0);
+    amount = !AMOUNT[kind] ? 0 : kind === "points" ? -Math.abs(amount) : Math.abs(amount);
+    const reason = String(c.reason || "").trim().slice(0, 300);
+    const info = JSON.stringify({ lap: c.lap ?? null, sessionTime: c.sessionTime ?? null, incident: c.incident ?? null, sim: c.sim ?? null,
+      carNumber: String(c.carNumber || ""), driverName: String(c.driverName || ""), pc, sessionNum: file.sessionNum ?? null });
+    const withdrawn = c.status === "withdrawn";
+    const old = await db.prepare(`SELECT * FROM decisions WHERE rc_uid = ?`).bind(uid).first();
+    if (!old) {
+      await db.prepare(`INSERT INTO decisions (subsession_id, series_id, cust_id, kind, amount, reason, source, made_at, made_by, rc_uid, info, status, withdrawn_at, withdrawn_by, withdrawn_reason)
+          VALUES (?, ?, ?, ?, ?, ?, 'race control', ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .bind(sub, seriesId, cust, kind, amount, reason, String(c.madeAt || now), by, uid, info, withdrawn ? "withdrawn" : "active",
+              withdrawn ? String(c.withdrawnAt || now) : null, withdrawn ? by : null, withdrawn ? String(c.withdrawnReason || "").slice(0, 200) : null).run();
+      if (!withdrawn) { res.added.push({ uid, kind, cust }); if (CHANGES_ORDER(kind)) res.changed.push(uid); }
+      continue;
+    }
+    if (old.subsession_id !== sub) throw new Error(`Call ${uid} belongs to another race.`);
+    const same = old.kind === kind && old.amount === amount && old.reason === reason && old.cust_id === cust;
+    let status = old.status, wAt = old.withdrawn_at, wBy = old.withdrawn_by, wWhy = old.withdrawn_reason;
+    if (!old.withdrawn_site) {                     // withdrawn on the site: race control can't bring it back
+      if (withdrawn && old.status === "active") { status = "withdrawn"; wAt = String(c.withdrawnAt || now); wBy = by; wWhy = String(c.withdrawnReason || "").slice(0, 200); }
+      if (!withdrawn && old.status === "withdrawn") { status = "active"; wAt = wBy = wWhy = null; }
+    }
+    await db.prepare(`UPDATE decisions SET cust_id = ?, kind = ?, amount = ?, reason = ?, info = ?, status = ?, withdrawn_at = ?, withdrawn_by = ?, withdrawn_reason = ? WHERE id = ?`)
+      .bind(cust, kind, amount, reason, info, status, wAt, wBy, wWhy, old.id).run();
+    if ((!same || status !== old.status) && (CHANGES_ORDER(kind) || CHANGES_ORDER(old.kind))) res.changed.push(uid);
+    if (old.adj_id && (!same || status !== "active")) {      // the points penalty is made again to match (rcSync)
+      await db.prepare(`DELETE FROM adjustments WHERE id = ?`).bind(old.adj_id).run();
+      await db.prepare(`UPDATE decisions SET adj_id = NULL WHERE id = ?`).bind(old.id).run();
+    }
+  }
+  await rcSync(db, sub);
+  return res;
+}
+
+// race control's points penalties go on the series' penalties once the race (and its season) is on the site
+export async function rcSync(db, sub) {
+  await ensureSchema(db);
+  const ev = await db.prepare(`SELECT season_id FROM events WHERE subsession_id = ?`).bind(sub).first();
+  if (!ev || !ev.season_id) return;
+  const todo = (await db.prepare(`SELECT * FROM decisions WHERE subsession_id = ? AND source = 'race control' AND kind = 'points' AND status = 'active' AND adj_id IS NULL`).bind(sub).all()).results;
+  for (const d of todo) {
+    try {
+      const adj = await addAdjustment(db, ev.season_id, { sub, cust: d.cust_id, points: d.amount, reason: `Stewards: ${d.reason || "race control"}` }, d.made_by || "");
+      await db.prepare(`UPDATE decisions SET adj_id = ? WHERE id = ?`).bind(adj, d.id).run();
+    } catch (e) { /* that driver isn't in the results (yet): tried again when results come in */ }
+  }
+}
+
+// every call on a race (all stewards' PCs, and decisions made on the site), for race control to show
+export async function raceCalls(db, sub) {
+  return (await listDecisions(db, sub)).map(d => ({
+    uid: d.rc_uid || `site:${d.id}`, source: d.source, kind: RC_NAME[d.kind] || d.kind, amount: d.kind === "points" ? Math.abs(d.amount) : d.amount,
+    reason: d.reason, custId: d.cust_id, carNumber: d.car_number || "", driverName: d.name || "", lap: d.info.lap ?? null,
+    madeAt: d.made_at, madeBy: whoName(d.made_by), status: d.status, withdrawnAt: d.withdrawn_at || null,
+    withdrawnBy: d.withdrawn_by ? whoName(d.withdrawn_by) : null, withdrawnReason: d.withdrawn_reason || null, withdrawnOnSite: !!d.withdrawn_site,
+    sim: d.info.sim || null,
+  }));
 }
