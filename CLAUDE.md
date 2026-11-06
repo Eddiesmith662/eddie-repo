@@ -32,9 +32,11 @@ The latest handoff note (`HANDOFF-*.md`) says what was done most recently and wh
 
 ## Working here
 
-- This folder is an installed copy, not a git checkout of the repo (GitHub: Eddiesmith662/eddie-repo). Changes made here
-  are not in GitHub until they're copied into the repo and pushed, and accepting an update at start-up replaces the
-  program files here with GitHub's version (the replaced ones go to `data/backup/`).
+- On the producer's PC the overlay is a git checkout of the repo (GitHub: Eddiesmith662/eddie-repo) at
+  `C:\vspeed-overlay`, on `main`. Git is at `C:\Program Files\Git\cmd\git.exe`. Commit there, and push only when asked.
+  Other producers' installs are plain copies, kept up to date by the updater from published releases.
+- Don't accept the start-up update in a git checkout: it replaces program files outside git (the replaced ones go to
+  `data/backup/`). Use `git pull` instead.
 - Before big changes, make a dated copy of the whole folder next to it.
 - Don't run the overlay against the real `data/` folder to test: copy the program into the scratchpad with its own
   `data/`, or set `VSPEED_DATA`.
