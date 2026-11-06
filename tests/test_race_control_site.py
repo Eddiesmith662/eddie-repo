@@ -276,6 +276,49 @@ class ReadingBack(Base):
         self.assertEqual(rc.snapshot()["siteCalls"], [])                  # our own calls aren't listed twice
 
 
+class RealReadings(unittest.TestCase):
+    """The league and session come from iRacing's own data, through the real reading code (IRacingSource.tick), not
+    filled in by hand. Nov 6 2026: the live data never carried the league id, so race control's file for the site was
+    never made, and on a real race night no calls would have gone; the tests above had added it by hand."""
+
+    def run_race(self, league):
+        import replay
+        name = "talladega-2026-10-24-caution"
+
+        class LeagueIR(replay.FakeIR):
+            def __init__(self, meta, readings):
+                super().__init__(meta, readings)
+                self.static["WeekendInfo"].update(LeagueID=league, SubSessionID=77001)
+        wipe_file(77001)
+        fresh()
+        was, real_ir = server.RC["on"], replay.FakeIR
+        server.RC["on"], replay.FakeIR = True, LeagueIR      # race control reads each reading, as on a steward's PC
+        try:
+            for i, (_, live) in enumerate(replay.replay(name)):
+                if i == 20:
+                    break
+        finally:
+            server.RC["on"], replay.FakeIR = was, real_ir
+        car = next(c for c in live["cars"] if c.get("custId"))
+        ok, err, _ = rc.command({"cmd": "call", "kind": "warning", "idx": car["idx"], "reason": "Blocking"}, live, "Steward")
+        self.assertTrue(ok, err)
+        return live, rc.race_file("77001", "pc1")[0]
+
+    def tearDown(self):
+        wipe_file(77001)
+
+    def test_a_league_race_makes_a_file_for_the_site(self):
+        live, f = self.run_race(4242)
+        self.assertEqual((live["leagueId"], live["subId"]), (4242, 77001))
+        self.assertIsNotNone(f, "race control made no file for the site from real readings")
+        self.assertEqual((f["leagueId"], f["subsessionId"], len(f["calls"])), (4242, 77001, 1))
+        self.assertTrue(f["calls"][0]["custId"])              # the driver's iRacing id, from DriverInfo
+
+    def test_a_session_that_isnt_a_league_race_stays_on_this_pc(self):
+        live, f = self.run_race(0)                             # iRacing sends LeagueID 0 outside league sessions
+        self.assertIsNone(f)
+
+
 class OfficialResults(Base):
     def test_results_go_with_the_sign_in_when_there_is_no_overlay_key(self):
         leagueupload.configure({"on": False, "key": ""})
