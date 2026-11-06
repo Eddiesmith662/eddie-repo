@@ -23,7 +23,6 @@ of line can't be checked that way, so those just say "Sent". Withdrawing a call 
 Calls stay on this PC for now; sending them to the league site comes later (phase 5c).
 """
 import datetime
-import json
 import os
 import threading
 import time
@@ -67,7 +66,7 @@ def _now():
 
 def _empty(key, live):
     return {"version": 1, "race": key, "subId": live.get("subId"), "track": live.get("track", ""), "created": _now(),
-            "seq": {"i": 0, "c": 0}, "queue": [], "calls": []}
+            "seq": {"i": 0, "c": 0, "x": 0}, "queue": [], "calls": [], "clears": []}
 
 
 def _race_key(live):
@@ -79,17 +78,15 @@ def _race_key(live):
 
 
 def _save():
+    """After every change. datafiles.write_json: temp file + swap, and OneDrive locks are tried again."""
     d, path = _st["data"], _st["path"]
     if not d or not path:
         return
     try:
-        os.makedirs(DIR, exist_ok=True)
-        tmp = path + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(d, f, indent=1)
-        os.replace(tmp, path)
+        datafiles.write_json(path, d, indent=1)
     except OSError as e:
-        _log("Race control: couldn't save %s (%s)" % (path, e))
+        _log("Race control: couldn't save %s (%s). Calls are kept in memory and saved with the next change."
+             % (os.path.basename(path), e))
 
 
 def _changed():
@@ -103,13 +100,18 @@ def _open(live):
     if _st["key"] == key:
         return
     path = os.path.join(DIR, "%s.json" % key)
-    data = None
-    try:
-        with open(path, encoding="utf-8") as f:
-            data = json.load(f)
-        _log("Race control: picked up race %s (%d in the queue, %d calls)" % (key, len(data.get("queue") or []), len(data.get("calls") or [])))
-    except (OSError, ValueError):
-        pass
+    # a damaged file is kept aside (.broken-<time>) and the copy from when this race was last picked up (.bak) is used
+    data = datafiles.load_json(path, None, backup=True)
+    if isinstance(data, dict) and isinstance(data.get("queue"), list) and isinstance(data.get("calls"), list):
+        data.setdefault("seq", {}).setdefault("x", 0)
+        _log("Race control: picked up race %s (%d in the queue, %d calls)" % (key, len(data["queue"]), len(data["calls"])))
+    else:
+        if os.path.exists(path):
+            # there's a file but it couldn't be read (still locked, or not a race control file): never write over it
+            path = os.path.join(DIR, "%s-%s.json" % (key, time.strftime("%Y%m%d-%H%M%S")))
+            _log("Race control: couldn't read the saved calls for race %s, so this race carries on in %s. "
+                 "The old file is untouched." % (key, os.path.basename(path)))
+        data = None
     _st.update(key=key, path=path, data=data or _empty(key, live), map={}, incVer=-1, lastInc={}, catch={}, catchT=None)
     if not data:
         _log("Race control: new race %s at %s" % (key, live.get("track", "")))
@@ -376,7 +378,6 @@ def clear_log(steward, car, text, ok, error="", live=None):
         d = _st["data"]
         if d is None:
             return
-        d.setdefault("seq", {}).setdefault("x", 0)
         lv = live or {}
         d.setdefault("clears", []).append({"id": _next("x"), "at": _now(), "by": str(steward).strip()[:60], "cmd": text,
                                            "car": car, "ok": bool(ok), "error": error or "", "lap": lv.get("lap")})

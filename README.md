@@ -360,6 +360,9 @@ about 10 seconds and never touches the `data` folder: it uses a throwaway one.
   then save its golden file once the overlay handles it right. Black boxes hold car numbers only, no driver names.
 - **Race logic, live points, standings, bracket and data safety:** the other `tests\test_*.py` files, with made-up
   drivers.
+- **Race control** (`tests\test_race_control.py`): the incident queue, the catch-up after a replay, calls, the exact
+  commands typed into iRacing, In the sim / Served / didn't show, clearing, and the race's saved file (picked up after a
+  restart, damaged file kept aside). Sending runs against the demo race, so iRacing isn't needed.
 
 The overlay uses the **Bahnschrift** font, which comes with Windows 10 and 11.
 
