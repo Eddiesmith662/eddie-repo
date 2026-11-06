@@ -289,7 +289,7 @@ def send_prepare(cid, steward, live):
             return False, "That call was withdrawn", None
         if sim["state"] == "sending":
             return False, "It's being sent", None
-        if sim["state"] in ("waiting", "inSim", "served", "sent") and not sim.get("again"):
+        if sim["state"] in ("waiting", "inSim", "served", "sent"):
             return False, "It was already sent", None
         if not str(steward or "").strip():
             return False, "Type your name at the top first", None
@@ -326,10 +326,19 @@ def send_done(cid, ok, error=""):
                 sim["state"] = "sent"
                 sim["note"] = "#%s already had a black flag, so race control can't check this one" % c["car"]["num"]
             sim["sentAt"] = _now()
-        sim.pop("again", None)
         _changed()
         _log("Race control: %s %s to iRacing: %s%s" % (sim.get("by", ""), "sent" if ok else "couldn't send", sim["cmd"],
                                                        "" if ok else " (%s)" % error))
+
+
+def _mark_cleared(d, idx=None):
+    """!clear (one car) or !clearall (idx None) went through: penalties race control sent are gone from the sim,
+    so they mustn't later show as "Served". The calls themselves stand; they can be sent again."""
+    for c in d["calls"]:
+        sim = c.get("sim")
+        if sim and c["status"] == "active" and sim["state"] in ("waiting", "inSim", "sent", "notTaken") \
+                and (idx is None or (c.get("car") or {}).get("idx") == idx) and c["kind"] != "dq":
+            sim["state"] = "cleared"
 
 
 def clear_done(cid, ok, error=""):
@@ -341,7 +350,40 @@ def clear_done(cid, ok, error=""):
         c["sim"]["clear"] = {"at": _now(), "ok": bool(ok), "error": error or ""}
         if ok:
             c["sim"]["state"] = "cleared"
+            _mark_cleared(d, c["car"]["idx"])
         _changed()
+
+
+def clear_prepare(idx, steward, live):
+    """The steward's Clear (one car) or Clear all. -> (ok, error, text, car)"""
+    if not str(steward or "").strip():
+        return False, "Type your name at the top first", None, None
+    live = live or {}
+    if not live.get("connected"):
+        return False, "iRacing isn't connected", None, None
+    if idx is None:
+        return True, "", "!clearall", None
+    car = _car(live, idx)
+    if not car:
+        return False, "That car isn't in the session", None, None
+    return True, "", "!clear #%s" % car.get("num", ""), {"idx": idx, "num": car.get("num", ""), "name": car.get("name", ""),
+                                                         "custId": car.get("custId", "")}
+
+
+def clear_log(steward, car, text, ok, error="", live=None):
+    """Every Clear / Clear all is kept in the race's file, with who sent it."""
+    with LOCK:
+        d = _st["data"]
+        if d is None:
+            return
+        d.setdefault("seq", {}).setdefault("x", 0)
+        lv = live or {}
+        d.setdefault("clears", []).append({"id": _next("x"), "at": _now(), "by": str(steward).strip()[:60], "cmd": text,
+                                           "car": car, "ok": bool(ok), "error": error or "", "lap": lv.get("lap")})
+        if ok:
+            _mark_cleared(d, car["idx"] if car else None)
+        _changed()
+    _log("Race control: %s %s %s%s" % (steward, "sent" if ok else "couldn't send", text, "" if ok else " (%s)" % error))
 
 
 def version():
@@ -352,7 +394,7 @@ def snapshot():
     with LOCK:
         d = _st["data"] or {"queue": [], "calls": [], "race": None, "track": "", "subId": None}
         return {"ver": _st["ver"], "race": d.get("race"), "track": d.get("track", ""), "subId": d.get("subId"),
-                "queue": list(d["queue"]), "calls": list(d["calls"]), "inReplay": _st["replay"],
+                "queue": list(d["queue"]), "calls": list(d["calls"]), "clears": list(d.get("clears") or []), "inReplay": _st["replay"],
                 "kinds": [{"key": k, "label": lbl, "unit": u, "sim": k in SIM_KINDS} for k, lbl, u in KINDS], "types": incidents.TYPES,
                 "holdAdd": HOLD_ADD,
                 "file": os.path.relpath(_st["path"], datafiles.DATA) if _st["path"] else ""}

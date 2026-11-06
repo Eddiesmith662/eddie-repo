@@ -244,9 +244,9 @@ second screen). It works the same whether or not the race is being broadcast.
   positions, points, disqualified or no action), the number of seconds / positions / points where it needs one, and
   the reason, then **Make the call**. The incident moves to **Decided** (or **No action**). For something that isn't
   in the list, double-click the driver in the running order, or press **New call without an incident**.
-- **Send to iRacing:** a call iRacing can give in the sim (marked *in the sim*) shows the exact admin command on the
-  call. Check it, then press **Send to iRacing**. Race control types it into iRacing's chat for you, without switching
-  away from the Race Control page:
+- **Sent to iRacing in the same press:** for a call iRacing can give in the sim (marked *in the sim*), the exact admin
+  command shows under the reason, and the button says **Make the call and send to iRacing**. Race control types it
+  into iRacing's chat for you, without switching away from the Race Control page:
 
   | Call | Sent to iRacing |
   |---|---|
@@ -260,7 +260,11 @@ second screen). It works the same whether or not the race is being broadcast.
   change the results instead (on the league site, coming later). After sending, the call shows **In the sim** when the
   black flag (or DQ) comes up and **Served** when it goes away. A warning or end of line just shows **Sent**, since
   iRacing's data can't confirm those. **Didn't show in iRacing** means no flag came up within 10 seconds: check the sim
-  and **Send again**.
+  and **Send again**. If it couldn't be sent (e.g. end of line while green), the call is still logged and has a
+  **Send to iRacing** button for later.
+- **Clear** (running order, next to a driver with a black flag) sends `!clear #87`; **Clear all penalties** sends
+  `!clearall`. Both ask first, since they remove **all** of those penalties, iRacing's own included, and both are kept in
+  the call log with who sent them. A call whose penalty was cleared shows **Cleared in iRacing** and can be sent again.
 - **Withdraw** a call made by mistake: it stays in the log, crossed out, with who withdrew it and why. If it was sent,
   you're asked whether to clear it in iRacing too: `!clear #87` removes **all** of that driver's penalties, iRacing's
   own included.

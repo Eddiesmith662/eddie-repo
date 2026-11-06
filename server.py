@@ -1399,6 +1399,10 @@ class DemoSource:
         text = simchat.clean(text)
         diag.log("Demo chat: %s" % text)
         w = text.split()
+        if w and w[0] == "!clearall":
+            for c in self.cars:
+                c["blackUntil"] = 0
+            return True, ""
         if len(w) >= 2 and w[0] in ("!black", "!bl", "!clear", "!cl", "!dq", "!eol") and w[1].startswith("#"):
             car = next((c for c in self.cars if c["num"] == w[1][1:]), None)
             if not car:
@@ -1667,20 +1671,44 @@ def race_control_command(d):
     with STATE.lock:
         live = STATE.live
         steward = (STATE.settings.get("raceControl") or {}).get("steward", "")
-    if cmd == "send":              # type the call's admin command into iRacing (the steward pressed Send to iRacing)
-        cid = str(d.get("id") or "")
+    def chat(text):
+        try:
+            return SOURCE.chat(text)
+        except Exception as e:
+            diag.error("Race control send error: %r" % (e,), e)
+            return False, "Couldn't type into iRacing (%r)" % (e,)
+
+    def send(cid):
         ok, msg, text = racecontrol.send_prepare(cid, steward, live)
         if not ok:
             return {"ok": False, "error": msg}
-        try:
-            ok, msg = SOURCE.chat(text)
-        except Exception as e:
-            ok, msg = False, "Couldn't type into iRacing (%r)" % (e,)
-            diag.error("Race control send error: %r" % (e,), e)
+        ok, msg = chat(text)
         racecontrol.send_done(cid, ok, msg)
+        return {"ok": ok, "error": msg if not ok else "", "sent": text}
+
+    if cmd == "send":              # type a call's admin command into iRacing (Send to iRacing / Send again on a call)
+        r = send(str(d.get("id") or ""))
+        STATE.notify()
+        return r
+    if cmd in ("clear", "clearall"):   # !clear #N (one driver's penalties) or !clearall (everyone's)
+        idx = None
+        if cmd == "clear":
+            try:
+                idx = int(d.get("idx"))
+            except (TypeError, ValueError):
+                return {"ok": False, "error": "Pick a car"}
+        ok, msg, text, car = racecontrol.clear_prepare(idx, steward, live)
+        if not ok:
+            return {"ok": False, "error": msg}
+        ok, msg = chat(text)
+        racecontrol.clear_log(steward, car, text, ok, msg, live)
         STATE.notify()
         return {"ok": ok, "error": msg if not ok else "", "sent": text}
     ok, msg, extra = racecontrol.command(d, live, steward)
+    if ok and cmd == "call" and d.get("send") and (extra or {}).get("call", {}).get("sim"):
+        r = send(extra["call"]["id"])           # Make the call sends it to iRacing in the same press
+        extra["sendOk"], extra["sendError"], extra["sent"] = r["ok"], r.get("error", ""), r.get("sent")
+        extra["call"] = next((c for c in racecontrol.snapshot()["calls"] if c["id"] == extra["call"]["id"]), extra["call"])
     if ok and cmd == "withdraw" and (extra or {}).get("clear"):
         try:
             cok, cmsg = SOURCE.chat(extra["clear"])

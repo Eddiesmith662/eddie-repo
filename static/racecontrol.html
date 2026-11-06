@@ -108,6 +108,12 @@
   .ss.ready { background: #3a2d00; color: #ffe08a; } .ss.sending, .ss.waiting { background: #12324d; color: #9fd0ff; }
   .ss.inSim { background: #fff; color: #111; } .ss.served { background: var(--green); color: #052e12; } .ss.sent { background: #2b3a4a; color: #cfe3ff; }
   .ss.notTaken, .ss.failed { background: #4a1020; color: #ffb3c1; } .ss.cleared { background: #333; color: #bbb; }
+  td.cl button { padding: 1px 8px; font-size: 11px; }
+  .rph { display: flex; align-items: center; gap: 8px; }
+  .rph button { padding: 3px 10px; font-size: 12px; text-transform: none; letter-spacing: 0; }
+  .preview { margin-top: 8px; font-size: 12px; color: var(--dim); display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .preview code { font-family: Consolas, "Courier New", monospace; background: #111; border: 1px solid #333; border-radius: 3px; padding: 2px 6px; color: #e5e5e5; }
+  .call.clr { background: #1a1a1b; border-style: dashed; }
   .call button.send { background: var(--red); border-color: var(--red); color: #fff; font-weight: 600; }
   .kinds button .sm { display: block; font-size: 10px; letter-spacing: .8px; text-transform: uppercase; opacity: .65; margin-top: 2px; }
   /* replay + running order */
@@ -175,9 +181,9 @@
       <button data-r="speed" data-v="0.5">½ speed</button><button data-r="ff">▶▶</button><button data-r="prevlap">◀ Lap</button><button data-r="nextlap">Lap ▶</button>
       <button data-r="live" class="live" style="grid-column: 1 / -1">LIVE</button>
     </div>
-    <h2>Running order</h2>
+    <h2 class="rph">Running order<span class="grow"></span><button id="clearAll" title="Sends !clearall: removes every driver's penalties in iRacing">Clear all penalties</button></h2>
     <div class="scroll">
-      <table><thead><tr><th>P</th><th>#</th><th>Driver</th><th class="r">Laps</th><th class="r">Gap</th><th class="r">Inc</th><th class="r">Pits</th></tr></thead><tbody id="order"></tbody></table>
+      <table><thead><tr><th>P</th><th>#</th><th>Driver</th><th class="r">Laps</th><th class="r">Gap</th><th class="r">Inc</th><th class="r">Pits</th><th></th></tr></thead><tbody id="order"></tbody></table>
     </div>
     <p class="hint">Click a driver to put the camera on them. Double-click for a call that isn't from an incident.</p>
   </section>
@@ -245,12 +251,31 @@ function renderLive() {
   const html = cars.map(c => `<tr data-idx="${c.idx}" class="${c.idx === L.camCarIdx ? 'cam' : ''}">
       <td>${c.pos || ''}</td><td>${esc(c.num)}</td>
       <td class="nm">${esc(c.name)}${c.blackFlag ? '<span class="fl bf" title="Black flag">BF</span>' : ''}${c.meatball ? '<span class="fl mb" title="Meatball (repairs)">MB</span>' : ''}${c.dq ? '<span class="fl dq">DQ</span>' : ''}${c.pit ? '<span class="fl pit">PIT</span>' : ''}</td>
-      <td class="r">${c.lapsCompleted ?? ''}</td><td class="r">${esc(c.gap || '')}</td><td class="r">${c.inc != null ? c.inc + 'x' : ''}</td><td class="r">${c.stops || 0}</td></tr>`).join('')
-    || `<tr><td colspan="7" class="empty">${on ? 'No cars yet' : 'Waiting for iRacing'}</td></tr>`;
+      <td class="r">${c.lapsCompleted ?? ''}</td><td class="r">${esc(c.gap || '')}</td><td class="r">${c.inc != null ? c.inc + 'x' : ''}</td><td class="r">${c.stops || 0}</td>
+      <td class="cl">${c.blackFlag ? `<button data-clear="${c.idx}" title="Sends !clear #${esc(c.num)}">Clear</button>` : ''}</td></tr>`).join('')
+    || `<tr><td colspan="8" class="empty">${on ? 'No cars yet' : 'Waiting for iRacing'}</td></tr>`;
   if ($('order')._h !== html) { $('order')._h = html; $('order').innerHTML = html; }
   if (cur == null && document.activeElement && !$('det').contains(document.activeElement)) renderDet();   // keep the car list fresh for a new call
 }
-$('order').onclick = e => { const tr = e.target.closest('[data-idx]'); if (tr) post('/api/camera', { carIdx: +tr.dataset.idx }); };
+$('order').onclick = e => {
+  const cb = e.target.closest('[data-clear]'); if (cb) { e.stopPropagation(); return clearCar(+cb.dataset.clear); }
+  const tr = e.target.closest('[data-idx]'); if (tr) post('/api/camera', { carIdx: +tr.dataset.idx });
+};
+$('order').addEventListener('dblclick', e => { if (e.target.closest('[data-clear]')) e.stopImmediatePropagation(); }, true);
+function needName() { if ($('steward').value.trim()) return false; $('steward').classList.add('need'); $('steward').focus(); toast('Type your name at the top first'); return true; }
+async function clearCar(idx) {
+  if (needName()) return;
+  const c = (L.cars || []).find(x => x.idx === idx); if (!c) return;
+  if (!confirm(`Clear #${c.num} ${c.name}'s penalties in iRacing?\n\nThis sends !clear #${c.num}, which removes ALL of #${c.num}'s black flags and end of line, including any iRacing gave itself.`)) return;
+  const r = await post('/api/rc', { cmd: 'clear', idx });
+  toast(r.ok ? `!clear #${c.num} sent` : (r.error || 'It couldn\'t be sent')); rcFetch();
+}
+$('clearAll').onclick = async () => {
+  if (needName()) return;
+  if (!confirm('Clear ALL penalties in iRacing?\n\nThis sends !clearall, which removes every driver\'s black flags and end of line, including any iRacing gave itself.')) return;
+  const r = await post('/api/rc', { cmd: 'clearall' });
+  toast(r.ok ? '!clearall sent' : (r.error || 'It couldn\'t be sent')); rcFetch();
+};
 $('order').ondblclick = e => { const tr = e.target.closest('[data-idx]'); if (!tr) return; cur = null; form = { kind: null, idx: +tr.dataset.idx, value: '', reason: '' }; render(); };
 document.querySelector('.rp').onclick = async e => {
   const b = e.target.closest('[data-r]'); if (!b) return;
@@ -353,14 +378,38 @@ function renderDet() {
     ${form.kind === 'drivethrough' || form.kind === 'stopgo' || form.kind === 'dq' || form.kind === 'eol' ? '<p class="hint">The reason is shown in chat to everyone in the session when it\'s sent.</p>' : form.kind === 'warning' ? '<p class="hint">Sent as a private message to the driver.</p>' : ''}
     <div class="lbl">Reason${form.kind === 'noaction' ? ' (optional)' : ''}</div>
     <textarea id="reason" maxlength="300" placeholder="${form.kind === 'noaction' ? 'e.g. racing incident' : 'e.g. avoidable contact, turn 3'}">${esc(form.reason)}</textarea>
-    <div class="go"><button class="pri" id="make">Make the call</button><span class="msg" id="msg"></span></div>
+    ${preview()}
+    <div class="go"><button class="pri" id="make">${(kinds.find(k => k.key === form.kind) || {}).sim ? 'Make the call and send to iRacing' : 'Make the call'}</button><span class="msg" id="msg"></span></div>
     ${calls.length ? `<div class="lbl">Calls on this incident</div><div class="clist">${calls.map(callRow).join('')}</div>` : ''}`;
   if ($('det')._h === html) return;
   const focus = document.activeElement && document.activeElement.id, pos = focus === 'reason' ? $('reason').selectionStart : null;
   $('det')._h = html; $('det').innerHTML = html;
   if (focus && $(focus) && $('det').contains($(focus))) { $(focus).focus(); if (pos != null) $(focus).setSelectionRange(pos, pos); }
 }
-$('det').oninput = e => { if (e.target.id === 'reason') form.reason = e.target.value; if (e.target.id === 'val') form.value = e.target.value; };
+$('det').oninput = e => {
+  if (e.target.id === 'reason') form.reason = e.target.value; if (e.target.id === 'val') form.value = e.target.value;
+  const pv = $('preview'); if (pv) { const t = simText(); pv.querySelector('code').textContent = t || ''; }
+};
+/* the same command racecontrol.py builds (sim_text), shown before the call is made */
+const clean = t => String(t || '').replace(/[\x00-\x1f]/g, ' ').split(/\s+/).filter(Boolean).join(' ').slice(0, 200);
+function simText() {
+  const car = (L.cars || []).find(c => c.idx === form.idx) || carsFor(cur ? RC.queue.find(x => x.id === cur) : null).find(c => c.idx === form.idx);
+  if (!car || !form.kind) return '';
+  const n = car.num, r = clean(form.reason);
+  switch (form.kind) {
+    case 'warning': return clean(`/#${n} Race control warning: ${r}`);
+    case 'drivethrough': return clean(`!black #${n} D ${r}`);
+    case 'stopgo': return clean(`!black #${n} ${Math.max(0, (parseInt(form.value) || RC.holdAdd) - RC.holdAdd)} ${r}`);
+    case 'eol': return clean(`!eol #${n} ${r}`);
+    case 'dq': return clean(`!dq #${n} ${r}`);
+  }
+  return '';
+}
+function preview() {
+  const k = (RC.kinds || []).find(k => k.key === form.kind);
+  if (!k || !k.sim || form.idx == null) return '';
+  return `<div class="preview" id="preview">Sends to iRacing: <code>${esc(simText())}</code></div>`;
+}
 $('det').onchange = e => { if (e.target.id === 'carSel' && e.target.value !== '') { form.idx = +e.target.value; renderDet(); } };
 $('det').onclick = async e => {
   const t = e.target;
@@ -377,9 +426,17 @@ async function makeCall() {
   const msg = m => { $('msg').textContent = m || ''; };
   if (!$('steward').value.trim()) { $('steward').classList.add('need'); $('steward').focus(); return msg('Type your name at the top first'); }
   if (!form.kind) return msg('Pick the call');
-  const r = await post('/api/rc', { cmd: 'call', incident: cur, idx: form.idx, kind: form.kind, value: form.value, reason: form.reason });
+  const k = (RC.kinds || []).find(k => k.key === form.kind) || {};
+  if (form.kind === 'dq' && form.idx != null) {
+    const car = (L.cars || []).find(c => c.idx === form.idx) || {};
+    if (!confirm(`Disqualify #${car.num || ''} ${car.name || ''} in iRacing?\n\niRacing can't undo a DQ.\n\n${simText()}`)) return;
+  }
+  $('make').disabled = true;
+  const r = await post('/api/rc', { cmd: 'call', incident: cur, idx: form.idx, kind: form.kind, value: form.value, reason: form.reason, send: !!k.sim });
+  $('make').disabled = false;
   if (!r.ok) return msg(r.error);
-  toast(callText(r.call) + (r.call.car ? ' for #' + r.call.car.num : '') + ': logged' + (r.call.sim ? '. Press Send to iRacing to give it in the sim.' : ''));
+  const what = callText(r.call) + (r.call.car ? ' for #' + r.call.car.num : '');
+  toast(!r.call.sim ? what + ': logged' : r.sendOk ? what + ': logged and sent to iRacing' : what + ': logged, but not sent: ' + (r.sendError || 'it couldn\'t be sent') + '. Send it from the call below.');
   form = { kind: null, idx: form.idx, value: '', reason: '' };
   rcFetch();
 }
@@ -413,7 +470,7 @@ function callRow(c) {
     <span class="what">${esc(callText(c))}${c.car ? ' · #' + esc(c.car.num) + ' ' + esc(c.car.name) : ''}</span>
     <span class="why">${esc(c.reason || '')}${wd ? `<br><span class="by">Withdrawn by ${esc(c.withdrawn.by)}: ${esc(c.withdrawn.reason)}</span>` : ''}${simRow(c)}</span>
     <span class="by">${esc(c.steward)}${c.incident ? ' · ' + esc(c.incident) : ''}</span>
-    <span class="acts">${!wd && c.sim && ['ready', 'failed', 'notTaken'].includes(c.sim.state) ? `<button class="send" data-send="${c.id}">${c.sim.state === 'ready' ? 'Send to iRacing' : 'Send again'}</button>` : ''}
+    <span class="acts">${!wd && c.sim && ['ready', 'failed', 'notTaken', 'cleared'].includes(c.sim.state) ? `<button class="send" data-send="${c.id}">${c.sim.state === 'ready' ? 'Send to iRacing' : 'Send again'}</button>` : ''}
     ${wd ? '' : `<button data-wd="${c.id}">Withdraw</button>`}</span></div>`;
 }
 function simRow(c) {
@@ -428,11 +485,18 @@ function simRow(c) {
 }
 
 /* ---------- call log ---------- */
+function clearRow(x) {
+  return `<div class="call clr"><span class="by">${x.lap != null ? 'L' + Math.max(1, x.lap) + ' · ' : ''}${hm(x.at)}</span>
+    <span class="what">${x.car ? 'Cleared · #' + esc(x.car.num) + ' ' + esc(x.car.name) : 'Cleared all penalties'}</span>
+    <span class="why"><div class="sim" style="margin-top:0"><code>${esc(x.cmd)}</code>${x.ok ? '<span class="ss cleared">Sent</span>' : `<span class="ss failed">Couldn't send</span> ${esc(x.error)}`}</div></span>
+    <span class="by">${esc(x.by)}</span><span class="acts"></span></div>`;
+}
 function renderCalls() {
-  const list = RC.calls.slice().reverse();
+  const list = [...RC.calls.map(c => ({ at: c.at, h: callRow(c) })), ...(RC.clears || []).map(x => ({ at: x.at, h: clearRow(x) }))]
+    .sort((a, b) => a.at < b.at ? 1 : a.at > b.at ? -1 : 0);
   $('cCount').textContent = RC.calls.filter(c => c.status === 'active').length;
   $('file').textContent = RC.file ? 'Saved in data/' + RC.file : '';
-  const html = list.length ? list.map(callRow).join('') : '<div class="empty">No calls yet</div>';
+  const html = list.length ? list.map(x => x.h).join('') : '<div class="empty">No calls yet</div>';
   if ($('calls')._h !== html) { $('calls')._h = html; $('calls').innerHTML = html; }
 }
 $('calls').onclick = e => { const wd = e.target.closest('[data-wd]'); if (wd) return withdraw(wd.dataset.wd); const sd = e.target.closest('[data-send]'); if (sd) sendSim(sd.dataset.send); };
