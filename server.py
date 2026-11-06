@@ -41,6 +41,7 @@ import raceresults
 import announcer
 import leagueupload
 import racecontrol
+import rcsite
 import simchat
 
 ROOT = datafiles.ROOT
@@ -1657,7 +1658,21 @@ def race_control_command(d):
     if not RC["on"]:
         return {"ok": False, "error": "Race control isn't running"}
     cmd = str(d.get("cmd") or "")
+    if cmd == "signin":            # League site: sign in with Discord (the page opens the site's Allow page)
+        ok, msg, extra = rcsite.sign_in()
+        return dict(extra or {}, ok=ok, error=msg)
+    if cmd == "signincancel":
+        rcsite.cancel_sign_in()
+        return {"ok": True}
+    if cmd == "signout":
+        rcsite.sign_out()
+        return {"ok": True}
+    if cmd == "sitecheck":
+        ok, msg = rcsite.check()
+        return {"ok": ok, "error": "" if ok else msg, "message": msg}
     if cmd == "steward":
+        if rcsite.user():
+            return {"ok": False, "error": "Signed in to the league site: calls carry your Discord name"}
         name = str(d.get("name") or "").strip()[:60]
         STATE.update_settings({"raceControl": {"steward": name}})
         diag.log("Race control: steward is %s" % (name or "(none)"))
@@ -1676,6 +1691,10 @@ def race_control_command(d):
     with STATE.lock:
         live = STATE.live
         steward = (STATE.settings.get("raceControl") or {}).get("steward", "")
+    signed = rcsite.user()
+    if signed:                     # signed in to the league site: the steward is the Discord account
+        steward = signed.get("name") or steward
+
     def chat(text):
         try:
             return SOURCE.chat(text)
@@ -1989,7 +2008,9 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/rc":
             if not RC["on"]:
                 return self.send_json({"ok": False, "error": "Race control isn't running. Start it with start-race-control.bat."}, 404)
-            return self.send_json(dict(racecontrol.snapshot(), ok=True, steward=(STATE.settings.get("raceControl") or {}).get("steward", "")))
+            site = rcsite.status()
+            steward = (site["user"] or {}).get("name") or (STATE.settings.get("raceControl") or {}).get("steward", "")
+            return self.send_json(dict(racecontrol.snapshot(), ok=True, steward=steward, site=site))
         if path == "/api/assets":
             return self.send_json(list_assets())
         if path == "/api/graphics":
@@ -2920,6 +2941,8 @@ def main():
     threading.Thread(target=update_watch, daemon=True).start()
     if RC["on"]:
         racecontrol.start(diag.log)       # the steward's queue and calls (data/race-control)
+        rcsite.start(diag.log)            # signing in to the league site and sending the calls there (phase 5c)
+        leagueupload.TOKEN_SOURCE = rcsite.token     # official results go with the sign-in too, if there's no overlay key
     else:
         announcer.start(STATE, on_air_now, diag.log)    # the announcer page feed (does nothing until it's set up)
     leagueupload.start(STATE.settings.get("leagueUpload"), diag.log)   # league site upload (does nothing until it's switched on)

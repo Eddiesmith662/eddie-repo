@@ -64,9 +64,15 @@ def _now():
     return datetime.datetime.now(datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
+RACE_INFO = ("leagueId", "sessNum", "sessionName")    # what the league site needs to know which race the calls are for
+
+
 def _empty(key, live):
-    return {"version": 1, "race": key, "subId": live.get("subId"), "track": live.get("track", ""), "created": _now(),
-            "seq": {"i": 0, "c": 0, "x": 0}, "queue": [], "calls": [], "clears": []}
+    d = {"version": 1, "race": key, "subId": live.get("subId"), "track": live.get("track", ""), "created": _now(),
+         "seq": {"i": 0, "c": 0, "x": 0}, "queue": [], "calls": [], "clears": [], "callsVer": 0, "siteCalls": []}
+    for k in RACE_INFO:
+        d[k] = live.get(k)
+    return d
 
 
 def _race_key(live):
@@ -89,9 +95,27 @@ def _save():
              % (os.path.basename(path), e))
 
 
-def _changed():
+ON_CHANGE = []           # called with the race key when a race's calls change (rcsite.py sends it to the league site)
+
+
+def _changed(calls=False):
+    """After every change: saved at once. calls=True: the calls changed, so the race goes to the league site too."""
     _st["ver"] += 1
+    d = _st["data"]
+    if calls and d is not None:
+        d["callsVer"] = d.get("callsVer", 0) + 1
     _save()
+    if calls and d is not None:
+        for fn in ON_CHANGE:
+            try:
+                fn(_st["key"])
+            except Exception as e:
+                _log("Race control: couldn't queue race %s for the league site (%r)" % (_st["key"], e))
+
+
+def touch():
+    """Something race control shows changed (the league site status): the page reloads it."""
+    _st["ver"] += 1
 
 
 def _open(live):
@@ -112,6 +136,10 @@ def _open(live):
             _log("Race control: couldn't read the saved calls for race %s, so this race carries on in %s. "
                  "The old file is untouched." % (key, os.path.basename(path)))
         data = None
+    if data:
+        for k in RACE_INFO:                    # files from before the league site connection (v1.5.37)
+            if data.get(k) is None:
+                data[k] = live.get(k)
     _st.update(key=key, path=path, data=data or _empty(key, live), map={}, incVer=-1, lastInc={}, catch={}, catchT=None)
     if not data:
         _log("Race control: new race %s at %s" % (key, live.get("track", "")))
@@ -226,11 +254,11 @@ def update(live):
         wall = time.time()
         dt = min(1.0, wall - _st["lastWall"]) if _st.get("lastWall") else 0.0
         _st["lastWall"] = wall
-        changed = _check_sims(live, dt) or changed
+        sims = _check_sims(live, dt)
         _st["lastInc"] = {c["idx"]: c.get("inc") for c in live.get("cars") or []}
         _st["lastT"], _st["lastLap"] = live.get("sessTime"), live.get("lap")
-        if changed:
-            _changed()
+        if changed or sims:
+            _changed(calls=sims)
 
 
 def sim_text(call):
@@ -328,7 +356,7 @@ def send_done(cid, ok, error=""):
                 sim["state"] = "sent"
                 sim["note"] = "#%s already had a black flag, so race control can't check this one" % c["car"]["num"]
             sim["sentAt"] = _now()
-        _changed()
+        _changed(calls=True)
         _log("Race control: %s %s to iRacing: %s%s" % (sim.get("by", ""), "sent" if ok else "couldn't send", sim["cmd"],
                                                        "" if ok else " (%s)" % error))
 
@@ -353,7 +381,7 @@ def clear_done(cid, ok, error=""):
         if ok:
             c["sim"]["state"] = "cleared"
             _mark_cleared(d, c["car"]["idx"])
-        _changed()
+        _changed(calls=True)
 
 
 def clear_prepare(idx, steward, live):
@@ -383,8 +411,107 @@ def clear_log(steward, car, text, ok, error="", live=None):
                                            "car": car, "ok": bool(ok), "error": error or "", "lap": lv.get("lap")})
         if ok:
             _mark_cleared(d, car["idx"] if car else None)
-        _changed()
+        _changed(calls=True)
     _log("Race control: %s %s %s%s" % (steward, "sent" if ok else "couldn't send", text, "" if ok else " (%s)" % error))
+
+
+# ---------------------------------------------------------------- the league site (rcsite.py does the talking)
+def current_key():
+    with LOCK:
+        return _st["key"]
+
+
+def _race(key):
+    """A race's data: the open race from memory, any other from its file. Called with LOCK held."""
+    if key == _st["key"]:
+        return _st["data"]
+    d = datafiles.load_json(os.path.join(DIR, "%s.json" % key), None)
+    return d if isinstance(d, dict) and isinstance(d.get("calls"), list) else None
+
+
+def race_sub(key):
+    with LOCK:
+        d = _race(key)
+        return d.get("subId") if d else None
+
+
+def version_of(key):
+    with LOCK:
+        d = _race(key)
+        return d.get("callsVer", 0) if d else None
+
+
+def _site_call(c, queue, pc):
+    car = c.get("car") or {}
+    try:
+        cust = int(car.get("custId") or 0)
+    except (TypeError, ValueError):
+        cust = 0
+    if not cust:            # the site keys every call on the driver's iRacing id (a no action on a caution has none)
+        return None
+    q = queue.get(c.get("incident") or "")
+    sim = c.get("sim")
+    out = {"uid": "%s:%s" % (pc, c["id"]), "kind": c["kind"], "amount": c.get("value") or 0, "reason": c.get("reason", ""),
+           "custId": cust, "carNumber": car.get("num", ""), "driverName": car.get("name", ""), "lap": c.get("lap"),
+           "sessionTime": c.get("t"), "incident": {"type": q["type"], "points": q.get("pts")} if q else None,
+           "madeAt": c.get("at"), "status": c["status"],
+           "sim": {"command": sim["cmd"], "state": sim["state"], "servedLap": sim.get("servedLap")} if sim else None}
+    if c["status"] == "withdrawn":
+        w = c.get("withdrawn") or {}
+        out.update(withdrawnAt=w.get("at"), withdrawnReason=w.get("reason", ""))
+    return out
+
+
+def race_file(key, pc):
+    """What goes to the site for a race (plan doc, "Sending calls to the site"). None: not a league race (the demo).
+    -> (file, the calls version it was made from)"""
+    with LOCK:
+        d = _race(key)
+        if not d or not d.get("subId") or not d.get("leagueId"):
+            return None, None
+        queue = {q["id"]: q for q in d.get("queue") or []}
+        calls = [x for x in (_site_call(c, queue, pc) for c in d["calls"]) if x]
+        f = {"type": "vspeed_race_control", "version": 1, "subsessionId": d["subId"], "leagueId": d["leagueId"],
+             "sessionNum": d.get("sessNum"), "sessionName": d.get("sessionName") or "", "track": d.get("track", ""),
+             "pc": pc, "calls": calls}
+        return f, d.get("callsVer", 0)
+
+
+def apply_site(key, decisions, pc):
+    """Every call on the race, as the site has it: the other stewards' (and decisions made on the site) are kept to
+    show in the call log; a call of ours an official withdrew on the site is withdrawn here too."""
+    mine = pc + ":"
+    with LOCK:
+        d = _race(key)
+        if d is None:
+            return
+        others = [x for x in decisions if not str(x.get("uid", "")).startswith(mine)]
+        changed = others != d.get("siteCalls")
+        d["siteCalls"] = others
+        by_id = {c["id"]: c for c in d["calls"]}
+        for x in decisions:
+            uid = str(x.get("uid", ""))
+            c = by_id.get(uid[len(mine):]) if uid.startswith(mine) else None
+            if c and x.get("withdrawnOnSite") and c["status"] == "active":
+                c["status"] = "withdrawn"
+                c["withdrawn"] = {"at": x.get("withdrawnAt") or _now(), "by": "%s (on the site)" % (x.get("withdrawnBy") or "an official"),
+                                  "reason": x.get("withdrawnReason") or "", "clear": False, "site": True}
+                q = next((q for q in d.get("queue") or [] if q["id"] == c.get("incident")), None)
+                if q:
+                    left = _active_calls(d, q["id"])
+                    q["status"] = ("decided" if any(y["kind"] != "noaction" for y in left) else "noaction") if left else "reviewing"
+                changed = True
+                _log("Race control: call %s was withdrawn on the league site by %s" % (c["id"], x.get("withdrawnBy") or "an official"))
+        if not changed:
+            return
+        if key == _st["key"]:
+            _st["ver"] += 1
+            _save()
+        else:
+            try:
+                datafiles.write_json(os.path.join(DIR, "%s.json" % key), d, indent=1)
+            except OSError:
+                pass
 
 
 def version():
@@ -396,6 +523,7 @@ def snapshot():
         d = _st["data"] or {"queue": [], "calls": [], "race": None, "track": "", "subId": None}
         return {"ver": _st["ver"], "race": d.get("race"), "track": d.get("track", ""), "subId": d.get("subId"),
                 "queue": list(d["queue"]), "calls": list(d["calls"]), "clears": list(d.get("clears") or []), "inReplay": _st["replay"],
+                "siteCalls": list(d.get("siteCalls") or []),
                 "kinds": [{"key": k, "label": lbl, "unit": u, "sim": k in SIM_KINDS} for k, lbl, u in KINDS], "types": incidents.TYPES,
                 "holdAdd": HOLD_ADD,
                 "file": os.path.relpath(_st["path"], datafiles.DATA) if _st["path"] else ""}
@@ -490,7 +618,7 @@ def command(data, live, steward=""):
             d["calls"].append(call)
             if q:
                 q["status"] = "decided" if any(c["kind"] != "noaction" for c in _active_calls(d, q["id"])) else "noaction"
-            _changed()
+            _changed(calls=True)
             who = ("#%s %s" % (car["num"], car["name"])) if car else "incident %s" % q["id"]
             _log("Race control: %s - %s%s for %s (%s)" % (steward, KIND_LABEL[kind], (" (%s %s)" % (value, KIND_UNIT[kind])) if value else "",
                                                           who, reason or "no reason given"))
@@ -518,7 +646,7 @@ def command(data, live, steward=""):
             if q:
                 left = _active_calls(d, q["id"])
                 q["status"] = ("decided" if any(x["kind"] != "noaction" for x in left) else "noaction") if left else "reviewing"
-            _changed()
+            _changed(calls=True)
             _log("Race control: %s withdrew call %s (%s)" % (steward, c["id"], reason))
             return True, "", {"clear": clear, "id": c["id"]}
 

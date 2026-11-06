@@ -32,6 +32,22 @@ _START = {}                    # queued file -> the race time of its first copy 
 _log = print
 STATUS = {"state": "off", "msg": "", "last": ""}
 DEFAULTS = {"on": False, "key": ""}
+# race control (start-race-control.bat) sets this to its sign-in token: a steward signed in to the site sends the
+# official results with it, so a race nobody broadcasts needs no overlay key (plan doc, phase 5c). The overlay key,
+# when there is one and the upload is on, is used first.
+TOKEN_SOURCE = None
+
+
+def _key():
+    """-> the key to send with, or "" (upload off and no race control sign-in)."""
+    with LOCK:
+        on, key = _cfg["on"], _cfg["key"]
+    if on and key:
+        return key
+    try:
+        return (TOKEN_SOURCE() or "") if TOKEN_SOURCE else ""
+    except Exception:
+        return ""
 
 
 def configure(cfg):
@@ -90,9 +106,8 @@ def build(live, sess, info, official):
 
 def queue(live, sess, info, sess_num, official):
     """Called when the overlay saves a race's results. Queues them for the site if the upload is on."""
-    with LOCK:
-        if not (_cfg["on"] and _cfg["key"]):
-            return
+    if not _key():
+        return
     if not info.get("leagueId") or not info.get("subId"):
         _log("League site upload: not a league race, nothing sent")
         return
@@ -153,11 +168,10 @@ def _set(state, msg):
 
 def _send_all():
     with LOCK:
-        on, key = _cfg["on"], _cfg["key"]
-    if not on:
-        return _set("off", "")
+        on = _cfg["on"]
+    key = _key()
     if not key:
-        return _set("setup", "Paste a key from the league site")
+        return _set("off", "") if not on else _set("setup", "Paste a key from the league site")
     files = pending()
     if not files:
         if STATUS["state"] not in ("ok", "error"):     # keep the last result or problem on show

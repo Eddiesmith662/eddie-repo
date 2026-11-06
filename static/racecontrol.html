@@ -35,6 +35,16 @@
   .steward input { width: 180px; text-transform: none; letter-spacing: 0; }
   .steward input.need { border-color: var(--amber); }
   .hbar a { color: var(--dim); font-size: 13px; }
+  .steward input:disabled { opacity: 1; color: var(--text); border-color: transparent; background: rgba(0,0,0,.25); }
+  .site { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+  .site button { padding: 4px 10px; font-size: 13px; }
+  .site .pill { font-size: 13px; }
+  .site .dot.warn { background: var(--amber); } .site .dot.bad { background: var(--bad); }
+  .sitebar { display: none; align-items: center; gap: 12px; padding: 8px 16px; background: #12324d; border-bottom: 1px solid #1f5a8a; color: #cfe3ff; font-size: 14px; }
+  .sitebar.on { display: flex; } .sitebar.bad { background: #4a1020; border-color: #7a2036; color: #ffd0da; }
+  .sitebar code { font-family: Consolas, monospace; font-size: 16px; letter-spacing: 2px; color: #fff; }
+  .sitebar button { padding: 4px 12px; }
+  .call.other { background: #17202a; border-color: #263646; }
   .banner { display: none; align-items: center; gap: 12px; padding: 8px 16px; background: #3a2d00; border-bottom: 1px solid #7a5d00; color: #ffe08a; font-size: 14px; }
   .banner.on { display: flex; }
   .banner button { padding: 4px 12px; }
@@ -146,10 +156,12 @@
     <span class="pill" id="sess">–</span>
     <span class="grow"></span>
     <label class="steward">Steward <input id="steward" placeholder="Your name" maxlength="60" autocomplete="off"></label>
+    <span class="site" id="site"></span>
     <a href="/control" target="_blank" title="The league site upload is set up on the control panel's Setup tab">League upload: <span id="lu">off</span></a>
     <span class="pill" id="ver" style="color:var(--dim)"></span>
   </div>
 </header>
+<div class="sitebar" id="siteBar"></div>
 <div class="banner" id="replayBanner">
   <b>You're watching a replay.</b>
   <span class="grow">New incidents aren't detected until you go back to live. Incident points gained meanwhile are added when you do, marked "found after review".</span>
@@ -223,7 +235,14 @@ async function rcFetch() {
   if (RC.busy) return; RC.busy = true;
   try {
     const d = await (await fetch('/api/rc')).json();
-    if (d.ok) { Object.assign(RC, d); if (document.activeElement !== $('steward') && d.steward != null && !$('steward')._typed) $('steward').value = d.steward; }
+    if (d.ok) {
+      Object.assign(RC, d);
+      const signed = !!(d.site && d.site.user);
+      $('steward').disabled = signed;
+      $('steward').title = signed ? 'Signed in to the league site: calls carry your Discord name' : '';
+      if (signed || (document.activeElement !== $('steward') && d.steward != null && !$('steward')._typed)) $('steward').value = d.steward || '';
+      renderSite();
+    }
     render();
   } catch (e) {} finally { RC.busy = false; }
 }
@@ -283,6 +302,38 @@ document.querySelector('.rp').onclick = async e => {
   if (!r.ok) toast('The sim didn\'t take that replay command');
 };
 $('bannerLive').onclick = () => post('/api/replay', { cmd: 'live' });
+
+/* ---------- league site: sign in, status ---------- */
+function renderSite() {
+  const st = RC.site || { state: 'out' }, u = st.user;
+  const dot = { ok: 'on', waiting: 'warn', refused: 'bad', linking: 'warn' }[st.state] || '';
+  const sent = st.state === 'ok' && / on the site /.test(st.msg || '');
+  const word = u ? ({ ok: sent ? 'League site: sent' : 'League site: signed in', waiting: 'League site: waiting', refused: 'League site: problem' }[st.state] || 'League site') : 'League site: not signed in';
+  const html = u
+    ? `<span class="pill" title="${esc(st.msg || '')}"><span class="dot ${dot}"></span>${esc(word)}${st.waiting ? ' (' + st.waiting + ' waiting)' : ''}</span><button id="siteTest">Test</button><button id="signOut">Sign out</button>`
+    : st.state === 'linking' ? '<span class="pill"><span class="dot warn"></span>Signing in…</span>'
+    : '<button id="signIn" title="Sign in with Discord on the league site, so your calls go to the stewards\' report">Sign in to the league site</button>';
+  if ($('site')._h !== html) { $('site')._h = html; $('site').innerHTML = html; }
+  let bar = '', bad = false;
+  if (st.state === 'linking' && st.link) bar = `<span>On the league site, sign in with Discord and press <b>Allow</b> for code</span><code>${esc(st.link.code)}</code><span class="grow"></span><a href="${esc(st.link.url)}" target="_blank" style="color:#9fd0ff">Open the site again</a><button id="signCancel">Cancel</button>`;
+  else if (st.state === 'refused' || (!u && st.msg)) { bar = `<span class="grow">${esc(st.msg)}</span>`; bad = st.state === 'refused'; }
+  if ($('siteBar')._h !== bar) { $('siteBar')._h = bar; $('siteBar').innerHTML = bar; }
+  $('siteBar').className = 'sitebar' + (bar ? ' on' : '') + (bad ? ' bad' : '');
+}
+document.addEventListener('click', async e => {
+  const id = e.target.id;
+  if (id === 'signIn') {
+    const w = window.open('about:blank', '_blank');          // opened now, so the browser doesn't block it
+    const r = await post('/api/rc', { cmd: 'signin' });
+    if (!r.ok) { if (w) w.close(); return toast(r.error || 'Couldn\'t start signing in'); }
+    if (w) w.location = r.url; else toast('Open ' + r.url + ' and press Allow');
+    rcFetch();
+  } else if (id === 'signCancel') { await post('/api/rc', { cmd: 'signincancel' }); rcFetch(); }
+  else if (id === 'signOut') {
+    if (!confirm('Sign race control out of the league site?\n\nCalls stay on this PC and aren\'t sent to the site until you sign in again.')) return;
+    await post('/api/rc', { cmd: 'signout' }); rcFetch();
+  } else if (id === 'siteTest') { const r = await post('/api/rc', { cmd: 'sitecheck' }); toast(r.message || r.error); rcFetch(); }
+});
 
 /* ---------- steward ---------- */
 $('steward').oninput = () => { $('steward')._typed = true; $('steward').classList.remove('need'); };
@@ -426,6 +477,12 @@ async function makeCall() {
   const msg = m => { $('msg').textContent = m || ''; };
   if (!$('steward').value.trim()) { $('steward').classList.add('need'); $('steward').focus(); return msg('Type your name at the top first'); }
   if (!form.kind) return msg('Pick the call');
+  if (form.kind !== 'noaction' && form.idx != null) {        // another steward penalized this driver in the last 2 minutes
+    const car = (L.cars || []).find(c => c.idx === form.idx) || {};
+    const recent = (RC.siteCalls || []).filter(x => x.status === 'active' && x.kind !== 'noaction' && String(x.custId) === String(car.custId)
+      && Date.now() - Date.parse(x.madeAt) < 120000);
+    if (recent.length && !confirm(`${recent.map(x => `${x.madeBy || 'Another steward'} already gave #${x.carNumber || car.num} ${callText({ kind: x.kind, value: x.amount })}: ${x.reason || ''}`).join('\n')}\n\nMake this call as well?`)) return;
+  }
   const k = (RC.kinds || []).find(k => k.key === form.kind) || {};
   if (form.kind === 'dq' && form.idx != null) {
     const car = (L.cars || []).find(c => c.idx === form.idx) || {};
@@ -491,8 +548,17 @@ function clearRow(x) {
     <span class="why"><div class="sim" style="margin-top:0"><code>${esc(x.cmd)}</code>${x.ok ? '<span class="ss cleared">Sent</span>' : `<span class="ss failed">Couldn't send</span> ${esc(x.error)}`}</div></span>
     <span class="by">${esc(x.by)}</span><span class="acts"></span></div>`;
 }
+function otherRow(x) {
+  const wd = x.status === 'withdrawn';
+  const who = x.source === 'race control' ? (x.madeBy || 'Another steward') : (x.madeBy || 'An official') + ' (on the site)';
+  return `<div class="call other ${wd ? 'wd' : ''}"><span class="by">${x.lap != null ? 'L' + Math.max(1, x.lap) + ' · ' : ''}${hm(x.madeAt)}</span>
+    <span class="what">${esc(callText({ kind: x.kind, value: x.amount }))}${x.carNumber ? ' · #' + esc(x.carNumber) + ' ' + esc(x.driverName || '') : ''}</span>
+    <span class="why">${esc(x.reason || '')}${wd ? `<br><span class="by">Withdrawn${x.withdrawnBy ? ' by ' + esc(x.withdrawnBy) : ''}${x.withdrawnReason ? ': ' + esc(x.withdrawnReason) : ''}</span>` : ''}${x.sim && x.sim.state ? `<div class="sim"><span class="ss ${esc(x.sim.state)}">${esc(SIMSTATE[x.sim.state] || x.sim.state)}</span></div>` : ''}</span>
+    <span class="by">${esc(who)}</span><span class="acts"></span></div>`;
+}
 function renderCalls() {
-  const list = [...RC.calls.map(c => ({ at: c.at, h: callRow(c) })), ...(RC.clears || []).map(x => ({ at: x.at, h: clearRow(x) }))]
+  const list = [...RC.calls.map(c => ({ at: c.at, h: callRow(c) })), ...(RC.clears || []).map(x => ({ at: x.at, h: clearRow(x) })),
+    ...(RC.siteCalls || []).map(x => ({ at: x.madeAt || '', h: otherRow(x) }))]
     .sort((a, b) => a.at < b.at ? 1 : a.at > b.at ? -1 : 0);
   $('cCount').textContent = RC.calls.filter(c => c.status === 'active').length;
   $('file').textContent = RC.file ? 'Saved in data/' + RC.file : '';

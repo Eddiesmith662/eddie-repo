@@ -271,11 +271,24 @@ second screen). It works the same whether or not the race is being broadcast.
 - **While you watch a replay**, new incidents aren't detected (iRacing's car data is the replay). Incident points
   gained in the meantime are added when you go back to **Live**, marked **found after review**; replaying one of those
   goes to where your review started.
+- **Sign in to the league site** (top right): the site opens in your browser; sign in with Discord there and press
+  **Allow** for the code race control shows. You need the league's race control role in Discord (or the series' own
+  role). Once signed in:
+  - calls carry your Discord name (the Steward box fills itself in), and every change to a race's calls is sent to that
+    race's stewards' report on the site, where they become stewards' decisions;
+  - the other steward's calls on the same race show in the call log under their name, and race control asks first
+    before you penalize a driver they penalized in the last 2 minutes;
+  - a call an official withdraws on the site shows withdrawn here too;
+  - the race's official results go to the site with the same sign-in, so no overlay key is needed.
+
+  The **League site** pill shows how it's going. If the site can't be reached, the calls wait on this PC and go when it
+  can, even after a restart. A race the site turns down (not a GLR series, or no steward role for it) stays on this PC
+  with the site's reason. **Sign out** ends the sign-in, and so does taking the Discord role away or turning it off on
+  the site's Keys page. The sign-in is kept only in `data\race-control\signin.json`, never in the diagnostics zip. The
+  demo race never goes to the site.
 
 Calls are saved after every change in `data\race-control\<race>.json` (one file per iRacing session), so closing the
-program mid-race loses nothing. For now calls stay on this PC. To send the race's results to the league site, set up **League site upload** on the control panel's Setup
-tab (http://localhost:8765/control), the same as for a producer. `start-race-control.bat --demo` runs it on a pretend
-race.
+program mid-race loses nothing. `start-race-control.bat --demo` runs it on a pretend race.
 
 ---
 
@@ -329,14 +342,15 @@ data\                      YOUR files, never touched by updates:
   standings\                 the current series' standings, bracket, logo, race info and team
   results\                   race results, one folder per series
   league-upload\             races waiting to go to the league site (only if the upload is on)
-  race-control\              race control: each race's incident queue and steward calls
+  race-control\              race control: each race's incident queue and calls, the league site sign-in
+                             (signin.json) and races waiting to go to the site (outbox.json)
   logos\  sponsors\          league logos; sponsor and Pole Award images
   demo-field.csv             optional: your own drivers for the demo (car number,name per line)
   logs\  diagnostics\        logs, the black box and saved diagnostics
   backup\                    the last few versions, for restore-previous.bat
 server.py                  reads iRacing and serves every page (port 8765)
 standings.py  livepoints.py  profiles.py  pitrace.py  incidents.py  raceresults.py  announcer.py  leagueupload.py
-racecontrol.py  simchat.py
+racecontrol.py  simchat.py  rcsite.py
 update.py  run.py  net.py  datafiles.py  diag.py
 static\                    the overlay, control panel, race control and standings graphic pages
 run-tests.bat              runs the tests (see below)
@@ -363,6 +377,9 @@ about 10 seconds and never touches the `data` folder: it uses a throwaway one.
 - **Race control** (`tests\test_race_control.py`): the incident queue, the catch-up after a replay, calls, the exact
   commands typed into iRacing, In the sim / Served / didn't show, clearing, and the race's saved file (picked up after a
   restart, damaged file kept aside). Sending runs against the demo race, so iRacing isn't needed.
+- **Race control and the league site** (`tests\test_race_control_site.py`): signing in, the race file, waiting and
+  trying again, races the site turns down, the other stewards' calls, and official results going with the sign-in,
+  against a stand-in for the site. The site's own side is tested in `glr\test\racecontrol.test.mjs`.
 
 The overlay uses the **Bahnschrift** font, which comes with Windows 10 and 11.
 
