@@ -339,9 +339,27 @@ standings.py  livepoints.py  profiles.py  pitrace.py  incidents.py  raceresults.
 racecontrol.py  simchat.py
 update.py  run.py  net.py  datafiles.py  diag.py
 static\                    the overlay, control panel, race control and standings graphic pages
+run-tests.bat              runs the tests (see below)
+tests\                     the tests, and recorded races they replay (tests\fixtures)
 relay\                     the announcer relay (Cloudflare Worker) and the announcer page
 glr\                       the league site (Cloudflare Worker at vspeedlivetiming.app/glr)
 ```
+
+### Tests
+
+Double-click **`run-tests.bat`** (or `python -m unittest discover -s tests -t tests`) before every release. It takes
+about 10 seconds and never touches the `data` folder: it uses a throwaway one.
+
+- **Recorded races** (`tests\test_replay.py`): black boxes from real races, replayed through the overlay's own code with
+  a stand-in for iRacing. They check what was seen on the broadcast (cautions, overtime, white and checkered flags, the
+  winner, pit cycles) and compare every second with a checked copy (the golden file). When a change is *meant* to alter
+  what the overlay shows, read the differences the test prints, then save new golden files with
+  `python tests\replay.py --update`.
+- **Adding a race:** after a race that went wrong, take `logs\blackbox.jsonl` from its diagnostics zip, gzip it into
+  `tests\fixtures\<track>-<date>-<what>.jsonl.gz`, add it to `RECORDINGS` in `tests\replay.py` (track, length, laps),
+  then save its golden file once the overlay handles it right. Black boxes hold car numbers only, no driver names.
+- **Race logic, live points, standings, bracket and data safety:** the other `tests\test_*.py` files, with made-up
+  drivers.
 
 The overlay uses the **Bahnschrift** font, which comes with Windows 10 and 11.
 

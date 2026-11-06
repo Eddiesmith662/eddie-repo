@@ -288,15 +288,15 @@ def eligible_data(snap=None):
     return out
 
 
+_SAVE_LOCK = threading.Lock()     # standings.json / bracket.json: one save at a time, always of the newest copy
+
+
 def save_data():
-    try:
-        os.makedirs(CONFIG_DIR, exist_ok=True)
-        tmp = DATA_PATH + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump(data_snapshot(), f)
-        os.replace(tmp, DATA_PATH)
-    except OSError:
-        pass
+    with _SAVE_LOCK:
+        try:
+            datafiles.write_json(DATA_PATH, data_snapshot())
+        except OSError as e:
+            print("Could not save the standings (standings.json): %s" % e)
 
 
 def set_data(header, rows, source, pulled_at=None, edited_at=None, save=True, race_added=None):
@@ -342,14 +342,11 @@ def bracket_snapshot():
 
 
 def save_bracket():
-    try:
-        os.makedirs(CONFIG_DIR, exist_ok=True)
-        tmp = BRACKET_PATH + ".tmp"
-        with open(tmp, "w", encoding="utf-8") as f:
-            json.dump({"rounds": bracket_snapshot()}, f)
-        os.replace(tmp, BRACKET_PATH)
-    except OSError:
-        pass
+    with _SAVE_LOCK:
+        try:
+            datafiles.write_json(BRACKET_PATH, {"rounds": bracket_snapshot()})
+        except OSError as e:
+            print("Could not save the playoff bracket (bracket.json): %s" % e)
 
 
 def set_bracket(rounds, save=True):
@@ -358,11 +355,10 @@ def set_bracket(rounds, save=True):
         save_bracket()
 
 
-def load_bracket():
+def load_bracket(backup=False):
     try:
-        with open(BRACKET_PATH, "r", encoding="utf-8") as f:
-            set_bracket(json.load(f)["rounds"], save=False)
-    except (OSError, ValueError, KeyError, TypeError):
+        set_bracket(datafiles.load_json(BRACKET_PATH, backup=backup)["rounds"], save=False)
+    except (KeyError, TypeError):
         pass
 
 
@@ -420,18 +416,17 @@ def bracket_edit(rounds, seed, num, name):
     return rounds, (None if hit else "That driver is no longer in the bracket.")
 
 
-def load_data():
+def load_data(backup=False):
     """Bring back the saved copy from the last run. Returns True if there was one."""
     try:
-        with open(DATA_PATH, "r", encoding="utf-8") as f:
-            d = json.load(f)
+        d = datafiles.load_json(DATA_PATH, backup=backup)
         header = [str(x) for x in d["header"]]
         rows = [[str(x) for x in r] for r in d["rows"]]
         pulled = float(d.get("pulled_at") or 0)
         edited = float(d["edited_at"]) if d.get("edited_at") else None
         source = str(d.get("source") or "")
         added = d.get("race_added") or None
-    except (OSError, ValueError, KeyError, TypeError):
+    except (ValueError, KeyError, TypeError):
         return False
     if not header or not rows:
         return False
@@ -501,21 +496,16 @@ def set_logo(path):
     with STATE_LOCK:
         STATE["logo"] = int(time.time() * 1000) if LOGO_PATH else 0
 
-def load_config():
-    try:
-        with open(CONFIG_PATH, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return {}
+def load_config(backup=False):
+    cfg = datafiles.load_json(CONFIG_PATH, {}, backup=backup)
+    return cfg if isinstance(cfg, dict) else {}
 
 
 def save_config(cfg):
     try:
-        os.makedirs(CONFIG_DIR, exist_ok=True)
-        with open(CONFIG_PATH, "w", encoding="utf-8") as f:
-            json.dump(cfg, f)
-    except OSError:
-        pass
+        datafiles.write_json(CONFIG_PATH, cfg)
+    except OSError as e:
+        print("Could not save the standings settings (config.json): %s" % e)
 
 
 # ----------------------------------------------------------------------------
@@ -537,7 +527,9 @@ _CFG_CACHE = {}
 
 def update_config(**kw):
     with _CFG_LOCK:
-        cfg = load_config()
+        # start from the copy in memory (read at start), not the file: if the file couldn't be read now, building on
+        # an empty one would save over the Xtreme link, the excluded drivers, the titles and the logo
+        cfg = dict(_CFG_CACHE) if _CFG_CACHE else load_config()
         cfg.update(kw)
         save_config(cfg)
         _CFG_CACHE.clear()
@@ -547,7 +539,7 @@ def update_config(**kw):
 def init():
     """Load everything saved from the last run (same startup as the old program)."""
     os.makedirs(CONFIG_DIR, exist_ok=True)
-    cfg = load_config()
+    cfg = load_config(backup=True)
     _CFG_CACHE.update(cfg)
     if cfg.get("title"):
         set_state(title=cfg["title"])
@@ -562,8 +554,8 @@ def init():
         set_state(logoSize=max(40, min(220, int(cfg.get("logo_size", 192)))))
     except (TypeError, ValueError):
         pass
-    load_data()
-    load_bracket()
+    load_data(backup=True)
+    load_bracket(backup=True)
     lines = cfg.get("analysis_lines")
     t, l = clean_analysis(cfg.get("analysis_title"), lines if isinstance(lines, list) else ANALYSIS_EXAMPLE)
     set_analysis(title=t, lines=l)

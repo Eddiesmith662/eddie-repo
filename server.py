@@ -146,12 +146,11 @@ class State:
         self.version = 0
         self.settings = copy.deepcopy(DEFAULT_SETTINGS)
         self.live = {"connected": False, "source": "none", "cars": []}
-        if os.path.exists(SETTINGS_FILE):
-            try:
-                with open(SETTINGS_FILE, "r", encoding="utf-8") as f:
-                    deep_merge(self.settings, json.load(f))
-            except Exception as e:
-                print("Could not read settings.json:", e)
+        self.save_lock = threading.Lock()        # one save at a time, always of the newest settings
+        # a damaged settings.json is kept aside and the last good copy (settings.json.bak) is used instead
+        saved = datafiles.load_json(SETTINGS_FILE, backup=True)
+        if isinstance(saved, dict):
+            deep_merge(self.settings, saved)
 
     def bump(self):
         self.version += 1
@@ -161,12 +160,18 @@ class State:
         with self.lock:
             deep_merge(self.settings, patch)
             self.bump()
-            snapshot = json.dumps(self.settings, indent=2)
-        try:
-            with open(SETTINGS_FILE, "w", encoding="utf-8") as f:
-                f.write(snapshot)
-        except Exception as e:
-            print("Could not save settings.json:", e)
+        self.save()
+
+    def save(self):
+        """Write settings.json. The copy is taken inside the save lock, so when two saves overlap the later one
+        always writes the newer settings (before, an older copy could land on disk last)."""
+        with self.save_lock:
+            with self.lock:
+                snapshot = json.dumps(self.settings, indent=2)
+            try:
+                datafiles.write_text(SETTINGS_FILE, snapshot)
+            except Exception as e:
+                print("Could not save settings.json:", e)
 
     def set_live(self, live):
         with self.lock:
@@ -1759,6 +1764,31 @@ def on_air_now():
 usage_t = [0.0]
 
 
+def process_reading(live):
+    """Everything done with each reading once the source has made it: penalties, the incident log, race control (when
+    it's on), race off pit road, live points, then it goes to every page. The replay tests (tests/replay.py) run recorded races through this too."""
+    track_penalties(live)
+    try:
+        incidents.update(live, log=diag.log)
+    except Exception as e:      # the incident log must never stop the overlay
+        diag.error("Incident log error: %r" % (e,), e)
+    if RC["on"]:
+        try:
+            racecontrol.update(live)
+        except Exception as e:  # race control must never stop the overlay
+            diag.error("Race control error: %r" % (e,), e)
+    try:
+        pitrace.update(live, log=diag.log)
+    except Exception as e:
+        diag.error("Race off pit road error: %r" % (e,), e)
+    try:
+        live["livePoints"] = livepoints.compute(live, STATE.settings.get("livePoints"), standings.data_snapshot(),
+                                                standings.bracket_snapshot(), standings.excluded_keys())
+    except Exception as e:      # live points must never stop the overlay
+        diag.error("Live points error: %r" % (e,), e)
+    STATE.set_live(live)
+
+
 def telemetry_loop(demo, multiclass=False, qual=False):
     global SOURCE
     if demo:
@@ -1785,26 +1815,7 @@ def telemetry_loop(demo, multiclass=False, qual=False):
                 time.sleep(1.0)
                 continue
             waiting_printed = False
-            track_penalties(live)
-            try:
-                incidents.update(live, log=diag.log)
-            except Exception as e:      # the incident log must never stop the overlay
-                diag.error("Incident log error: %r" % (e,), e)
-            if RC["on"]:
-                try:
-                    racecontrol.update(live)
-                except Exception as e:
-                    diag.error("Race control error: %r" % (e,), e)
-            try:
-                pitrace.update(live, log=diag.log)
-            except Exception as e:
-                diag.error("Race off pit road error: %r" % (e,), e)
-            try:
-                live["livePoints"] = livepoints.compute(live, STATE.settings.get("livePoints"), standings.data_snapshot(),
-                                                        standings.bracket_snapshot(), standings.excluded_keys())
-            except Exception as e:      # live points must never stop the overlay
-                diag.error("Live points error: %r" % (e,), e)
-            STATE.set_live(live)
+            process_reading(live)
             if time.time() - usage_t[0] >= 1.0:      # once a second: which graphics are on air (usage stats)
                 usage_t[0] = time.time()
                 try:

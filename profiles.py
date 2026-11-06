@@ -32,33 +32,29 @@ LOCK = threading.Lock()
 _state = None          # the overlay's State (server.py), set by init()
 
 
-def _read(path, default):
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return default
+def _read(path, default, backup=False):
+    data = datafiles.load_json(path, default, backup=backup)
+    return default if data is None else data
 
 
 def _write(path, data):
     global _cache
+    datafiles.write_json(path, data, indent=1)
     if path == INDEX:
         _cache = json.loads(json.dumps(data))
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=1)
-    os.replace(tmp, path)
 
 
 _cache = None
+# True when a switch failed half-way and putting the previous series back failed too: the live files may then be a mix
+# of two series, so they're never saved into a series' folder until a switch has loaded one cleanly again
+_mixed = False
 
 
 def _index():
     global _cache
     if _cache is not None:
         return json.loads(json.dumps(_cache))
-    idx = _read(INDEX, None)
+    idx = _read(INDEX, None, backup=True)
     if not isinstance(idx, dict) or not isinstance(idx.get("list"), list):
         idx = {"active": None, "list": []}
     _cache = idx
@@ -88,6 +84,9 @@ def _logo_files(folder):
 # ---------------------------------------------------------------- save / load one series
 def _save(pid):
     """Copy the series' part of what's live now into its profile folder."""
+    if _mixed:
+        print("Series profiles: not saving '%s': the loaded files may be a mix of two series after a failed switch" % pid)
+        return
     d = _pdir(pid)
     sd = os.path.join(d, "standings")
     os.makedirs(sd, exist_ok=True)
@@ -162,6 +161,29 @@ def _load(pid):
     standings.bump("reload")                         # the standings graphic re-reads its data
 
 
+def _switch(pid, back, names):
+    """Load series `pid`. If that fails part-way, put series `back` (just saved) back, so the live files are never
+    left as a mix of two series. Returns None, or a message saying what went wrong."""
+    global _mixed
+    try:
+        _load(pid)
+        _mixed = False
+        return None
+    except Exception as e:
+        err = e
+    print("Series profiles: couldn't load '%s': %r" % (pid, err))
+    if back:
+        try:
+            _load(back)
+            _mixed = False
+            return "Couldn't switch to %s (%s). Still on %s." % (names.get(pid, pid), err, names.get(back, back))
+        except Exception as e2:
+            print("Series profiles: couldn't put '%s' back either: %r" % (back, e2))
+    _mixed = True
+    return ("Couldn't switch to %s (%s), and the series that was loaded couldn't be put back. Pick a series again "
+            "before the broadcast; nothing is saved over a series until one loads." % (names.get(pid, pid), err))
+
+
 # ---------------------------------------------------------------- what the control panel calls
 def init(state):
     """Called once at startup. The first time, what's set up now becomes the first series."""
@@ -192,16 +214,19 @@ def command(d):
     with LOCK:
         idx = _index()
         ids = {p["id"]: p for p in idx["list"]}
+        names = {p["id"]: p["name"] for p in idx["list"]}
         act = idx.get("active")
         if cmd == "switch":
             pid = str(d.get("id") or "")
             if pid not in ids:
                 return False, "That series doesn't exist any more."
-            if pid == act:
+            if pid == act and not _mixed:
                 return True, ""
             if act in ids:
                 _save(act)
-            _load(pid)
+            problem = _switch(pid, act if act in ids and act != pid else None, names)
+            if problem:
+                return False, problem
             idx["active"] = pid
             _write(INDEX, idx)
             return True, "Switched to %s" % ids[pid]["name"]
@@ -226,7 +251,11 @@ def command(d):
                         "config": {}, "graphic": {"playoff": False, "cutoff": 16}})
             else:
                 _save(pid)                           # a copy of the current series, to change from there
-            _load(pid)
+            problem = _switch(pid, act if act in ids else None, dict(names, **{pid: name}))
+            if problem:
+                idx["list"] = [p for p in idx["list"] if p["id"] != pid]     # not created after all
+                shutil.rmtree(_pdir(pid), ignore_errors=True)
+                return False, problem
             idx["active"] = pid
             _write(INDEX, idx)
             return True, "Created %s" % name

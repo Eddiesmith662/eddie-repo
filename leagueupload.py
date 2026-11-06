@@ -5,7 +5,9 @@ Overlay keys page. Results go when iRacing has them a minute after the checkered
 official; the site files them as Provisional until the iRacing results file is uploaded there.
 
 Nothing is lost if the internet drops or the site is down: each race waits in data/league-upload/ and is sent once
-the site answers. Only league races are sent (the sim says which iRacing league the session belongs to).
+the site answers. Only league races are sent (the sim says which iRacing league the session belongs to). A race the
+site turns down (e.g. a league that isn't on the site yet) is never deleted: it's moved to data/league-upload/refused/,
+and putting the file back in data/league-upload/ sends it again.
 """
 import datetime
 import json
@@ -20,10 +22,13 @@ import net
 
 SITE = "https://vspeedlivetiming.app/glr"
 DIR = os.path.join(datafiles.DATA, "league-upload")
+REFUSED_DIR = os.path.join(DIR, "refused")
 RETRY = 60                     # seconds between tries while something is waiting
+TRY_AGAIN = (408, 425, 429)   # turned down for now (timeout, too many requests): try again, like a site problem
 LOCK = threading.Lock()
 _wake = threading.Event()
 _cfg = {"on": False, "key": ""}
+_START = {}                    # queued file -> the race time of its first copy (the file is gone once it's sent)
 _log = print
 STATUS = {"state": "off", "msg": "", "last": ""}
 DEFAULTS = {"on": False, "key": ""}
@@ -94,17 +99,18 @@ def queue(live, sess, info, sess_num, official):
     body = build(live, sess, info, official)
     if not body["results"]:
         return
-    os.makedirs(DIR, exist_ok=True)
     path = os.path.join(DIR, "%s-%s.json" % (info.get("subId"), sess_num))
-    try:                                     # keep the first copy's time as the race time when the official copy replaces it
-        with open(path, encoding="utf-8") as f:
-            body["startTime"] = json.load(f).get("startTime") or body["startTime"]
-    except (OSError, ValueError):
-        pass
-    tmp = path + ".tmp"
-    with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(body, f)
-    os.replace(tmp, path)
+    with LOCK:
+        start = _START.get(path)
+        if start is None:                    # keep the first copy's time as the race time when the official copy replaces it
+            try:
+                with open(path, encoding="utf-8") as f:
+                    start = json.load(f).get("startTime")
+            except (OSError, ValueError, AttributeError):
+                pass
+        body["startTime"] = start or body["startTime"]
+        _START[path] = body["startTime"]
+        datafiles.write_json(path, body)     # raises if it can't be saved: race results tries again
     _log("League site upload: race %s queued (%d drivers%s)" % (info.get("subId"), len(body["results"]), ", official" if official else ""))
     _wake.set()
 
@@ -160,10 +166,13 @@ def _send_all():
     for name in files:
         path = os.path.join(DIR, name)
         try:
-            with open(path, encoding="utf-8") as f:
-                body = json.load(f)
-        except (OSError, ValueError):
-            os.remove(path)
+            with open(path, "rb") as f:
+                raw = f.read()
+            body = json.loads(raw.decode("utf-8"))
+        except OSError:
+            continue                         # locked for a moment (OneDrive): next time
+        except ValueError:
+            _set_aside(path, None, "it couldn't be read")
             continue
         try:
             code, j = _request("/api/overlay/results", key, body)
@@ -172,17 +181,50 @@ def _send_all():
         if code in (401, 403):
             return _set("error", j.get("error") or "The site doesn't accept this key")
         if code == 200 and j.get("ok"):
-            os.remove(path)
+            _done_with(path, raw)
             what = j.get("message") if j.get("skipped") else "%s results at %s sent (%d drivers)" % (j.get("series", ""), body.get("track", ""), len(body.get("results") or []))
             STATUS["last"] = time.strftime("%H:%M") + " · " + what
             _set("ok", what)
             _log("League site upload: " + what)
-        elif 400 <= code < 500:              # the site can't use it (e.g. a league that isn't on the site): don't keep trying
-            os.remove(path)
-            _set("error", j.get("error") or "The site couldn't use race %s (%s)" % (body.get("subsessionId"), code))
-            _log("League site upload: race %s not taken: %s" % (body.get("subsessionId"), j.get("error") or code))
+        elif 400 <= code < 500 and code not in TRY_AGAIN:   # the site can't use it (e.g. a league that isn't on the site)
+            why = j.get("error") or "the site answered %s" % code
+            _set_aside(path, raw, why)
+            _set("error", "Race %s not taken: %s (kept in data\\league-upload\\refused)" % (body.get("subsessionId"), why))
         else:
             return _set("waiting", "The league site had a problem (%s); trying again every minute" % code)
+
+
+def _done_with(path, raw):
+    """Remove a sent race, unless a newer copy (e.g. the official results) was queued while it was being sent:
+    that one stays and goes next. (Before, the newer copy was deleted unsent.)"""
+    with LOCK:
+        try:
+            with open(path, "rb") as f:
+                if f.read() != raw:
+                    _wake.set()
+                    return
+            os.remove(path)
+        except OSError:
+            pass
+
+
+def _set_aside(path, raw, why):
+    """A race the site won't take, or a file that can't be read: moved to refused/, never deleted."""
+    with LOCK:
+        try:
+            if raw is not None:
+                with open(path, "rb") as f:
+                    if f.read() != raw:      # a newer copy came in meanwhile: send that one instead
+                        _wake.set()
+                        return
+            os.makedirs(REFUSED_DIR, exist_ok=True)
+            dest = os.path.join(REFUSED_DIR, os.path.basename(path))
+            if os.path.exists(dest):
+                dest = os.path.join(REFUSED_DIR, "%s-%s.json" % (os.path.basename(path)[:-5], time.strftime("%Y%m%d-%H%M%S")))
+            os.replace(path, dest)
+            _log("League site upload: %s not taken (%s); kept as %s" % (os.path.basename(path), why, os.path.relpath(dest, datafiles.DATA)))
+        except OSError as e:
+            _log("League site upload: couldn't set %s aside: %r" % (os.path.basename(path), e))
 
 
 def _loop():

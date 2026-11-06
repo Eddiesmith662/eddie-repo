@@ -17,6 +17,7 @@ import time
 TOP = 10              # rows on the graphic
 ENTRY_GAP = 30.0      # the cycle stays open for new cars until nobody has come in for this long
 STUCK = 90.0          # on pit road longer than this: repairs or parked, the cycle doesn't wait for them
+HELD = 300.0          # ... unless that would leave fewer than MIN_CARS out: then the field is being held, wait up to this
 STAYED_MAX = 6        # names on the STAYED OUT line
 MIN_CARS = 3          # fewer cars than this pitting isn't a pit cycle (one car in for repairs)
 
@@ -119,8 +120,21 @@ def update(live, log=None):
                 e["out"] = t
             if c.get("pitState") in ("stall", "done") and c.get("pitTime") is not None:
                 e["stop"] = round(c["pitTime"], 1)       # the box time (final once the car has left)
+            elif e["out"] is None and c.get("pit") and c.get("pitState") is None and e["stop"] is not None:
+                # still on pit road but the pit timer gave up on it (in the stall 50 s or more: held or repairs): the last
+                # number it showed (49.9) isn't the stop time, so none is shown
+                e["stop"] = None
         open_ = t - _cap["lastEntry"] <= ENTRY_GAP
         waiting = [e for e in _cap["cars"].values() if e["out"] is None and t - e["in"] < STUCK]
+        out_n = sum(1 for e in _cap["cars"].values() if e["out"] is not None)
+        if not waiting and out_n < MIN_CARS <= len(_cap["cars"]):
+            # most of the cars that pitted are still on pit road: they're being held, not parked for repairs. Closing
+            # now would throw the cycle away (Talladega, Oct 24: under the overtime caution eight cars sat in their
+            # stalls for two minutes and left together; the cycle gave up on them after 90 s and never reached the graphic).
+            # Remembered for the rest of the cycle, so it doesn't close as soon as the third of them is out.
+            _cap["held"] = True
+        if _cap.get("held"):
+            waiting = [e for e in _cap["cars"].values() if e["out"] is None and t - e["in"] < HELD]
         # the live look: cars appear as they reach the pit lane exit (only once it's a real cycle, so one car in on its
         # own doesn't take the place of the last finished list on air)
         live = _rows(_cap) if (len(_cap["cars"]) >= MIN_CARS or _cap["manual"]) else []
