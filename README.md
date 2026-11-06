@@ -244,14 +244,32 @@ second screen). It works the same whether or not the race is being broadcast.
   positions, points, disqualified or no action), the number of seconds / positions / points where it needs one, and
   the reason, then **Make the call**. The incident moves to **Decided** (or **No action**). For something that isn't
   in the list, double-click the driver in the running order, or press **New call without an incident**.
-- **Withdraw** a call made by mistake: it stays in the log, crossed out, with who withdrew it and why.
+- **Send to iRacing:** a call iRacing can give in the sim (marked *in the sim*) shows the exact admin command on the
+  call. Check it, then press **Send to iRacing**. Race control types it into iRacing's chat for you, without switching
+  away from the Race Control page:
+
+  | Call | Sent to iRacing |
+  |---|---|
+  | Warning | a private message to the driver: `/#87 Race control warning: <reason>` |
+  | Drive-through | `!black #87 D <reason>` |
+  | Stop-and-go | `!black #87 <seconds - 25> <reason>` (iRacing holds 25 s longer than the number sent, so the steward types the hold they want; 25 s is the shortest) |
+  | End of line | `!eol #87 <reason>`, only under caution |
+  | Disqualified | `!dq #87 <reason>`, after an "are you sure" (iRacing can't undo a DQ) |
+
+  The reason after a `!` command is shown in chat to **everyone** in the session. Time, positions and points penalties
+  change the results instead (on the league site, coming later). After sending, the call shows **In the sim** when the
+  black flag (or DQ) comes up and **Served** when it goes away. A warning or end of line just shows **Sent**, since
+  iRacing's data can't confirm those. **Didn't show in iRacing** means no flag came up within 10 seconds: check the sim
+  and **Send again**.
+- **Withdraw** a call made by mistake: it stays in the log, crossed out, with who withdrew it and why. If it was sent,
+  you're asked whether to clear it in iRacing too: `!clear #87` removes **all** of that driver's penalties, iRacing's
+  own included.
 - **While you watch a replay**, new incidents aren't detected (iRacing's car data is the replay). Incident points
   gained in the meantime are added when you go back to **Live**, marked **found after review**; replaying one of those
   goes to where your review started.
 
 Calls are saved after every change in `data\race-control\<race>.json` (one file per iRacing session), so closing the
-program mid-race loses nothing. For now the penalties themselves are still given in the sim by hand, and calls stay on
-this PC. To send the race's results to the league site, set up **League site upload** on the control panel's Setup
+program mid-race loses nothing. For now calls stay on this PC. To send the race's results to the league site, set up **League site upload** on the control panel's Setup
 tab (http://localhost:8765/control), the same as for a producer. `start-race-control.bat --demo` runs it on a pretend
 race.
 
@@ -314,7 +332,7 @@ data\                      YOUR files, never touched by updates:
   backup\                    the last few versions, for restore-previous.bat
 server.py                  reads iRacing and serves every page (port 8765)
 standings.py  livepoints.py  profiles.py  pitrace.py  incidents.py  raceresults.py  announcer.py  leagueupload.py
-racecontrol.py
+racecontrol.py  simchat.py
 update.py  run.py  net.py  datafiles.py  diag.py
 static\                    the overlay, control panel, race control and standings graphic pages
 relay\                     the announcer relay (Cloudflare Worker) and the announcer page

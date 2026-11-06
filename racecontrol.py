@@ -15,6 +15,11 @@ While the steward watches a replay, iRacing's per-car data is the replay, so the
 come from iRacing's session results, which stay live, so when the steward goes back to live any points gained during
 the review are added as "found after review", with the time window to look at.
 
+Sending to iRacing (phase 5b): a call that iRacing can give in the sim (warning, drive-through, stop-and-go, end of
+line, DQ) shows the exact admin command, and the steward sends it with a second button. Race control then watches
+iRacing's data: the black flag (or DQ) showing = "In the sim", the black flag going away = "Served". A warning or end
+of line can't be checked that way, so those just say "Sent". Withdrawing a call that was sent can also send !clear.
+
 Calls stay on this PC for now; sending them to the league site comes later (phase 5c).
 """
 import datetime
@@ -25,6 +30,7 @@ import time
 
 import datafiles
 import incidents
+import simchat
 
 DIR = os.path.join(datafiles.DATA, "race-control")
 
@@ -41,6 +47,13 @@ INFO = {"caution", "retired"}                  # context for the steward: logged
 SKIP = {"pit"}                                 # incident log entries race control doesn't queue
 STATUSES = ("new", "reviewing", "decided", "noaction", "logged")
 CATCH_DUP_S = 3.0                              # the incident log's own copy of points found after a review: ignored
+
+# what each call sends to iRacing (tested on a live session, Nov 2026). Calls not listed change the results later.
+SIM_KINDS = ("warning", "drivethrough", "stopgo", "eol", "dq")
+SIM_FLAGGED = ("drivethrough", "stopgo")       # these show as a black flag on the car, so race control can check them
+HOLD_ADD = 25                                  # iRacing holds a !black stop-and-go 25 s longer than the number sent
+                                               # (sent 30 -> 55 s hold, sent 10 -> 35 s), so it's sent 25 less
+WAIT_S = 10.0                                  # live seconds to wait for the flag before saying it didn't take
 
 LOCK = threading.Lock()
 _log = print
@@ -198,6 +211,7 @@ def update(live):
         _open(live)
         changed = False
         if live.get("isReplay"):
+            _st["lastWall"] = None         # time in a replay doesn't count toward waiting for a flag
             if not _st["replay"]:
                 _st["replay"] = True
                 _st["ver"] += 1            # the page shows "in a replay"
@@ -207,10 +221,127 @@ def update(live):
             changed = _catch_up(live) or changed
             _st["ver"] += 1
         changed = _mirror(live) or changed
+        wall = time.time()
+        dt = min(1.0, wall - _st["lastWall"]) if _st.get("lastWall") else 0.0
+        _st["lastWall"] = wall
+        changed = _check_sims(live, dt) or changed
         _st["lastInc"] = {c["idx"]: c.get("inc") for c in live.get("cars") or []}
         _st["lastT"], _st["lastLap"] = live.get("sessTime"), live.get("lap")
         if changed:
             _changed()
+
+
+def sim_text(call):
+    """The admin command or message for a call, as it's typed into iRacing's chat (None if it isn't given in the sim)."""
+    car = call.get("car")
+    if call["kind"] not in SIM_KINDS or not car:
+        return None
+    n, r = car["num"], simchat.clean(call.get("reason"))
+    if call["kind"] == "warning":
+        return simchat.clean("/#%s Race control warning: %s" % (n, r))     # a private message to that driver
+    if call["kind"] == "drivethrough":
+        return simchat.clean("!black #%s D %s" % (n, r))                   # the reason goes to everyone in the session
+    if call["kind"] == "stopgo":
+        return simchat.clean("!black #%s %d %s" % (n, max(0, (call["value"] or HOLD_ADD) - HOLD_ADD), r))
+    if call["kind"] == "eol":
+        return simchat.clean("!eol #%s %s" % (n, r))
+    return simchat.clean("!dq #%s %s" % (n, r))
+
+
+def _check_sims(live, dt):
+    """Calls sent to iRacing: has the flag come up, and has it gone again (served)?"""
+    cars = {c["idx"]: c for c in live.get("cars") or []}
+    changed = False
+    for c in _st["data"]["calls"]:
+        sim = c.get("sim")
+        if not sim or sim["state"] not in ("waiting", "inSim") or c["status"] != "active":
+            continue
+        car = cars.get(c["car"]["idx"])
+        if not car:
+            continue
+        if sim["state"] == "waiting":
+            if car.get("dq") if c["kind"] == "dq" else car.get("blackFlag"):
+                sim.update(state="inSim", inSimAt=_now(), inSimLap=live.get("lap"))
+                changed = True
+            else:
+                sim["waitS"] = sim.get("waitS", 0.0) + dt
+                if sim["waitS"] > WAIT_S:
+                    sim["state"] = "notTaken"
+                    changed = True
+        elif sim["state"] == "inSim" and c["kind"] in SIM_FLAGGED and not car.get("blackFlag"):
+            sim.update(state="served", servedAt=_now(), servedLap=live.get("lap"))
+            changed = True
+            _log("Race control: #%s served the %s (call %s)" % (c["car"]["num"], KIND_LABEL[c["kind"]].lower(), c["id"]))
+    return changed
+
+
+def send_prepare(cid, steward, live):
+    """Before a call's command is typed into iRacing. -> (ok, error, text)"""
+    with LOCK:
+        d = _st["data"]
+        c = next((c for c in (d["calls"] if d else []) if c["id"] == cid), None)
+        if not c:
+            return False, "That call isn't in the log", None
+        sim = c.get("sim")
+        if not sim:
+            return False, "This call isn't given in the sim", None
+        if c["status"] != "active":
+            return False, "That call was withdrawn", None
+        if sim["state"] == "sending":
+            return False, "It's being sent", None
+        if sim["state"] in ("waiting", "inSim", "served", "sent") and not sim.get("again"):
+            return False, "It was already sent", None
+        if not str(steward or "").strip():
+            return False, "Type your name at the top first", None
+        live = live or {}
+        if not live.get("connected"):
+            return False, "iRacing isn't connected", None
+        car = _car(live, c["car"]["idx"])
+        if not car:
+            return False, "#%s isn't in the session any more" % c["car"]["num"], None
+        if car.get("num") != c["car"]["num"]:
+            return False, "That car's number changed: make the call again", None
+        if c["kind"] == "eol" and live.get("flag") != "caution":
+            return False, "End of line only works under caution", None
+        sim.update(state="sending", by=str(steward).strip()[:60], at=_now(), hadFlag=bool(car.get("blackFlag")), waitS=0.0, error="")
+        sim.pop("note", None)
+        _changed()
+        return True, "", sim["cmd"]
+
+
+def send_done(cid, ok, error=""):
+    with LOCK:
+        d = _st["data"]
+        c = next((c for c in (d["calls"] if d else []) if c["id"] == cid), None)
+        if not c or not c.get("sim"):
+            return
+        sim = c["sim"]
+        if not ok:
+            sim.update(state="failed", error=error or "It couldn't be sent")
+        else:
+            sim["state"] = "waiting" if c["kind"] in SIM_FLAGGED + ("dq",) else "sent"
+            if c["kind"] in SIM_FLAGGED and sim.get("hadFlag"):
+                # the car already had a black flag (iRacing's own, or an earlier one), so this one can't be told apart
+                # from it: say it was sent rather than wrongly say it didn't take (live test, Nov 2026)
+                sim["state"] = "sent"
+                sim["note"] = "#%s already had a black flag, so race control can't check this one" % c["car"]["num"]
+            sim["sentAt"] = _now()
+        sim.pop("again", None)
+        _changed()
+        _log("Race control: %s %s to iRacing: %s%s" % (sim.get("by", ""), "sent" if ok else "couldn't send", sim["cmd"],
+                                                       "" if ok else " (%s)" % error))
+
+
+def clear_done(cid, ok, error=""):
+    with LOCK:
+        d = _st["data"]
+        c = next((c for c in (d["calls"] if d else []) if c["id"] == cid), None)
+        if not c or not c.get("sim"):
+            return
+        c["sim"]["clear"] = {"at": _now(), "ok": bool(ok), "error": error or ""}
+        if ok:
+            c["sim"]["state"] = "cleared"
+        _changed()
 
 
 def version():
@@ -222,7 +353,8 @@ def snapshot():
         d = _st["data"] or {"queue": [], "calls": [], "race": None, "track": "", "subId": None}
         return {"ver": _st["ver"], "race": d.get("race"), "track": d.get("track", ""), "subId": d.get("subId"),
                 "queue": list(d["queue"]), "calls": list(d["calls"]), "inReplay": _st["replay"],
-                "kinds": [{"key": k, "label": lbl, "unit": u} for k, lbl, u in KINDS], "types": incidents.TYPES,
+                "kinds": [{"key": k, "label": lbl, "unit": u, "sim": k in SIM_KINDS} for k, lbl, u in KINDS], "types": incidents.TYPES,
+                "holdAdd": HOLD_ADD,
                 "file": os.path.relpath(_st["path"], datafiles.DATA) if _st["path"] else ""}
 
 
@@ -276,6 +408,8 @@ def command(data, live, steward=""):
                     return False, "How many %s?" % KIND_UNIT[kind], None
                 if value <= 0 or value > 9999:
                     return False, "The number of %s has to be above 0" % KIND_UNIT[kind], None
+                if kind == "stopgo" and value < HOLD_ADD:
+                    return False, "iRacing's shortest stop-and-go is %d seconds" % HOLD_ADD, None
             q = by_id.get(str(data.get("incident") or "")) if data.get("incident") else None
             if data.get("incident") and not q:
                 return False, "That incident isn't in the queue", None
@@ -308,6 +442,8 @@ def command(data, live, steward=""):
                 "lap": q["lap"] if q else lv.get("lap"), "t": q["t"] if q else lv.get("sessTime"),
                 "status": "active", "withdrawn": None,
             }
+            text = sim_text(call)
+            call["sim"] = {"cmd": text, "state": "ready"} if text else None
             d["calls"].append(call)
             if q:
                 q["status"] = "decided" if any(c["kind"] != "noaction" for c in _active_calls(d, q["id"])) else "noaction"
@@ -329,15 +465,19 @@ def command(data, live, steward=""):
             reason = str(data.get("reason") or "").strip()[:300]
             if not reason:
                 return False, "Say why it's withdrawn", None
+            clear = None
+            sim = c.get("sim")
+            if data.get("clear") and sim and c.get("car") and sim["state"] in ("waiting", "inSim", "sent", "notTaken", "failed"):
+                clear = "!clear #%s" % c["car"]["num"]      # clears all of that driver's penalties, iRacing's own too
             c["status"] = "withdrawn"
-            c["withdrawn"] = {"at": _now(), "by": steward[:60], "reason": reason}
+            c["withdrawn"] = {"at": _now(), "by": steward[:60], "reason": reason, "clear": bool(clear)}
             q = by_id.get(c.get("incident") or "")
             if q:
                 left = _active_calls(d, q["id"])
                 q["status"] = ("decided" if any(x["kind"] != "noaction" for x in left) else "noaction") if left else "reviewing"
             _changed()
             _log("Race control: %s withdrew call %s (%s)" % (steward, c["id"], reason))
-            return True, "", None
+            return True, "", {"clear": clear, "id": c["id"]}
 
         return False, "Unknown command", None
 

@@ -41,6 +41,7 @@ import raceresults
 import announcer
 import leagueupload
 import racecontrol
+import simchat
 
 ROOT = datafiles.ROOT
 STATIC = os.path.join(ROOT, "static")
@@ -790,6 +791,15 @@ class IRacingSource:
         self.ir.cam_switch_num(d["num"], int(g), 0)
         return True
 
+    def chat(self, text):
+        """Race control: type a line into iRacing's chat (an admin command or a message). -> (ok, error)"""
+        if not self.connected:
+            return False, "iRacing isn't connected"
+        mode = getattr(getattr(self.irsdk, "ChatCommandMode", None), "begin_chat", 1)
+        open_chat = (lambda: self.ir.chat_command(mode)) if hasattr(self.ir, "chat_command") else \
+            (lambda: self.ir._broadcast_msg(self.irsdk.BroadcastMsg.chat_command, mode))
+        return simchat.send(open_chat, text)
+
     def camera_group(self, group):
         if not self.connected:
             return False
@@ -1336,7 +1346,7 @@ class DemoSource:
                 "last": c["last"], "best": c["best"],
                 "meatball": c.get("meatUntil", 0) > now,
                 "blackFlag": c.get("blackUntil", 0) > now,
-                "warning": c.get("warnUntil", 0) > now, "dq": False,
+                "warning": c.get("warnUntil", 0) > now, "dq": bool(c.get("dq")),
                 "lapsLed": c.get("led", 0), "resFastest": c["best"] or None,
                 "surf": 0 if c.get("offUntil", 0) > now else (2 if c["pitUntil"] > now else 3),
                 "inc": c.get("inc", 0), "outReason": "",
@@ -1383,6 +1393,24 @@ class DemoSource:
     def camera_group(self, group):
         self.camGroup = group
         return True
+
+    def chat(self, text):
+        """The demo's stand-in for iRacing's chat: the admin commands race control sends change the pretend cars."""
+        text = simchat.clean(text)
+        diag.log("Demo chat: %s" % text)
+        w = text.split()
+        if len(w) >= 2 and w[0] in ("!black", "!bl", "!clear", "!cl", "!dq", "!eol") and w[1].startswith("#"):
+            car = next((c for c in self.cars if c["num"] == w[1][1:]), None)
+            if not car:
+                return True, ""          # iRacing says nothing back either
+            now = time.time()
+            if w[0] in ("!black", "!bl"):
+                car["blackUntil"] = now + 40
+            elif w[0] in ("!clear", "!cl"):
+                car["blackUntil"] = 0
+            elif w[0] == "!dq":
+                car["dq"] = True
+        return True, ""
 
     def go_live(self):
         self.rp = {"speed": 1, "slow": False, "replay": False, "ui": self.rp["ui"] if hasattr(self, "rp") else False, "lapOffset": 0}
@@ -1639,7 +1667,30 @@ def race_control_command(d):
     with STATE.lock:
         live = STATE.live
         steward = (STATE.settings.get("raceControl") or {}).get("steward", "")
+    if cmd == "send":              # type the call's admin command into iRacing (the steward pressed Send to iRacing)
+        cid = str(d.get("id") or "")
+        ok, msg, text = racecontrol.send_prepare(cid, steward, live)
+        if not ok:
+            return {"ok": False, "error": msg}
+        try:
+            ok, msg = SOURCE.chat(text)
+        except Exception as e:
+            ok, msg = False, "Couldn't type into iRacing (%r)" % (e,)
+            diag.error("Race control send error: %r" % (e,), e)
+        racecontrol.send_done(cid, ok, msg)
+        STATE.notify()
+        return {"ok": ok, "error": msg if not ok else "", "sent": text}
     ok, msg, extra = racecontrol.command(d, live, steward)
+    if ok and cmd == "withdraw" and (extra or {}).get("clear"):
+        try:
+            cok, cmsg = SOURCE.chat(extra["clear"])
+        except Exception as e:
+            cok, cmsg = False, repr(e)
+        racecontrol.clear_done(extra["id"], cok, cmsg)
+        if not cok:
+            msg = "Withdrawn, but %s couldn't be sent: %s" % (extra["clear"], cmsg)
+            STATE.notify()
+            return {"ok": True, "error": "", "warning": msg}
     STATE.notify()
     return dict(extra or {}, ok=ok, error=msg if not ok else "")
 
