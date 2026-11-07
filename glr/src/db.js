@@ -81,6 +81,9 @@ const SCHEMA = [
   // series directors: which series each official runs (with the Series official role from Site settings)
   `CREATE TABLE IF NOT EXISTS series_directors (
      discord_id TEXT NOT NULL, series_id INTEGER NOT NULL, assigned_at TEXT, assigned_by TEXT, PRIMARY KEY (discord_id, series_id))`,
+  // team points (the Warrior points system): each season's teams and their drivers
+  `CREATE TABLE IF NOT EXISTS teams (id INTEGER PRIMARY KEY AUTOINCREMENT, series_id INTEGER NOT NULL, season_id INTEGER NOT NULL, name TEXT NOT NULL, sort INTEGER)`,
+  `CREATE TABLE IF NOT EXISTS team_members (team_id INTEGER NOT NULL, cust_id INTEGER NOT NULL, PRIMARY KEY (team_id, cust_id))`,
   `CREATE TABLE IF NOT EXISTS link_claims (
      id INTEGER PRIMARY KEY AUTOINCREMENT, discord_id TEXT NOT NULL, discord_name TEXT, cust_id INTEGER NOT NULL,
      created_at TEXT, status TEXT NOT NULL DEFAULT 'open', decided_by TEXT, decided_at TEXT)`,
@@ -273,6 +276,7 @@ export async function getSeries(db, key) {
   await ensureSchema(db);
   const sr = await db.prepare(`SELECT * FROM series WHERE slug = ? OR CAST(id AS TEXT) = ?`).bind(key, key).first();
   if (!sr) return null;
+  sr.team_count = (await db.prepare(`SELECT COUNT(*) AS n FROM teams WHERE series_id = ?`).bind(sr.id).first()).n;   // the Teams tab shows when there are some
   const events = await listEvents(db, { series: sr.id });
   const seasons = new Map();
   for (const e of events) {
@@ -960,6 +964,38 @@ export async function listAccounts(db) {
   } catch { /* no sessions table yet */ }
   return (await db.prepare(`SELECT a.*, l.cust_id, l.linked_at, d.name AS driver FROM accounts a LEFT JOIN driver_links l ON l.discord_id = a.discord_id
       LEFT JOIN drivers d ON d.cust_id = l.cust_id ORDER BY a.name COLLATE NOCASE`).all()).results;
+}
+
+// a season's teams, in the order they were entered: [{ id, name, members: [{ cust_id, name }] }]
+export async function getTeams(db, seriesId, seasonId) {
+  await ensureSchema(db);
+  const teams = (await db.prepare(`SELECT id, name FROM teams WHERE series_id = ? AND season_id = ? ORDER BY sort, id`).bind(seriesId, seasonId).all()).results;
+  const rows = (await db.prepare(`SELECT m.team_id, m.cust_id, COALESCE(d.name, CAST(m.cust_id AS TEXT)) AS name FROM team_members m JOIN teams t ON t.id = m.team_id
+      LEFT JOIN drivers d ON d.cust_id = m.cust_id WHERE t.series_id = ? AND t.season_id = ? ORDER BY d.name COLLATE NOCASE`).bind(seriesId, seasonId).all()).results;
+  for (const t of teams) t.members = rows.filter(r => r.team_id === t.id).map(({ cust_id, name }) => ({ cust_id, name }));
+  return teams;
+}
+// replace a season's teams: [{ name, custs: [cust ids] }] ([] removes them all)
+export async function saveTeams(db, seriesId, seasonId, teams) {
+  await ensureSchema(db);
+  const old = (await db.prepare(`SELECT id FROM teams WHERE series_id = ? AND season_id = ?`).bind(seriesId, seasonId).all()).results.map(r => r.id);
+  const st = old.map(id => db.prepare(`DELETE FROM team_members WHERE team_id = ?`).bind(id));
+  st.push(db.prepare(`DELETE FROM teams WHERE series_id = ? AND season_id = ?`).bind(seriesId, seasonId));
+  await db.batch(st);
+  for (const [i, t] of teams.entries()) {
+    const { id } = await db.prepare(`INSERT INTO teams (series_id, season_id, name, sort) VALUES (?, ?, ?, ?) RETURNING id`).bind(seriesId, seasonId, t.name, i).first();
+    if (t.custs.length) await db.batch(t.custs.map(c => db.prepare(`INSERT OR IGNORE INTO team_members (team_id, cust_id) VALUES (?, ?)`).bind(id, c)));
+  }
+}
+// every driver with the names they've raced under, for matching pasted team lists. here: has raced in this series
+export async function driversForMatching(db, seriesId) {
+  await ensureSchema(db);
+  const ds = (await db.prepare(`SELECT d.cust_id, d.name, EXISTS (SELECT 1 FROM results r JOIN events e ON e.subsession_id = r.subsession_id
+      WHERE r.cust_id = d.cust_id AND e.series_id = ?) AS here FROM drivers d`).bind(seriesId).all()).results;
+  const names = (await db.prepare(`SELECT cust_id, name FROM driver_names`).all()).results;
+  const by = new Map(ds.map(d => [d.cust_id, { ...d, here: !!d.here, aliases: [] }]));
+  for (const n of names) if (by.has(n.cust_id)) by.get(n.cust_id).aliases.push(n.name);
+  return [...by.values()];
 }
 
 // the series an admin has assigned to this Discord account

@@ -43,13 +43,14 @@
  *         /login, /auth/callback, /logout    Discord sign-in (auth.js)
  */
 import { latestRelease } from "./release.js";
+import { teamStandings, parseTeams, teamsText } from "./teams.js";
 import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, importEvent, setSeriesRole, seriesById, seasonsOf,
   getRules, saveRules, seasonEvents, listAdjustments, addAdjustment, deleteAdjustment,
   importOverlay, listKeys, createKey, revokeKey, checkKey, deleteEvent, listFixes, fixResult, FIX_FIELDS, markOfficial, setHook, HOOKS,
   logChange, listChanges, whoName, mergeDrivers, separateDriver, aliasesOf, findDrivers,
   seriesEvents, allSeriesEvents, listRoster, addRoster, removeRoster, listSchedule, upcoming, addSchedule, addScheduleLines, deleteSchedule,
   scheduleEntry, linkScheduleTo, getSetting, setSetting, editSchedule,
-  linkDriver, unlinkDriver, setLink, linkedAccount, listAccounts, listClaims, decideClaim, directorOf, listDirectors, setDirector, accountRoles, searchDrivers, normName, decisionsFor, fileProtest, listProtests, getProtest, setProtestStatus, listDecisions, addDecision, deleteDecision,
+  linkDriver, unlinkDriver, setLink, linkedAccount, listAccounts, listClaims, decideClaim, getTeams, saveTeams, driversForMatching, directorOf, listDirectors, setDirector, accountRoles, searchDrivers, normName, decisionsFor, fileProtest, listProtests, getProtest, setProtestStatus, listDecisions, addDecision, deleteDecision,
   saveRaceCalls, raceCalls } from "./db.js";
 import { KINDS, AMOUNT, CHANGES_ORDER, decisionText } from "./stewards.js";
 import { resultsPost, standingsPost, penaltyPost, fixPost, decisionPost, enqueue, processQueue, queueFor, retryQueued, discardQueued, isRecent } from "./discord.js";
@@ -522,7 +523,7 @@ function seriesTabs(sr, on, seasons, seasonId, user) {
     `<option value="${se.id}"${se.id === seasonId ? " selected" : ""}>${esc(se.name)}</option>`).join("")}</select></form>` : "";
   const logo = ASSETS[`series-${sr.id}.png`] ? `<img class="shlogo" src="${BASE}/theme/series-${sr.id}.png" alt="${esc(sr.short_name)} logo">` : "";
   return `<p class="crumb"><a href="${BASE}/">GLR</a></p><div class="shead">${logo}<div><h1>${esc(sr.short_name)}</h1><p class="sub">${esc(sr.name)}${canEdit(user, sr) ? ` · <a href="${BASE}/${esc(sr.slug)}/edit">Edit series</a> · <a href="${BASE}/${esc(sr.slug)}/embed">Embed on a website</a>` : ""}</p></div></div>
-    <nav class="tabs">${t("results", "Results", "")}${t("schedule", "Schedule", "/schedule")}${t("standings", "Standings", "/standings")}${t("stats", "Stats", "/stats")}${t("drivers", "Drivers", "/drivers")}${t("rules", "Rules", "/rules")}${t("penalties", "Penalties", "/penalties")}${pick}</nav>`;
+    <nav class="tabs">${t("results", "Results", "")}${t("schedule", "Schedule", "/schedule")}${t("standings", "Standings", "/standings")}${t("stats", "Stats", "/stats")}${t("drivers", "Drivers", "/drivers")}${sr.team_count || canEdit(user, sr) ? t("teams", "Teams", "/teams") : ""}${t("rules", "Rules", "/rules")}${t("penalties", "Penalties", "/penalties")}${pick}</nav>`;
 }
 
 // a table whose columns sort when their heading is clicked (numbers from data-v)
@@ -787,6 +788,30 @@ function standingsBody(st) {
   }
   if (st.adj.length) body += `<p class="tag">Includes ${st.adj.length} penalt${st.adj.length === 1 ? "y or adjustment" : "ies or adjustments"} — see Penalties.</p>`;
   return body;
+}
+
+// team points (the Warrior points system): team standings for a season, each team's drivers, and the editor
+const teamNum = n => Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/0$/, "");
+function teamsPage(sr, seasons, season, user, { teams = [], ts = null, text = "", problems = [], msg = "" } = {}) {
+  let body = seriesTabs(sr, "teams", seasons, season && season.id, user);
+  if (!season) return page(`${sr.short_name} teams`, body + `<p class="hint">No races uploaded yet.</p>`, { user });
+  body += `<p class="tag">${esc(season.name)} · Team points: in each race, a team scores its drivers' finishing points added together, divided by how many of its drivers raced. The season total is every race added up.</p>`;
+  if (msg) body += `<div class="msg ${/^Saved/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>`;
+  if (ts && ts.teams.length) {
+    body += `<div class="wrap"><table class="std"><tr><th class="n">Pos</th><th>Team</th><th class="n">Points</th>${ts.races.map(r => `<th class="n" title="${esc(r.track)}"><a href="${BASE}/results/${r.subsession_id}">${day(r.start_time)}</a></th>`).join("")}</tr>` +
+      ts.teams.map(t => `<tr><td class="n">${t.pos}</td><td><a href="#team${t.id}">${esc(t.name)}</a></td><td class="n"><b>${teamNum(t.total)}</b></td>${t.races.map(x =>
+        `<td class="n" title="${x.raced ? `${teamNum(x.sum)} points from ${x.raced} of ${x.of} drivers` : "No drivers raced"}">${x.raced ? teamNum(x.score) + `<br><span class="tag">${x.raced} of ${x.of}</span>` : `<span class="tag">–</span>`}</td>`).join("")}</tr>`).join("") + `</table></div>`;
+    if (!ts.races.length) body += `<p class="hint">No races counted in this season yet.</p>`;
+    body += `<h2>Teams</h2><div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:8px 24px">` + ts.teams.map(t => `<div id="team${t.id}"><h3>${esc(t.name)}</h3><table style="width:100%">${[...t.drivers.values()].map(d =>
+      `<tr><td>${driverLink(d.cust_id, d.name)}</td><td class="n">${teamNum(d.points)} <span class="tag">pts · ${d.races} race${d.races === 1 ? "" : "s"}</span></td></tr>`).join("") || `<tr><td class="tag">No drivers</td></tr>`}</table></div>`).join("") + `</div>`;
+  } else body += `<p class="hint">No teams for this season yet.</p>`;
+  if (canEdit(user, sr)) {
+    body += `<h2 id="edit">Set the teams</h2>`;
+    if (problems.length) body += `<div class="msg bad">Nothing was saved. Fix these, then save again:<ul>${problems.map(p => `<li><b>${esc(p.team)}:</b> "${esc(p.text)}": ${esc(p.why)}</li>`).join("")}</ul></div>`;
+    body += `<p class="tag">Copy the team grid from your spreadsheet (team names across the top, each team's drivers below) and paste it here. Or type one team per line: <code>Team name: Driver, Driver, Driver</code>. A driver can be their name as it appears in the results (any name they've raced under) or <code>Name (iRacing ID)</code>. A driver who hasn't raced in a GLR series yet needs their iRacing ID. This replaces this season's teams; empty it and save to remove them.</p>
+    <form method="post" action="#edit"><textarea name="teams" rows="${Math.min(30, Math.max(8, text.split("\n").length + 2))}" spellcheck="false">${esc(text)}</textarea><p><button class="btn">Save teams</button></p></form>`;
+  }
+  return page(`${sr.short_name} teams`, body, { user });
 }
 
 function standingsPage(sr, seasons, season, st, user) {
@@ -1793,13 +1818,32 @@ const site = {
           added: roster.map(r => ({ custId: r.cust_id, name: r.name, number: r.car_number })) });
         return seriesDriversPage(sr, rows, roster, user, msg);
       }
-      if ((m = path.match(/^\/([a-z0-9-]+)\/(standings|rules|penalties)$/))) {
+      if ((m = path.match(/^\/([a-z0-9-]+)\/(standings|rules|penalties|teams)$/))) {
         const sr = await getSeries(db, m[1]);
         if (!sr) return notFound("No series at that address.", user);
         const seasons = await seasonsOf(db, sr.id), season = pickSeason(seasons, url);
         const back = () => Response.redirect(`${url.origin}${path}${seasons.length > 1 ? `?season=${season.id}` : ""}`, 303);
         if (request.method === "POST" && (!season || !canEdit(user, sr) || !sameOrigin(request, url))) return notFound("You can't change this series.", user);
         if (m[2] === "standings") return standingsPage(sr, seasons, season, season && await seasonStandings(db, sr, season), user);
+        if (m[2] === "teams") {
+          if (!season) return teamsPage(sr, seasons, null, user);
+          let text = "", problems = [], msg = "";
+          if (request.method === "POST") {
+            text = String((await request.formData()).get("teams") || "").slice(0, 20000);
+            const r = parseTeams(text, await driversForMatching(db, sr.id));
+            problems = r.problems;
+            if (!problems.length) {
+              await saveTeams(db, sr.id, season.id, r.teams);
+              const n = r.teams.reduce((a, t) => a + t.custs.length, 0);
+              await logChange(db, { by: `discord:${user.id}:${user.name}`, seriesId: sr.id, kind: "series", summary: r.teams.length ? `Teams for ${season.name} saved: ${r.teams.length} teams, ${n} drivers` : `Teams for ${season.name} removed` });
+              msg = r.teams.length ? `Saved: ${r.teams.length} teams, ${n} drivers.` : "Saved: this season has no teams now.";
+              sr.team_count = r.teams.length;
+            }
+          }
+          const teams = await getTeams(db, sr.id, season.id);
+          const ts = teams.length ? teamStandings(teams, (await seasonStandings(db, sr, season))) : null;
+          return teamsPage(sr, seasons, season, user, { teams, ts, text: problems.length ? text : teamsText(teams), problems, msg });
+        }
         if (m[2] === "rules") {
           const info = season ? await getRules(db, season.id, sr.id) : {};
           const events = season ? await seasonEvents(db, season.id) : [];
