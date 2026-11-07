@@ -31,6 +31,9 @@
  *         /api/overlay/results  POST from an overlay (Authorization: Bearer <key>): provisional results
  *         /api/overlay/check    GET with the same header: is this key good?
  *         /api/overlay/calls/<session>  GET with the same header: race control's calls on a race (penalty box)
+ *         /api/overlay/link, link/poll, signout  the overlay signs in with a producer's Discord account instead of a
+ *                                   key (Authorization: Bearer vsov_...): glr/OVERLAY-SIGNIN.md
+ *         /overlay/link?code=...    where a producer presses Allow for their overlay
  *         /api/rc/...           race control (Authorization: Bearer vsrc_...): link + link/poll to sign in, check,
  *                                   signout, races/<session> (PUT the race's calls, GET every call on it). See the plan
  *                                   doc, "Sending calls to the site (phase 5c)".
@@ -55,7 +58,7 @@ import { THEMES, themeOf } from "./themes.js";
 import { ASSETS } from "./assets.js";
 import { parseExport, parseOverlay } from "./parse.js";
 import { configured, login, callback, currentUser, logout, canEdit, canSteward, cookies,
-  raceControlUser, rcLinkStart, rcLinkPoll, rcLinkFind, rcLinkAllow, rcSignOut, listRcSessions, revokeRcSession } from "./auth.js";
+  raceControlUser, overlayUser, PROGRAMS, linkStart, linkPoll, linkFind, linkAllow, programSignOut, listProgramSessions, revokeProgramSession } from "./auth.js";
 
 // the site sits at the front of its own domain (glrhub.app, Nov 7 2026); it was vspeedlivetiming.app/glr before
 const BASE = "";
@@ -888,13 +891,15 @@ function historyPage(rows, user) {
   return page("History", body, { user });
 }
 
-function settingsPage(cur, short, user, msg = "", stewardRole = "") {
+function settingsPage(cur, short, user, msg = "", stewardRole = "", producerRole = "") {
   let body = `<h1>Site settings</h1><p class="sub">How the site looks for everyone.</p>${msg ? `<div class="msg ${/^Saved/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>` : ""}
   <form method="post"><fieldset><legend>Theme</legend>${Object.entries(THEMES).map(([k, t]) => `<label class="chk"><input type="radio" name="theme" value="${k}"${k === cur ? " checked" : ""}>
     <span><b>${esc(t.label)}</b> <span class="tag">${esc(t.note)}</span> <a href="${BASE}?theme=${k}" target="_blank">Preview</a></span></label>`).join("")}</fieldset>
   <label for="ls">League short name (in the VSPEED theme's header, e.g. GLR)</label><input type="text" id="ls" name="short" value="${esc(short)}" maxlength="20">
   <label for="sr">Race control role (Discord role ID; its members are stewards for every series)</label><input type="text" id="sr" name="steward_role" value="${esc(stewardRole)}" maxlength="25" inputmode="numeric">
   <p class="tag">Stewards review protests and make decisions on each race's stewards' report. Each series' officials can steward their own series too. In Discord: Server Settings › Roles › right-click the role › Copy Role ID.</p>
+  <label for="pr">Producer role (Discord role ID; its members can sign a broadcast overlay in to the site)</label><input type="text" id="pr" name="producer_role" value="${esc(producerRole)}" maxlength="25" inputmode="numeric">
+  <p class="tag">A signed-in overlay sends race results and shows race control's calls in the penalty box, as that producer. Admins count as producers. Overlay keys still work too.</p>
   <p><button class="btn">Save</button></p></form>`;
   return page("Site settings", body, { user });
 }
@@ -1045,7 +1050,7 @@ const pub = ({ hook_results, hook_standings, hook_penalties, ...rest }) => rest;
 const sameOrigin = (request, url) => request.headers.get("origin") === url.origin;
 const bearer = request => (/^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") || "") || [])[1] || "";
 
-function keysPage(keys, user, { newKey = "", newKind = "overlay", msg = "", rc = [] } = {}) {
+function keysPage(keys, user, { newKey = "", newKind = "overlay", msg = "", rc = [], ov = [] } = {}) {
   let body = `<h1>Overlay keys</h1><p class="sub">A key lets a producer's overlay send its race results here when a race ends. They arrive as Provisional and the official iRacing results file replaces them when it's uploaded. A key can only send results: it can't change rules, penalties or anything else.</p>`;
   if (newKey) body += `<div class="msg ok"><b>New key, shown only this once.</b> ${newKind === "import" ? "Use it for the backfill, then turn it off below." : "Paste it into the overlay: control panel › Setup › League site upload."}<code class="key">${esc(newKey)}</code></div>`;
   if (msg) body += `<div class="msg bad">${esc(msg)}</div>`;
@@ -1055,24 +1060,53 @@ function keysPage(keys, user, { newKey = "", newKind = "overlay", msg = "", rc =
   body += keys.length ? `<h2>Keys</h2><div class="wrap"><table><tr><th>Name</th><th>Made</th><th>Last used</th><th class="n">Races sent</th><th></th></tr>` +
     keys.map(k => `<tr><td>${esc(k.name)}${k.kind === "import" ? ` <span class="cls">Import</span>` : ""}${k.revoked ? ` <span class="tag">(turned off)</span>` : ""}</td><td>${day(k.created_at)}</td><td>${k.last_used ? day(k.last_used) : "Never"}</td>
       <td class="n">${k.uses}</td><td>${k.revoked ? "" : `<form method="post"><input type="hidden" name="revoke" value="${k.id}"><button class="link" onclick="return confirm('Turn this key off? That overlay stops sending results until it gets a new key.')">Turn off</button></form>`}</td></tr>`).join("") + `</table></div>` : "";
-  body += `<h2>Race control sign-ins</h2><p class="sub">Stewards' PCs signed in to race control. Each acts as that steward, with their Discord roles. They sign in from race control; turn one off here if a PC is lost or shouldn't send calls any more.</p>`
-    + (rc.length ? `<div class="wrap"><table><tr><th>Steward</th><th>PC</th><th>Signed in</th><th>Last used</th><th></th></tr>` + rc.map(r => `<tr><td>${esc(r.name)}</td><td><code>${esc(r.label || "")}</code></td>
+  const signedIn = (list, who, prog) => list.length ? `<div class="wrap"><table><tr><th>${who}</th><th>PC</th><th>Signed in</th><th>Last used</th><th></th></tr>` + list.map(r => `<tr><td>${esc(r.name)}</td><td><code>${esc(r.label || "")}</code></td>
       <td>${day(new Date(r.created).toISOString())}</td><td>${r.last_used ? day(new Date(r.last_used).toISOString()) : ""}</td>
-      <td><form method="post"><input type="hidden" name="rc_revoke" value="${esc(r.id)}"><button class="link" onclick="return confirm('Sign this PC out of race control?')">Sign out</button></form></td></tr>`).join("") + `</table></div>`
-      : `<p class="hint">None yet.</p>`);
+      <td><form method="post"><input type="hidden" name="rc_revoke" value="${esc(r.id)}"><button class="link" onclick="return confirm('Sign this PC out of ${prog}?')">Sign out</button></form></td></tr>`).join("") + `</table></div>`
+      : `<p class="hint">None yet.</p>`;
+  body += `<h2>Overlay sign-ins</h2><p class="sub">Producers' PCs whose broadcast overlay is signed in with Discord (instead of an overlay key). Each acts as that producer, with their Discord roles. They sign in from the overlay; turn one off here if a PC is lost or shouldn't send results any more.</p>`
+    + signedIn(ov, "Producer", "the overlay");
+  body += `<h2>Race control sign-ins</h2><p class="sub">Stewards' PCs signed in to race control. Each acts as that steward, with their Discord roles. They sign in from race control; turn one off here if a PC is lost or shouldn't send calls any more.</p>`
+    + signedIn(rc, "Steward", "race control");
   return page("Overlay keys", body, { user });
 }
 
-// the page a steward opens from race control to let it act as them
-function rcLinkPage(code, user, { done = false, msg = "" } = {}) {
-  let body = `<h1>Race control sign-in</h1>`;
+// the page a person opens from race control or the broadcast overlay to let it act as them
+const LINK_TEXT = {
+  rc: { title: "Race control sign-in", what: "<b>Race control</b> (stewarding) on a PC is asking to send calls to this site as you",
+    keep: "a steward role", where: "race control" },
+  ov: { title: "Broadcast overlay sign-in", what: "The <b>broadcast overlay</b> (the graphics program a producer runs, not race control) on a PC is asking to send race results to this site and read race control's calls, as you",
+    keep: "the Producer role", where: "the overlay" },
+};
+function linkPage(kind, code, user, { done = false, msg = "" } = {}) {   // msg: a problem, so no Allow button
+  const t = LINK_TEXT[kind];
+  let body = `<h1>${t.title}</h1>`;
   if (msg) body += `<div class="msg bad">${esc(msg)}</div>`;
-  if (done) return page("Race control sign-in", body + `<div class="msg ok">Done. Race control on that PC is signed in as ${esc(user.name)}. You can close this page.</div>`, { user });
-  body += `<p class="sub">Race control on a PC is asking to send calls to this site as you, <b>${esc(user.name)}</b>.</p>
-    <p>Check this code matches the one race control shows:</p><p style="font:700 28px/1.2 'JetBrains Mono',monospace;letter-spacing:.08em">${esc(code)}</p>
+  if (done) return page(t.title, body + `<div class="msg ok">Done. ${kind === "ov" ? "The broadcast overlay" : "Race control"} on that PC is signed in as ${esc(user.name)}. You can close this page.</div>`, { user });
+  if (msg) return page(t.title, body, { user });
+  body += `<p class="sub">${t.what}, <b>${esc(user.name)}</b>.</p>
+    <p>Check this code matches the one ${t.where} shows:</p><p style="font:700 28px/1.2 'JetBrains Mono',monospace;letter-spacing:.08em">${esc(code)}</p>
     <form method="post"><input type="hidden" name="code" value="${esc(code)}"><p><button class="btn">Allow</button> <a href="${BASE}/">Cancel</a></p></form>
-    <p class="tag">It keeps working while you have a steward role in the league's Discord. Sign it out in race control, or on the Keys page.</p>`;
-  return page("Race control sign-in", body, { user });
+    <p class="tag">It keeps working while you have ${t.keep} in the league's Discord. Sign it out in ${t.where}, or on the Keys page.</p>`;
+  return page(t.title, body, { user });
+}
+
+/**
+ * Who is calling an overlay endpoint: an overlay key, a producer's overlay sign-in (vsov_), or race control's
+ * sign-in (vsrc_, for results from a race with no broadcast, and the calls). -> { key } or { error, status }.
+ * key: { id, name, via: "key" | "ov" | "rc", user? }. count: a race sent (adds to the key's "races sent").
+ */
+async function overlayCaller(request, env, db, count) {
+  const k = await checkKey(db, bearer(request), "overlay", count);
+  if (k) return { key: { ...k, via: "key" } };
+  const prod = await overlayUser(request, env);
+  if (prod) {
+    if (!prod.producer) return { error: "You don't have the Producer role in the league's Discord any more. Ask an admin.", status: 403 };
+    return { key: { id: 0, name: `overlay (${prod.name})`, via: "ov", user: prod } };
+  }
+  const rcu = await raceControlUser(request, env);
+  if (rcu) return { key: { id: 0, name: `race control (${rcu.name})`, via: "rc", user: rcu } };
+  return { error: "The site doesn't recognise this key or sign-in. Sign the overlay in again, or make a new key on the site's Overlay keys page.", status: 401 };
 }
 
 const site = {
@@ -1150,54 +1184,54 @@ const site = {
       // the broadcast overlay reads race control's calls for the race it's showing (for the penalty box). Same as race
       // control's GET, without the stewards' names.
       if ((m = path.match(/^\/api\/overlay\/calls\/(\d+)$/))) {
-        if (!await checkKey(db, bearer(request), "overlay", false) && !await raceControlUser(request, env))
-          return json({ ok: false, error: "The site doesn't recognise this key. Make a new one on the site's Overlay keys page." }, 401);
+        const who = await overlayCaller(request, env, db, false);
+        if (who.error) return json({ ok: false, error: who.error }, who.status);
         const calls = (await raceCalls(db, Number(m[1]))).map(({ madeBy, withdrawnBy, ...c }) => c);
         return json({ ok: true, subsessionId: Number(m[1]), calls });
       }
       if (path === `${BASE}/api/overlay/check` || path === `${BASE}/api/overlay/results`) {
-        let key = await checkKey(db, bearer(request));
-        const rcUser = key ? null : await raceControlUser(request, env);     // race control's token works for results too
-        if (rcUser) key = { id: 0, name: `race control (${rcUser.name})`, user: rcUser };
-        if (!key) return json({ ok: false, error: "The site doesn't recognise this key. Make a new one on the site's Overlay keys page." }, 401);
-        if (path.endsWith("/check")) return json({ ok: true, name: key.name });
+        const who = await overlayCaller(request, env, db, true);   // overlay keys: counted as before
+        if (who.error) return json({ ok: false, error: who.error }, who.status);
+        const key = who.key;
+        if (path.endsWith("/check")) return json({ ok: true, name: key.name, ...(key.user ? { user: { id: key.user.id, name: key.user.name } } : {}) });
         if (request.method !== "POST") return json({ ok: false, error: "Use POST." }, 405);
         let ev;
         try { ev = parseOverlay(await request.json()); } catch (e) { return json({ ok: false, error: e.message }, 400); }
-        if (key.user && !canSteward(key.user, await seriesById(db, ev.league.id)))
+        if (key.via === "rc" && !canSteward(key.user, await seriesById(db, ev.league.id)))
           return json({ ok: false, error: "You're not a steward for this series." }, 403);
         const r = await importOverlay(db, ev, key.user ? `discord:${key.user.id}:${key.user.name}` : `overlay:${key.id}:${key.name}`);
         if (r.ok && !r.skipped) await logChange(db, { by: key.user ? `discord:${key.user.id}:${key.user.name}` : `overlay:${key.id}:${key.name}`, seriesId: ev.league.id, sub: ev.subsessionId, kind: "overlay",
           summary: `Provisional results from the overlay: ${ev.track}${r.replaced ? " (updated)" : ""}` });
         return json(r, r.status || 200);
       }
-      if (path === `${BASE}/api/rc/link` && request.method === "POST") {
-        let pc = "";
-        try { pc = ((await request.json()) || {}).pc || ""; } catch (e) { /* no body is fine */ }
-        return json({ ok: true, ...await rcLinkStart(env, url, pc) });
+      // a program signing in (race control: /api/rc/..., the overlay: /api/overlay/...): a code, Allow, a token
+      if ((m = path.match(/^\/api\/(rc|overlay)\/link(\/poll)?$/)) && request.method === "POST") {
+        const kind = m[1] === "rc" ? "rc" : "ov";
+        let body = {};
+        try { body = (await request.json()) || {}; } catch (e) { /* no body is fine */ }
+        return json({ ok: true, ...(m[2] ? await linkPoll(env, body.poll || "", kind) : await linkStart(env, url, body.pc || "", kind)) });
       }
-      if (path === `${BASE}/api/rc/link/poll` && request.method === "POST") {
-        let poll = "";
-        try { poll = ((await request.json()) || {}).poll || ""; } catch (e) { /* answered as expired */ }
-        return json({ ok: true, ...await rcLinkPoll(env, poll) });
-      }
-      if (path === `${BASE}/rc/link`) {
+      if (path === `${BASE}/api/overlay/signout` && request.method === "POST") return json({ ok: await programSignOut(request, env, "ov") });
+      if ((m = path.match(/^\/(rc|overlay)\/link$/))) {
+        const kind = m[1] === "rc" ? "rc" : "ov", t = LINK_TEXT[kind];
         const code = String(url.searchParams.get("code") || "").toUpperCase();
-        if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${encodeURIComponent(`${BASE}/rc/link?code=${code}`)}`, 302);
-        const l = await rcLinkFind(env, code);
-        if (!l) return rcLinkPage(code, user, { msg: "That code has expired or was already used. Press Sign in in race control again." });
-        const mine = (await listSeries(db)).filter(x => canSteward(user, x));
-        if (!mine.length) return rcLinkPage(code, user, { msg: "Race control needs the race control role (or a series' role) in the league's Discord. Ask an admin." });
+        if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${encodeURIComponent(`${PROGRAMS[kind].page}?code=${code}`)}`, 302);
+        const l = await linkFind(env, code);
+        if (!l || l.kind !== kind) return linkPage(kind, code, user, { msg: `That code has expired or was already used. Press Sign in in ${t.where} again.` });
+        const allowed = kind === "ov" ? user.producer : (await listSeries(db)).some(x => canSteward(user, x));
+        if (!allowed) return linkPage(kind, code, user, { msg: kind === "ov"
+          ? "The overlay needs the Producer role in the league's Discord. Ask an admin."
+          : "Race control needs the race control role (or a series' role) in the league's Discord. Ask an admin." });
         if (request.method === "POST" && sameOrigin(request, url)) {
           const f = await request.formData();
-          if (!await rcLinkAllow(request, env, String(f.get("code") || ""), user)) return rcLinkPage(code, user, { msg: "That code has expired. Press Sign in in race control again." });
-          await logChange(db, { by: `discord:${user.id}:${user.name}`, kind: "key", summary: `Race control signed in on PC ${l.pc || "(unnamed)"}` });
-          return rcLinkPage(code, user, { done: true });
+          if (!await linkAllow(request, env, String(f.get("code") || ""), user)) return linkPage(kind, code, user, { msg: `That code has expired. Press Sign in in ${t.where} again.` });
+          await logChange(db, { by: `discord:${user.id}:${user.name}`, kind: "key", summary: `${kind === "ov" ? "Broadcast overlay" : "Race control"} signed in on PC ${l.pc || "(unnamed)"}` });
+          return linkPage(kind, code, user, { done: true });
         }
-        return rcLinkPage(code, user);
+        return linkPage(kind, code, user);
       }
       if (path.startsWith(`${BASE}/api/rc/`)) {
-        if (path === `${BASE}/api/rc/signout` && request.method === "POST") return json({ ok: await rcSignOut(request, env) });
+        if (path === `${BASE}/api/rc/signout` && request.method === "POST") return json({ ok: await programSignOut(request, env, "rc") });
         const rcu = await raceControlUser(request, env);
         if (!rcu) return json({ ok: false, error: "Race control isn't signed in to the site (or the sign-in was turned off). Sign in again from race control." }, 401);
         const all = await listSeries(db), mine = all.filter(x => canSteward(rcu, x));
@@ -1248,8 +1282,8 @@ const site = {
           const f = await request.formData();
           const who = `discord:${user.id}:${user.name}`;
           if (f.get("rc_revoke")) {
-            const r = await revokeRcSession(env, f.get("rc_revoke"));
-            if (r) await logChange(db, { by: who, kind: "key", summary: `Race control signed out: ${r.name}` });
+            const r = await revokeProgramSession(env, f.get("rc_revoke"));
+            if (r) await logChange(db, { by: who, kind: "key", summary: `${r.kind === "ov" ? "Overlay" : "Race control"} signed out: ${r.name}` });
             return Response.redirect(`${url.origin}${BASE}/keys`, 303);
           }
           if (f.get("revoke")) {
@@ -1262,11 +1296,11 @@ const site = {
             const kind = f.get("import") ? "import" : "overlay";
             const k = await createKey(db, f.get("name"), who, kind);
             await logChange(db, { by: who, kind: "key", summary: `${kind === "import" ? "Import" : "Overlay"} key made: ${String(f.get("name")).trim()}` });
-            return keysPage(await listKeys(db), user, { newKey: k, newKind: kind, rc: await listRcSessions(env) });
+            return keysPage(await listKeys(db), user, { newKey: k, newKind: kind, rc: await listProgramSessions(env, "rc"), ov: await listProgramSessions(env, "ov") });
           }
-          catch (e) { return keysPage(await listKeys(db), user, { msg: e.message, rc: await listRcSessions(env) }); }
+          catch (e) { return keysPage(await listKeys(db), user, { msg: e.message, rc: await listProgramSessions(env, "rc"), ov: await listProgramSessions(env, "ov") }); }
         }
-        return keysPage(await listKeys(db), user, { rc: await listRcSessions(env) });
+        return keysPage(await listKeys(db), user, { rc: await listProgramSessions(env, "rc"), ov: await listProgramSessions(env, "ov") });
       }
       if (path === `${BASE}/api/me`) return json({ ok: true, user, signIn: configured(env) });
       if (path === `${BASE}/api/events`) return json({ ok: true, events: await listEvents(db, { season: Number(url.searchParams.get("season")) || 0 }) });
@@ -1401,14 +1435,19 @@ const site = {
         if (request.method === "POST") {
           if (!sameOrigin(request, url)) return notFound("Save from this page.", user);
           const f = await request.formData(), theme = String(f.get("theme") || ""), short = String(f.get("short") || "").trim().slice(0, 20);
-          const rc = String(f.get("steward_role") || "").trim();
+          const rc = String(f.get("steward_role") || "").trim(), pr = String(f.get("producer_role") || "").trim();
           if (!THEMES[theme]) msg = "Pick a theme.";
           else if (rc && !/^\d{5,25}$/.test(rc)) msg = "The race control role should be a Discord role ID (numbers only), or empty.";
+          else if (pr && !/^\d{5,25}$/.test(pr)) msg = "The producer role should be a Discord role ID (numbers only), or empty.";
           else {
             await setSetting(db, "theme", theme); await setSetting(db, "league_short", short || "GLR");
             if (rc !== await getSetting(db, "steward_role")) {
               await setSetting(db, "steward_role", rc);
               await logChange(db, { by: `discord:${user.id}:${user.name}`, kind: "series", summary: rc ? `Race control role set to ${rc}` : "Race control role removed" });
+            }
+            if (pr !== (await getSetting(db, "producer_role") || "")) {
+              await setSetting(db, "producer_role", pr);
+              await logChange(db, { by: `discord:${user.id}:${user.name}`, kind: "series", summary: pr ? `Producer role set to ${pr}` : "Producer role removed" });
             }
             themeCache = null;
             await logChange(db, { by: `discord:${user.id}:${user.name}`, kind: "series", summary: `Site theme set to ${THEMES[theme].label}${short ? `, short name ${short}` : ""}` });
@@ -1416,7 +1455,7 @@ const site = {
           }
         }
         const cur = await siteTheme(db, new URL(url.origin + BASE));
-        return settingsPage(cur.theme, cur.short, user, msg, await getSetting(db, "steward_role"));
+        return settingsPage(cur.theme, cur.short, user, msg, await getSetting(db, "steward_role"), await getSetting(db, "producer_role"));
       }
       if (path === `${BASE}/history`) {
         if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/history`, 302);

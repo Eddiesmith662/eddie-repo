@@ -13,10 +13,12 @@
  *
  * Sessions live in the database; the browser only holds a random token (the database keeps its hash).
  *
- * Race control signs in the same way, from the steward's PC: the program asks for a code, the steward opens the site's
- * link page, signs in with Discord as usual and presses Allow. The program then gets a race control token ("vsrc_...")
- * that acts as that steward: a session of its own (kind 'rc'), with the same role checks as the browser. Signing out
- * in the program, or revoking it on the Keys page, ends it.
+ * The programs on the league's PCs sign in the same way: the program asks for a code, the person opens the site's link
+ * page, signs in with Discord as usual and presses Allow. The program then gets a token that acts as that person: a
+ * session of its own, with the same role checks as the browser (re-checked every 15 minutes, so a removed role stops
+ * it). Signing out in the program, or turning it off on the Keys page, ends it.
+ *   race control (stewards)      token "vsrc_...", session kind 'rc', link page /rc/link
+ *   broadcast overlay (producers) token "vsov_...", session kind 'ov', link page /overlay/link
  */
 import { ensureSchema, seriesRoles, getSetting, linkedDriver } from "./db.js";
 
@@ -45,14 +47,17 @@ async function schema(db) {
     // race control sign-in codes waiting for a steward to press Allow (10 minutes)
     await db.prepare(`CREATE TABLE IF NOT EXISTS rc_links (code TEXT PRIMARY KEY, poll_hash TEXT NOT NULL, pc TEXT,
       created INTEGER, expires INTEGER, token TEXT, user_id TEXT, user_name TEXT)`).run();
+    // which program the code is for (rc_links holds every program's codes: 'rc' race control, 'ov' the overlay)
+    const lcols = (await db.prepare(`PRAGMA table_info(rc_links)`).all()).results.map(c => c.name);
+    if (!lcols.includes("kind")) await db.prepare(`ALTER TABLE rc_links ADD COLUMN kind TEXT NOT NULL DEFAULT 'rc'`).run();
   })().catch(e => { readyFor.delete(db); throw e; }));
   return ready;
 }
 
-// the roles that matter here: the admin role, any series' role and the race control role
+// the roles that matter here: the admin role, any series' role, the race control role and the producer role
 async function relevant(env, roles) {
-  const series = await seriesRoles(env.DB), rc = await getSetting(env.DB, "steward_role");
-  return roles.filter(r => r === env.DISCORD_ROLE_ID || (rc && r === rc) || series.some(s => s.role_id === r));
+  const series = await seriesRoles(env.DB), rc = await getSetting(env.DB, "steward_role"), pr = await getSetting(env.DB, "producer_role");
+  return roles.filter(r => r === env.DISCORD_ROLE_ID || (rc && r === rc) || (pr && r === pr) || series.some(s => s.role_id === r));
 }
 
 const hex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
@@ -117,12 +122,24 @@ export async function currentUser(request, env) {
   return userFor(request, env, token, "web");
 }
 
-// race control: the steward behind an "Authorization: Bearer vsrc_..." token, or null
-export async function raceControlUser(request, env) {
-  const m = /^Bearer\s+(vsrc_[0-9a-f]{64})$/.exec(request.headers.get("authorization") || "");
-  if (!m || !configured(env)) return null;
-  return userFor(request, env, m[1], "rc");
+// the programs that sign in with a code: their token's start, their session kind and their Allow page
+export const PROGRAMS = {
+  rc: { prefix: "vsrc_", page: "/rc/link", name: "race control" },
+  ov: { prefix: "vsov_", page: "/overlay/link", name: "broadcast overlay" },
+};
+const bearerToken = (request, kind) => {
+  const m = /^Bearer\s+(vs(?:rc|ov)_[0-9a-f]{64})$/.exec(request.headers.get("authorization") || "");
+  return m && (!kind || m[1].startsWith(PROGRAMS[kind].prefix)) ? m[1] : null;
+};
+
+// the person behind a program's "Authorization: Bearer vsrc_/vsov_..." token, or null
+export async function programUser(request, env, kind) {
+  const token = bearerToken(request, kind);
+  if (!token || !configured(env)) return null;
+  return userFor(request, env, token, kind);
 }
+export const raceControlUser = (request, env) => programUser(request, env, "rc");
+export const overlayUser = (request, env) => programUser(request, env, "ov");
 
 async function userFor(request, env, token, kind) {
   await schema(env.DB);
@@ -161,82 +178,85 @@ async function userFor(request, env, token, kind) {
   return describe(env, { id: s.discord_id, name: s.name, avatar: s.avatar, roles });
 }
 
-/* ---------- race control sign-in: code, Allow, token ---------- */
+/* ---------- programs' sign-in: code, Allow, token (race control and the overlay) ---------- */
 
 const CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";      // no 0/O or 1/I to mix up
-const LINK_MS = 10 * 60 * 1000;
+export const LINK_MS = 10 * 60 * 1000;                      // a code works for 10 minutes
+export const TOKEN_DAYS = 365;                               // a token lasts a year from its last use
 
-// POST /api/rc/link -> { code, url, poll, expiresIn }
-export async function rcLinkStart(env, url, pc = "") {
+// POST /api/rc/link, /api/overlay/link -> { code, url, poll, expiresIn }
+export async function linkStart(env, url, pc = "", kind = "rc") {
   await schema(env.DB);
   const pick = crypto.getRandomValues(new Uint8Array(8));
   const code = [...pick].map(b => CODE_CHARS[b % CODE_CHARS.length]).join("").replace(/^(.{4})/, "$1-");
   const poll = randomToken(), now = Date.now();
   await env.DB.prepare(`DELETE FROM rc_links WHERE expires < ?`).bind(now).run();
-  await env.DB.prepare(`INSERT INTO rc_links (code, poll_hash, pc, created, expires) VALUES (?, ?, ?, ?, ?)`)
-    .bind(code, await sha256(poll), String(pc || "").slice(0, 40), now, now + LINK_MS).run();
-  return { code, url: `${url.origin}/rc/link?code=${code}`, poll, expiresIn: LINK_MS / 1000 };
+  await env.DB.prepare(`INSERT INTO rc_links (code, poll_hash, pc, created, expires, kind) VALUES (?, ?, ?, ?, ?, ?)`)
+    .bind(code, await sha256(poll), String(pc || "").slice(0, 40), now, now + LINK_MS, kind).run();
+  return { code, url: `${url.origin}${PROGRAMS[kind].page}?code=${code}`, poll, expiresIn: LINK_MS / 1000 };
 }
 
-// POST /api/rc/link/poll -> { state: "waiting" | "ok" | "expired", token, user }
-export async function rcLinkPoll(env, poll) {
+// POST /api/rc/link/poll, /api/overlay/link/poll -> { state: "waiting" | "ok" | "expired", token, user }
+export async function linkPoll(env, poll, kind = "rc") {
   await schema(env.DB);
-  const l = await env.DB.prepare(`SELECT * FROM rc_links WHERE poll_hash = ?`).bind(await sha256(String(poll || ""))).first();
+  const l = await env.DB.prepare(`SELECT * FROM rc_links WHERE poll_hash = ? AND kind = ?`).bind(await sha256(String(poll || "")), kind).first();
   if (!l || l.expires < Date.now()) return { state: "expired" };
   if (!l.token) return { state: "waiting" };
   await env.DB.prepare(`DELETE FROM rc_links WHERE code = ?`).bind(l.code).run();      // the token is handed over once
   return { state: "ok", token: l.token, user: { id: l.user_id, name: l.user_name } };
 }
 
-export async function rcLinkFind(env, code) {
+export async function linkFind(env, code) {
   await schema(env.DB);
-  const l = await env.DB.prepare(`SELECT code, pc, expires, token FROM rc_links WHERE code = ?`).bind(String(code || "").toUpperCase()).first();
+  const l = await env.DB.prepare(`SELECT code, pc, expires, token, kind FROM rc_links WHERE code = ?`).bind(String(code || "").toUpperCase()).first();
   return l && l.expires > Date.now() ? l : null;
 }
 
-// the signed-in steward pressed Allow: a race control session for them, sharing their Discord sign-in
-export async function rcLinkAllow(request, env, code, user) {
-  const l = await rcLinkFind(env, code);
+// the signed-in person pressed Allow: a session for the program, sharing their Discord sign-in
+export async function linkAllow(request, env, code, user) {
+  const l = await linkFind(env, code);
   if (!l || l.token) return false;
-  const web = await env.DB.prepare(`SELECT * FROM sessions WHERE token_hash = ?`).bind(await sha256(cookies(request)[COOKIE] || "")).first();
+  const web = await env.DB.prepare(`SELECT * FROM sessions WHERE token_hash = ? AND kind = 'web'`).bind(await sha256(cookies(request)[COOKIE] || "")).first();
   if (!web) return false;
-  const token = "vsrc_" + randomToken(), now = Date.now();
+  const token = PROGRAMS[l.kind].prefix + randomToken(), now = Date.now();
   await env.DB.prepare(`INSERT INTO sessions (token_hash, discord_id, name, avatar, access_token, refresh_token, token_expires, created, expires, checked, roles, kind, label, last_used)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'rc', ?, ?)`)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
     .bind(await sha256(token), web.discord_id, web.name, web.avatar, web.access_token, web.refresh_token, web.token_expires,
-          now, now + 365 * 864e5, web.checked, web.roles, l.pc || "", now).run();
+          now, now + TOKEN_DAYS * 864e5, web.checked, web.roles, l.kind, l.pc || "", now).run();
   await env.DB.prepare(`UPDATE rc_links SET token = ?, user_id = ?, user_name = ? WHERE code = ?`).bind(token, user.id, user.name, l.code).run();
   return true;
 }
 
-// sign out from the program (its own token)
-export async function rcSignOut(request, env) {
-  const m = /^Bearer\s+(vsrc_[0-9a-f]{64})$/.exec(request.headers.get("authorization") || "");
-  if (!m) return false;
+// sign out from the program (its own token): POST /api/rc/signout, /api/overlay/signout
+export async function programSignOut(request, env, kind) {
+  const token = bearerToken(request, kind);
+  if (!token) return false;
   await schema(env.DB);
-  await env.DB.prepare(`DELETE FROM sessions WHERE token_hash = ? AND kind = 'rc'`).bind(await sha256(m[1])).run();
+  await env.DB.prepare(`DELETE FROM sessions WHERE token_hash = ? AND kind = ?`).bind(await sha256(token), kind).run();
   return true;
 }
 
-// the Keys page: race control PCs signed in, and turning one off
-export async function listRcSessions(env) {
+// the Keys page: a program's signed-in PCs, and turning one off
+export async function listProgramSessions(env, kind) {
   await schema(env.DB);
-  return (await env.DB.prepare(`SELECT substr(token_hash, 1, 16) AS id, name, label, created, last_used FROM sessions WHERE kind = 'rc' ORDER BY last_used DESC`).all()).results;
+  return (await env.DB.prepare(`SELECT substr(token_hash, 1, 16) AS id, name, label, created, last_used FROM sessions WHERE kind = ? ORDER BY last_used DESC`).bind(kind).all()).results;
 }
-export async function revokeRcSession(env, id) {
+export async function revokeProgramSession(env, id) {
   await schema(env.DB);
-  const s = await env.DB.prepare(`SELECT name FROM sessions WHERE kind = 'rc' AND substr(token_hash, 1, 16) = ?`).bind(String(id || "")).first();
-  await env.DB.prepare(`DELETE FROM sessions WHERE kind = 'rc' AND substr(token_hash, 1, 16) = ?`).bind(String(id || "")).run();
+  const s = await env.DB.prepare(`SELECT name, kind FROM sessions WHERE kind IN ('rc', 'ov') AND substr(token_hash, 1, 16) = ?`).bind(String(id || "")).first();
+  await env.DB.prepare(`DELETE FROM sessions WHERE kind IN ('rc', 'ov') AND substr(token_hash, 1, 16) = ?`).bind(String(id || "")).run();
   return s;
 }
 
-// what this person can do: admin, official (edits a series), steward (race control role), and their linked driver
+// what this person can do: admin, official (edits a series), steward (race control role), producer (producer role:
+// connects an overlay), and their linked driver
 async function describe(env, u) {
   const admin = u.roles.includes(env.DISCORD_ROLE_ID);
-  const series = await seriesRoles(env.DB), rc = await getSetting(env.DB, "steward_role");
+  const series = await seriesRoles(env.DB), rc = await getSetting(env.DB, "steward_role"), pr = await getSetting(env.DB, "producer_role");
   const official = admin || series.some(x => x.role_id && u.roles.includes(x.role_id));
   const link = await linkedDriver(env.DB, u.id);
-  return { ...u, admin, official, steward: admin || (!!rc && u.roles.includes(rc)), cust: link ? link.cust_id : null, driverName: link ? link.name || "" : "" };
+  return { ...u, admin, official, steward: admin || (!!rc && u.roles.includes(rc)), producer: admin || (!!pr && u.roles.includes(pr)),
+    cust: link ? link.cust_id : null, driverName: link ? link.name || "" : "" };
 }
 
 // POST /logout
