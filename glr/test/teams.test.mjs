@@ -83,3 +83,14 @@ test("the Teams tab: directors set the teams, everyone sees the team standings",
   assert.equal(await dl.text(), "Team,Driver,iRacing ID\r\nRed Team,Racer A,100\r\nRed Team,Racer B,101\r\nBlue Team,Racer C,102\r\nBlue Team,Racer D,103\r\n");
   assert.match(text((await s.post("/test-cup/teams", { action: "clear" })).html), /Saved: this season has no teams now/);
 });
+
+test("points by the size of the field (the Warrior way): 1st = cars that did a lap, 0 laps scores nothing and doesn't count for the team", async () => {
+  const { computeStandings } = await import("../src/standings.js");
+  // five cars, the last one never completed a lap: the four that did score 4, 3, 2, 1 (as on the Warrior points sheet)
+  const row = (cust, pos, laps) => ({ cust_id: cust, name: "Racer " + cust, finish_pos: pos, laps, car_class: "", start_pos: pos, laps_led: 0 });
+  const ev = { subsession_id: 1, start_time: "2026-09-01", track: "Test Oval", results: [row(100, 1, 50), row(101, 2, 50), row(102, 3, 49), row(103, 4, 20), row(104, 5, 0)] };
+  const st = computeStandings({ points: { source: "field" } }, [ev]);
+  assert.deepEqual(Object.fromEntries(Object.entries(st.groups[0].races[0].points).map(([id, x]) => [id, x.base])), { 100: 4, 101: 3, 102: 2, 103: 1, 104: 0 });
+  const ts = teamStandings([{ id: 1, name: "Red Team", members: [{ cust_id: 103, name: "D" }, { cust_id: 104, name: "E" }] }], st);
+  assert.deepEqual(ts.teams[0].races[0], { sum: 1, raced: 1, of: 2, score: 1 });   // 1 point / 1 driver: the 0-lap car isn't counted
+});

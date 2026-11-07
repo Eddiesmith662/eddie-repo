@@ -722,7 +722,7 @@ async function raceScore(db, ev) {
   const st = computeStandings(rules, [{ subsession_id: ev.subsession_id, start_time: ev.start_time, track: ev.track, results: ev.sessions.race }], adj, { noPrev: true });
   const points = {};
   for (const g of st.groups) for (const r of g.races) Object.assign(points, r.points);
-  const how = rules.points.source === "iracing" ? "iRacing's league points" : "the series' points table";
+  const how = rules.points.source === "iracing" ? "iRacing's league points" : rules.points.source === "field" ? "points by the size of the field" : "the series' points table";
   return { points, note: `Pts: this series' points for the race (${how}${Object.values(rules.bonus).some(Boolean) ? " plus bonuses" : ""}${adj.length ? ", after penalties" : ""}).` };
 }
 
@@ -826,7 +826,7 @@ function standingsPage(sr, seasons, season, st, user) {
 function rulesSummary(rules, events) {
   const p = rules.points, b = rules.bonus, po = rules.playoffs;
   const bon = [["win", b.win], ["pole", b.pole], ["leading a lap", b.led], ["most laps led", b.mostLed], ["fastest lap", b.fastLap]].filter(x => x[1]).map(([k, v]) => `${num(v)} for ${k}`);
-  let h = `<div class="rules"><p><b>Points:</b> ${p.source === "iracing" ? "iRacing's league points for each race." : `by finishing position: ${p.table.map((v, i) => `P${i + 1} ${v}`).join(", ")}${p.others ? `; every other finisher ${p.others}` : ""}.`}</p>`;
+  let h = `<div class="rules"><p><b>Points:</b> ${p.source === "iracing" ? "iRacing's league points for each race." : p.source === "field" ? "One point per car that completed a lap for 1st, one less for each place after, down to 1 for the last of them; a car with 0 laps scores nothing (the more cars, the more 1st is worth)." : `by finishing position: ${p.table.map((v, i) => `P${i + 1} ${v}`).join(", ")}${p.others ? `; every other finisher ${p.others}` : ""}.`}</p>`;
   if (bon.length) h += `<p><b>Bonus points:</b> ${bon.join(", ")}.</p>`;
   h += `<p><b>Positions:</b> ${rules.byClass ? "by class in multi-class races" : "overall"}. <b>Ties:</b> ${rules.ties === "wins" ? "more wins, then better finishes" : "drivers level on points share the position"}.</p>`;
   if (rules.drops) h += `<p><b>Drop weeks:</b> each driver's ${rules.drops} worst race${rules.drops === 1 ? "" : "s"} ${po.enabled ? "of the regular season " : ""}don't count.</p>`;
@@ -850,6 +850,7 @@ function rulesForm(rules, events) {
   <fieldset><legend>Points</legend>
     <label class="chk"><input type="radio" name="source" value="iracing"${p.source === "iracing" ? " checked" : ""}> iRacing's league points (as set in the iRacing league)</label>
     <label class="chk"><input type="radio" name="source" value="table"${p.source === "table" ? " checked" : ""}> Our own points table</label>
+    <label class="chk"><input type="radio" name="source" value="field"${p.source === "field" ? " checked" : ""}> By the size of the field: one point per car that completed a lap for 1st, one less for each place after, down to 1 for the last of them; a car with 0 laps scores nothing (the Warrior way)</label>
     <label for="tbl">Points for 1st, 2nd, 3rd… (commas)</label><input type="text" id="tbl" name="table" value="${esc(p.table.join(", "))}" style="max-width:100%">
     <div class="grid">${n("others", p.others, "Every other finisher")}</div>
   </fieldset>

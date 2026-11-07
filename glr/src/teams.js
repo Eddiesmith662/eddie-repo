@@ -1,8 +1,8 @@
 /*
  * Team points (the Warrior points system). Each driver scores their finishing points in a race as usual (the series'
  * points for their finishing position: no bonuses, no penalty points). A team's score for a race is its drivers'
- * points added together, divided by how many of the team's drivers raced that night. A race none of them raced scores
- * 0. The season total is every race's team score added up. Pure: no database, no web.
+ * points added together, divided by how many of the team's drivers raced that night. A driver who didn't complete a
+ * lap doesn't count (as on the Warrior points sheet). A race none of them raced scores 0. The season total is every race's team score added up. Pure: no database, no web.
  */
 import { normName } from "./db.js";
 
@@ -18,7 +18,7 @@ export function teamStandings(teams, standings) {
   const byRace = new Map();
   for (const g of standings.groups) for (const r of g.races) {
     if (!byRace.has(r.subsession_id)) byRace.set(r.subsession_id, { subsession_id: r.subsession_id, start_time: r.start_time, track: r.track, pts: new Map() });
-    for (const [id, x] of Object.entries(r.points)) byRace.get(r.subsession_id).pts.set(Number(id), x.base);
+    for (const [id, x] of Object.entries(r.points)) if (x.laps === undefined || x.laps > 0) byRace.get(r.subsession_id).pts.set(Number(id), x.base);
   }
   const races = [...byRace.values()].sort((a, b) => String(a.start_time).localeCompare(String(b.start_time)));
   const out = teams.map(t => {

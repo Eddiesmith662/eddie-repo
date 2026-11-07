@@ -2,7 +2,9 @@
  * Standings from a season's races and that season's rules. Pure: no database, no web, so it can be tested on its own.
  *
  * rules = {
- *   points:  { source: "iracing" | "table", table: [40, 35, ...], others: 0 }   others = points for places past the table
+ *   points:  { source: "iracing" | "table" | "field", table: [40, 35, ...], others: 0 }   others = points for places past the table
+ *            "field" (the Warrior series' way): 1st scores one point per car that completed a lap, one less per place,
+ *            so the last of them scores 1; a car with 0 laps scores nothing (and doesn't count for its team)
  *   bonus:   { win, pole, led, mostLed, fastLap }        added to every race (pole = best starting spot)
  *   drops:   0                                           worst races left out of the regular season total
  *   byClass: true                                        multi-class seasons get standings per class
@@ -43,7 +45,7 @@ export function cleanRules(r) {
   r = r || {};
   const p = r.points || {}, b = r.bonus || {}, po = r.playoffs || {};
   return {
-    points: { source: p.source === "table" ? "table" : "iracing", table: (Array.isArray(p.table) ? p.table : []).map(x => int(x)).slice(0, 100), others: int(p.others) },
+    points: { source: ["table", "field"].includes(p.source) ? p.source : "iracing", table: (Array.isArray(p.table) ? p.table : []).map(x => int(x)).slice(0, 100), others: int(p.others) },
     bonus: { win: int(b.win), pole: int(b.pole), led: int(b.led), mostLed: int(b.mostLed), fastLap: int(b.fastLap) },
     drops: Math.max(0, int(r.drops)), byClass: r.byClass !== false, ties: r.ties === "wins" ? "wins" : "share",
     skip: (Array.isArray(r.skip) ? r.skip : []).map(x => int(x)).filter(Boolean),
@@ -72,11 +74,14 @@ function scoreRaces(rules, events, adj, inClass, cls) {
     const most = Math.max(...rows.map(r => r.laps_led || 0));
     const fast = Math.min(...rows.map(r => r.best_lap_ms || Infinity));
     const by = new Map();
+    const ran = rows.filter(r => (r.laps || 0) > 0);       // "field" points: the cars that completed at least a lap
     rows.forEach((r, i) => {
       const pos = inClass ? i + 1 : r.finish_pos || i + 1;
       const B = rules.bonus;
       // disqualified by the stewards: no points and no bonuses
-      const base = r.dq ? 0 : rules.points.source === "iracing" ? int(r.league_points) : (rules.points.table[pos - 1] ?? rules.points.others);
+      const base = r.dq ? 0 : rules.points.source === "iracing" ? int(r.league_points)
+        : rules.points.source === "field" ? ((r.laps || 0) > 0 ? ran.length - ran.indexOf(r) : 0)
+        : (rules.points.table[pos - 1] ?? rules.points.others);
       const why = r.dq ? [] : [[pos === 1, B.win, "Win"], [r.start_pos && r.start_pos === pole, B.pole, "Pole"], [(r.laps_led || 0) > 0, B.led, "Led a lap"],
         [most > 0 && r.laps_led === most, B.mostLed, "Most laps led"], [r.best_lap_ms && r.best_lap_ms === fast, B.fastLap, "Fastest lap"]].filter(([on, v]) => on && v);
       const bonus = why.reduce((s, [, v]) => s + v, 0);
@@ -248,7 +253,7 @@ export function computeStandings(rawRules, events, adjustments = [], opts = {}) 
     const races = scoreRaces(rules, counted, adjustments, perClass, cls);
     return { carClass: cls, ...standingsFor(rules, races), races: races.map(r => ({ subsession_id: r.ev.subsession_id, start_time: r.ev.start_time, track: r.ev.track,
       points: Object.fromEntries([...r.by].map(([id, x]) => [id, { pos: x.pos, pts: x.pts, base: x.base, bonus: x.bonus, bonusReasons: x.bonusReasons, adj: x.adj,
-        reasons: x.adjReasons, out: x.row.reason_out || "" }])) })) };
+        reasons: x.adjReasons, out: x.row.reason_out || "", laps: x.row.laps || 0 }])) })) };
   });
   if (!opts.noPrev && counted.length > 1) addChanges(groups, computeStandings(rules, counted.slice(0, -1), adjustments, { noPrev: true }).groups);
   return { rules, counted: counted.length, skipped: events.length - counted.length, groups };
