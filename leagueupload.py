@@ -50,8 +50,63 @@ def _key():
         return ""
 
 
+# The overlay key lives in a file of its own, not in settings.json (Nov 2026): settings.json is copied around (its
+# .bak and .broken-... copies, folder copies, OneDrive), and race control already keeps its sign-in apart the same way.
+# Only this module reads or writes it; the pages only ever learn whether one is saved.
+KEY_FILE = os.path.join(datafiles.DATA, "league-site-key.json")
+_stored = {"key": None}        # the key file's key once read ("" = none), so pages asking 5 times a second don't read the disk
+
+
+def stored_key():
+    """The overlay key saved on this PC, or ""."""
+    if _stored["key"] is None:
+        d = datafiles.load_json(KEY_FILE, {})
+        _stored["key"] = str(d.get("key") or "").strip() if isinstance(d, dict) else ""
+    return _stored["key"]
+
+
+def save_key(key):
+    """Save the overlay key ("" removes it)."""
+    key = str(key or "").strip()
+    if key:
+        datafiles.write_json(KEY_FILE, {"key": key, "note": "The league site overlay key for this PC. Keep it private: "
+                                                            "don't share this file. Remove it from the Setup tab."}, indent=1)
+    else:
+        try:
+            os.remove(KEY_FILE)
+        except OSError:
+            pass
+    _stored["key"] = key
+
+
+def move_key_out_of_settings(state, log=print):
+    """Before Nov 2026 the key was kept in settings.json ("leagueUpload": {"key": ...}). Move it into its own file, then
+    take it out of settings.json and its last-good copy (settings.json.bak). Returns True if a key was moved."""
+    with state.lock:
+        lu = state.settings.get("leagueUpload")
+        old = str((lu or {}).get("key") or "").strip() if isinstance(lu, dict) else ""
+    if not old:
+        return False
+    if not stored_key():
+        save_key(old)                        # saved on its own first, so it's never only in memory
+    with state.lock:
+        state.settings["leagueUpload"].pop("key", None)
+    state.save()
+    bak = datafiles.SETTINGS_FILE + ".bak"
+    try:
+        with open(bak, encoding="utf-8") as f:
+            b = json.load(f)
+        if isinstance(b, dict) and isinstance(b.get("leagueUpload"), dict) and "key" in b["leagueUpload"]:
+            b["leagueUpload"].pop("key", None)
+            datafiles.write_json(bak, b, indent=2)
+    except (OSError, ValueError):
+        pass
+    log("League site upload: the overlay key moved out of settings.json into %s" % os.path.basename(KEY_FILE))
+    return True
+
+
 def configure(cfg):
-    """The saved settings (settings.json "leagueUpload"): on/off and the key."""
+    """On/off (settings.json "leagueUpload") and the key (the key file)."""
     cfg = cfg or {}
     with LOCK:
         changed = (_cfg["on"], _cfg["key"]) != (bool(cfg.get("on")), str(cfg.get("key") or "").strip())
@@ -252,9 +307,10 @@ def _loop():
 
 
 def start(cfg, log=print):
+    """cfg: settings.json's "leagueUpload" (on/off); the key comes from the key file."""
     global _log
     _log = log
-    configure(cfg)
+    configure({"on": bool((cfg or {}).get("on")), "key": stored_key()})
     threading.Thread(target=_loop, daemon=True).start()
 
 

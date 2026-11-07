@@ -186,12 +186,10 @@ class State:
             self.bump()
 
     def public_settings(self):
-        """The settings for the control panel and other pages: the league site key itself stays on this PC."""
-        lu = self.settings.get("leagueUpload")
-        if not (lu and lu.get("key")):
-            return self.settings
+        """The settings for the control panel and other pages. The league site key is in its own file
+        (leagueupload.KEY_FILE): the pages only learn whether one is saved ("saved" or "")."""
         s = dict(self.settings)
-        s["leagueUpload"] = dict(lu, key="saved")
+        s["leagueUpload"] = dict(self.settings.get("leagueUpload") or {}, key="saved" if leagueupload.stored_key() else "")
         return s
 
     def snapshot(self):
@@ -1677,7 +1675,8 @@ def league_upload_command(d):
     """League site upload, from the control panel's Setup tab: key / on / off / test."""
     cmd = str(d.get("cmd") or "")
     with STATE.lock:
-        cur = dict(leagueupload.DEFAULTS, **(STATE.settings.get("leagueUpload") or {}))
+        cur = dict(leagueupload.DEFAULTS, on=bool((STATE.settings.get("leagueUpload") or {}).get("on")))
+    cur["key"] = leagueupload.stored_key()                # in its own file, not settings.json
     if cmd == "key":
         key = str(d.get("key") or "").strip()
         if key and not re.match(r"^vsglr_[0-9a-f]{48}$", key):
@@ -1686,9 +1685,9 @@ def league_upload_command(d):
             ok, msg = leagueupload.check(key)
             if not ok:
                 return False, msg
-        patch = {"key": key, "on": bool(key)}             # pasting a good key switches it on
-        STATE.update_settings({"leagueUpload": patch})
-        leagueupload.configure(dict(cur, **patch))
+        leagueupload.save_key(key)
+        STATE.update_settings({"leagueUpload": {"on": bool(key)}})   # pasting a good key switches it on
+        leagueupload.configure({"on": bool(key), "key": key})
         diag.log("League site upload: key %s" % ("saved" if key else "removed"))
         return True, "Key saved: results go to the league site after each race" if key else "Key removed"
     if cmd in ("on", "off"):
@@ -3054,6 +3053,10 @@ def main():
         leagueupload.TOKEN_SOURCE = rcsite.token     # official results go with the sign-in too, if there's no overlay key
     else:
         announcer.start(STATE, on_air_now, diag.log)    # the announcer page feed (does nothing until it's set up)
+    try:                                   # a key saved before Nov 2026 moves out of settings.json into its own file
+        leagueupload.move_key_out_of_settings(STATE, diag.log)
+    except Exception as e:
+        diag.error("League site upload: couldn't move the key out of settings.json: %r" % (e,), e)
     leagueupload.start(STATE.settings.get("leagueUpload"), diag.log)   # league site upload (does nothing until it's switched on)
     rcfeed.start(rc_feed_changed, diag.log)    # race control's calls for the penalty box (league races, with an overlay key)
     threading.Thread(target=telemetry_loop, args=(args.demo, args.multiclass, args.qual), daemon=True).start()

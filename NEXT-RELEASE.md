@@ -13,4 +13,4 @@ How it works (CLAUDE.md, "Three chats, one repo"):
 
 ## Notes
 
-(Nothing yet. v1.5.39 was published Nov 7, 2026.)
+League site key: the overlay key is now kept in a file of its own (data\league-site-key.json) instead of settings.json, so it no longer travels with copies of your settings. A saved key moves over by itself the first time; nothing to do.

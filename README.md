@@ -192,8 +192,9 @@ race ends. It's off until you switch it on:
 Results go a minute after the checkered and again when iRacing makes them official. On the site they show as
 **Provisional** until a league official uploads the iRacing results file, which replaces them. Only league races are
 sent, and only to a series the site already has. If the internet drops or the site is down, races wait in
-`data\league-upload\` and go once it's back. The key is kept on this PC only: it isn't shown in the control panel
-and isn't included in diagnostics.
+`data\league-upload\` and go once it's back. The key is kept on this PC only, in its own file
+(`data\league-site-key.json`): it isn't shown in the control panel and isn't included in diagnostics. Don't share
+that file.
 
 ---
 
@@ -350,6 +351,7 @@ data\                      YOUR files, never touched by updates:
   standings\                 the current series' standings, bracket, logo, race info and team
   results\                   race results, one folder per series
   league-upload\             races waiting to go to the league site (only if the upload is on)
+  league-site-key.json       the league site overlay key (keep it private)
   steward\                   race control's own data folder (start-race-control.bat): its settings, logs and
                              results, and in race-control\ each race's incident queue and calls, the league site
                              sign-in (signin.json) and races waiting to go to the site (outbox.json)
