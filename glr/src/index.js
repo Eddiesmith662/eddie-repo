@@ -924,7 +924,9 @@ async function applyTheme(res, db, url, request) {
     .replace("__THEME_FONTS__", t.fonts ? `<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link rel="stylesheet" href="${t.fonts}">` : "")
     .replace("__THEME_CSS__", t.css + (t.dark || ""))
     .replace("__THEME_SWITCH__", t.dark ? MODE_SWITCH : "")
-    .replace("__THEME_BRAND__", t.brand(esc(short)));
+    .replace("__THEME_BRAND__", t.brand(esc(short)))
+    // a named site (the GLR theme is Goat Hub): its name after each page's title; the home page is just the name
+    .replace(/<title>([^<]*)<\/title>/, (m, x) => !t.name ? m : `<title>${/^VSPEED GLR/.test(x) ? t.name : `${x} · ${t.name}`}</title>`);
   return new Response(html, { status: res.status, headers: res.headers });
 }
 

@@ -239,3 +239,14 @@ test("officials take a driver out of the playoffs on the Rules page, and saving 
   assert.match(text((await s.page("/glr/history")).html), /Taken out of the playoffs: Racer B/);
   assert.ok(GLR_PLAYOFFS.winIn);
 });
+
+test("the GLR theme's site is called Goat Hub: in the header and the browser tab", async () => {
+  const s = await seeded(1);
+  const home = (await s.page("/glr")).html;
+  assert.match(home, /<title>Goat Hub<\/title>/);
+  assert.match(home, /<b>Goat Hub<\/b>/);
+  assert.match((await s.page("/glr/test-cup/standings")).html, /<title>Test Cup standings · Goat Hub<\/title>/);
+  await s.signIn();
+  await s.post("/glr/settings", { theme: "vspeed" });                    // other leagues' theme: no Goat Hub
+  assert.ok(!(await s.page("/glr")).html.includes("Goat Hub"));
+});
