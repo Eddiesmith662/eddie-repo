@@ -182,18 +182,23 @@ the results official. It goes into the folder of the series picked when the race
 
 ### Sending results to the league site
 
-The overlay can also send each league race's results to the VSPEED league site (vspeedlivetiming.app/glr) when the
-race ends. It's off until you switch it on:
+The overlay can also send each league race's results to the league site (GLR HUB, glrhub.app) when the race ends.
+It's off until you connect it, in the control panel under **Setup > League site upload**:
 
-1. A site admin makes an **overlay key** on the site (sign in, then **Overlay keys**) and sends it to you.
-2. In the control panel, **Setup > League site upload**: paste the key and press **Save**. The overlay checks the key
-   with the site and switches the upload on. **Test** checks it again any time.
+- **Sign in with Discord** (the usual way): press it, check the code matches on the page that opens, and press
+  **Allow** there with your Discord account. It needs the **Producer** role on the league site (an admin gives it).
+  The overlay picks up the sign-in by itself and switches the upload on. **Sign out** ends it, here and on the site.
+- **Or an overlay key**: a site admin makes one on the site's **Keys** page and sends it to you; paste it and press
+  **Save**.
+
+**Test** checks the connection any time. If the site stops accepting the sign-in (signed out on the site, or the
+Producer role taken away), the panel says so and races wait on this PC until you sign in again.
 
 Results go a minute after the checkered and again when iRacing makes them official. On the site they show as
 **Provisional** until a league official uploads the iRacing results file, which replaces them. Only league races are
 sent, and only to a series the site already has. If the internet drops or the site is down, races wait in
-`data\league-upload\` and go once it's back. The key is kept on this PC only, in its own file
-(`data\league-site-key.json`): it isn't shown in the control panel and isn't included in diagnostics. Don't share
+`data\league-upload\` and go once it's back. The sign-in and the key are kept on this PC only, in their own file
+(`data\league-site-key.json`): they aren't shown in the control panel and aren't included in diagnostics. Don't share
 that file.
 
 ---
@@ -351,7 +356,7 @@ data\                      YOUR files, never touched by updates:
   standings\                 the current series' standings, bracket, logo, race info and team
   results\                   race results, one folder per series
   league-upload\             races waiting to go to the league site (only if the upload is on)
-  league-site-key.json       the league site overlay key (keep it private)
+  league-site-key.json       the league site sign-in and overlay key (keep it private)
   steward\                   race control's own data folder (start-race-control.bat): its settings, logs and
                              results, and in race-control\ each race's incident queue and calls, the league site
                              sign-in (signin.json) and races waiting to go to the site (outbox.json)

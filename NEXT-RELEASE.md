@@ -13,4 +13,6 @@ How it works (CLAUDE.md, "Three chats, one repo"):
 
 ## Notes
 
-League site key: the overlay key is now kept in a file of its own (data\league-site-key.json) instead of settings.json, so it no longer travels with copies of your settings. A saved key moves over by itself the first time; nothing to do.
+Sign in with Discord: connect the overlay to the league site (now GLR HUB, glrhub.app) from Setup > League site upload with your own Discord account. Press Sign in with Discord, check the code, press Allow on the page that opens; you need the Producer role on the site. No more waiting for an admin to send you a key (keys still work). If the site stops accepting the sign-in, the panel says so and races wait on this PC until you sign in again.
+
+League site key: the overlay key (and now the sign-in) is kept in a file of its own (data\league-site-key.json) instead of settings.json, so it no longer travels with copies of your settings. A saved key moves over by itself the first time; nothing to do.

@@ -806,8 +806,11 @@
 
   <section class="wide" id="luSetup">
     <h2><span class="t">League site upload</span><span class="pill" id="luPill">OFF</span></h2>
-    <p class="hint" style="margin-top:0">Sends each league race's results to the VSPEED league site (vspeedlivetiming.app/glr) when the race ends. They show there as Provisional until the iRacing results file is uploaded. If the internet drops, races wait on this PC and go once it's back.</p>
-    <label>Overlay key (from the league site: Overlay keys, admins only)</label>
+    <p class="hint" style="margin-top:0">Sends each league race's results to the league site (GLR HUB, glrhub.app) when the race ends. They show there as Provisional until the iRacing results file is uploaded. If the internet drops, races wait on this PC and go once it's back.</p>
+    <label>Sign in with your Discord account (needs the Producer role on the league site)</label>
+    <div class="url"><button id="luSignIn">Sign in with Discord</button><span class="hint" id="luWho" style="margin:0 10px;align-self:center"></span><button id="luSignOut" hidden>Sign out</button></div>
+    <div class="hint" id="luCode" hidden style="margin:8px 0 0"></div>
+    <label style="margin-top:12px">Or an overlay key (from the league site's Keys page, admins only)</label>
     <div class="url"><input id="luKey" type="password" placeholder="vsglr_…" spellcheck="false" autocomplete="off"><button id="luSave">Save</button><button id="luTest">Test</button></div>
     <div class="grid2" style="margin-top:10px">
       <div><label>Upload</label><div class="seg" id="luSeg"><button data-v="on">On</button><button data-v="off">Off</button></div></div>
@@ -1787,12 +1790,33 @@ $('luSave').onclick = async () => { const k = $('luKey').value.trim(); const r =
 $('luKey').onkeydown = e => { if (e.key === 'Enter') $('luSave').click(); };
 $('luTest').onclick = () => luCmd({ cmd: 'test' });
 $('luSeg').onclick = e => { const b = e.target.closest('button'); if (b) luCmd({ cmd: b.dataset.v }); };
+// Sign in with Discord: the site gives a code and a page; the producer presses Allow there (on this device or any
+// other), and the overlay picks up the sign-in by itself. The window is opened at the click so pop-up blockers allow it.
+$('luSignIn').onclick = async () => {
+  const w = window.open('', '_blank');
+  const r = await post('/api/leagueupload', { cmd: 'signin' });
+  if (r.ok && r.url) { if (w) w.location.href = r.url; else toast('Open ' + r.url + ' and press Allow'); }
+  else { if (w) w.close(); toast(r.msg || "Couldn't start the sign-in"); }
+};
+$('luSignOut').onclick = () => { if (confirm('Sign this PC out of the league site? Results stop going there until someone signs in again (or a key is saved).')) luCmd({ cmd: 'signout' }); };
+$('luCode').onclick = e => { if (e.target.closest('[data-cancel]')) luCmd({ cmd: 'signincancel' }); };
 function luRender() {
   const a = S.leagueUpload || {}, st = LU || {};
-  const on = !!a.on && !!a.key;
+  const who = st.user || '', connected = !!a.key || !!who;
+  const on = !!a.on && connected;
   const label = !on ? 'OFF' : { ok: 'ON', ready: 'ON', waiting: 'WAITING', error: 'PROBLEM', setup: 'SET UP' }[st.state] || 'ON';
   $('luPill').textContent = label; $('luPill').classList.toggle('air', on && (st.state === 'ok' || st.state === 'ready'));
-  let info = !a.key ? 'Off. Paste a key from the league site to switch it on.' : !a.on ? 'Off. Races are not sent.' : (st.msg || 'On. Results go to the site when each race ends.');
+  $('luWho').textContent = who ? 'Signed in as ' + who : '';
+  $('luSignIn').hidden = !!who; $('luSignOut').hidden = !who;
+  const sg = st.signin;
+  $('luCode').hidden = !sg;
+  if (sg) {
+    const html = `Code <b style="font-size:16px;letter-spacing:2px">${esc(sg.code)}</b>: check it matches, then press <b>Allow</b> on the league site page that opened `
+      + `(<a href="${esc(sg.url)}" target="_blank" rel="noopener">open it again</a>). Waiting… ${Math.max(1, Math.ceil(sg.left / 60))} min left. `
+      + `<button data-cancel style="margin-left:6px">Cancel</button>`;
+    if ($('luCode')._html !== html) $('luCode').innerHTML = $('luCode')._html = html;
+  }
+  let info = !connected ? 'Off. Sign in with Discord (or paste a key) to switch it on.' : !a.on ? 'Off. Races are not sent.' : (st.msg || 'On. Results go to the site when each race ends.');
   if (on && st.last && st.state !== 'ok') info += ` · Last sent ${st.last}`;
   if (on && st.waiting) info += ` · ${st.waiting} race${st.waiting === 1 ? '' : 's'} waiting`;
   $('luStatus').textContent = info; $('luStatus').style.color = on && st.state === 'error' ? '#ff8da3' : '';

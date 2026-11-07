@@ -1671,36 +1671,61 @@ def penalty_command(data):
     return {"ok": True}
 
 
+def league_upload_signed_in(user):
+    """A producer pressed Allow on the league site: switch the upload on (like pasting a key) and tell the pages."""
+    STATE.update_settings({"leagueUpload": {"on": True}})
+    leagueupload.configure({"on": True, "key": leagueupload.stored_key()})
+    diag.log("League site upload: signed in as %s, upload on" % ((user or {}).get("name") or "a producer"))
+
+
 def league_upload_command(d):
-    """League site upload, from the control panel's Setup tab: key / on / off / test."""
+    """League site upload, from the control panel's Setup tab: signin / signincancel / signout / key / on / off / test.
+    The key and the sign-in are kept in their own file (leagueupload.KEY_FILE), never in settings.json."""
     cmd = str(d.get("cmd") or "")
     with STATE.lock:
         cur = dict(leagueupload.DEFAULTS, on=bool((STATE.settings.get("leagueUpload") or {}).get("on")))
-    cur["key"] = leagueupload.stored_key()                # in its own file, not settings.json
+    cur["key"] = leagueupload.stored_key()
+    connected = bool(cur["key"] or leagueupload.signed_in())
+    if cmd == "signin":              # Sign in with Discord: a code, Allow on the site; the page opens the site's page
+        ok, msg, extra = leagueupload.sign_in()
+        STATE.notify()
+        return dict(extra, ok=ok, msg=msg)
+    if cmd == "signincancel":
+        leagueupload.cancel_sign_in()
+        STATE.notify()
+        return {"ok": True, "msg": ""}
+    if cmd == "signout":
+        ok, msg = leagueupload.sign_out()
+        if ok and not cur["key"]:    # nothing left to send with: off, until the next sign-in or key
+            STATE.update_settings({"leagueUpload": {"on": False}})
+        leagueupload.configure({"on": cur["on"] and bool(cur["key"]), "key": cur["key"]})
+        STATE.notify()
+        return {"ok": ok, "msg": msg}
     if cmd == "key":
         key = str(d.get("key") or "").strip()
         if key and not re.match(r"^vsglr_[0-9a-f]{48}$", key):
-            return False, "That isn't an overlay key. It starts with vsglr_ (from the league site's Overlay keys page)."
+            return False, "That isn't an overlay key. It starts with vsglr_ (from the league site's Keys page)."
         if key:
             ok, msg = leagueupload.check(key)
             if not ok:
                 return False, msg
         leagueupload.save_key(key)
-        STATE.update_settings({"leagueUpload": {"on": bool(key)}})   # pasting a good key switches it on
-        leagueupload.configure({"on": bool(key), "key": key})
+        on = bool(key) or (cur["on"] and bool(leagueupload.signed_in()))   # pasting a good key switches it on
+        STATE.update_settings({"leagueUpload": {"on": on}})
+        leagueupload.configure({"on": on, "key": key})
         diag.log("League site upload: key %s" % ("saved" if key else "removed"))
         return True, "Key saved: results go to the league site after each race" if key else "Key removed"
     if cmd in ("on", "off"):
-        if cmd == "on" and not cur.get("key"):
-            return False, "Paste a key from the league site first"
+        if cmd == "on" and not connected:
+            return False, "Sign in with Discord or paste a key from the league site first"
         STATE.update_settings({"leagueUpload": {"on": cmd == "on"}})
         leagueupload.configure(dict(cur, on=cmd == "on"))
         diag.log("League site upload: %s" % cmd)
         return True, ""
     if cmd == "test":
-        if not cur.get("key"):
-            return False, "Paste a key from the league site first"
-        return leagueupload.check(cur["key"])
+        if not connected:
+            return False, "Sign in with Discord or paste a key from the league site first"
+        return leagueupload.check()
     return False, "Unknown command"
 
 
@@ -2251,9 +2276,9 @@ class Handler(BaseHTTPRequestHandler):
             ok, msg = announcer_command(data)
             return self.send_json({"ok": ok, "msg": msg})
         if path == "/api/leagueupload":
-            ok, msg = league_upload_command(data)
+            r = league_upload_command(data)          # (ok, msg), or a dict for the sign-in commands (code, url)
             STATE.notify()
-            return self.send_json({"ok": ok, "msg": msg})
+            return self.send_json(r if isinstance(r, dict) else {"ok": r[0], "msg": r[1]})
         if path == "/api/profile":
             ok, msg = profiles.command(data)
             if ok:
@@ -3057,7 +3082,8 @@ def main():
         leagueupload.move_key_out_of_settings(STATE, diag.log)
     except Exception as e:
         diag.error("League site upload: couldn't move the key out of settings.json: %r" % (e,), e)
-    leagueupload.start(STATE.settings.get("leagueUpload"), diag.log)   # league site upload (does nothing until it's switched on)
+    # league site upload (does nothing until it's switched on); a Discord sign-in switches it on (league_upload_signed_in)
+    leagueupload.start(STATE.settings.get("leagueUpload"), diag.log, on_signed_in=league_upload_signed_in)
     rcfeed.start(rc_feed_changed, diag.log)    # race control's calls for the penalty box (league races, with an overlay key)
     threading.Thread(target=telemetry_loop, args=(args.demo, args.multiclass, args.qual), daemon=True).start()
     server = QuietServer(("0.0.0.0", args.port), Handler)
