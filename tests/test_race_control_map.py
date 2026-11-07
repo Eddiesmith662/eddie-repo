@@ -123,6 +123,21 @@ class Placing(unittest.TestCase):
         r = self.place(LEFT, [0.25])
         self.assertLess(r["pts"][0]["x"], 320)                  # the other way round
 
+    def test_the_page_leaves_the_browsers_own_functions_alone(self):
+        # Nov 7, 2026: the page's open-an-incident function was called open(), which replaced window.open, so Pop out
+        # map (and the Sign in window) did nothing.
+        page = self.browser.new_page()
+        try:
+            with open(os.path.join(STATIC, "racecontrol.html"), encoding="utf-8") as f:
+                page.set_content(f.read())
+            replaced = page.evaluate("""() => ['open', 'close', 'print', 'stop', 'find', 'alert', 'confirm', 'fetch',
+                'focus', 'blur', 'scroll', 'name', 'status', 'length', 'origin', 'top', 'parent']
+                .filter(n => typeof window[n] === 'function' ? !/\\[native code\\]/.test(String(window[n]))
+                                                              : false)""")
+            self.assertEqual(replaced, [])
+        finally:
+            page.close()
+
     def test_a_lap_and_a_bit_lands_where_the_bit_does(self):
         a, b = self.place(RIGHT, [0.3, 12.3])["pts"]
         self.assertAlmostEqual(a["x"], b["x"], delta=0.5)

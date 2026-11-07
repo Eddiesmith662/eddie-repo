@@ -12,3 +12,5 @@ How it works (CLAUDE.md, "Three chats, one repo"):
   VERSION bump).
 
 ## Notes
+
+Race control: Pop out map now opens the map in its own window (in v1.5.40 the button did nothing). The same fault stopped Sign in from opening the league site's page by itself; it opens again now.

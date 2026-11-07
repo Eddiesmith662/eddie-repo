@@ -401,9 +401,11 @@ function renderQueue() {
   if ($('queue')._h !== html) { $('queue')._h = html; $('queue').innerHTML = html; }
 }
 $('view').onclick = e => { const b = e.target.closest('[data-v]'); if (!b) return; view = b.dataset.v; store('rcView', view); renderQueue(); };
-$('queue').onclick = e => { const r = e.target.closest('[data-id]'); if (!r) return; open(r.dataset.id); };
-$('queue').ondblclick = e => { const r = e.target.closest('[data-id]'); if (!r) return; open(r.dataset.id); replay(r.dataset.id); };
-function open(id) {
+$('queue').onclick = e => { const r = e.target.closest('[data-id]'); if (!r) return; openIncident(r.dataset.id); };
+$('queue').ondblclick = e => { const r = e.target.closest('[data-id]'); if (!r) return; openIncident(r.dataset.id); replay(r.dataset.id); };
+// Not called open(): a page-level function of that name replaces the browser's window.open, which stopped Pop out map
+// and the Sign in window from opening (found Nov 7, 2026).
+function openIncident(id) {
   if (cur === id) return;
   cur = id; const q = RC.queue.find(x => x.id === id);
   form = { kind: null, idx: q && q.idx != null && q.type !== 'caution' ? q.idx : null, value: '', reason: '' };
@@ -619,7 +621,7 @@ document.querySelector('.tabs').onclick = e => { const b = e.target.closest('.ta
 $('mapPop').onclick = () => window.open('/racecontrol?solo=map', 'rcmap', 'width=1280,height=760');
 RCMap.mount($('mapPane'), {
   onCar: idx => post('/api/camera', { carIdx: idx }),
-  onIncident: id => { if (SOLO) { replay(id); toast('Replaying it in the sim'); } else { open(id); } },
+  onIncident: id => { if (SOLO) { replay(id); toast('Replaying it in the sim'); } else { openIncident(id); } },
 });
 function renderMap() { if (tab === 'map' || SOLO) RCMap.update(L, RC); }
 
