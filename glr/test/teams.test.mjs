@@ -23,22 +23,24 @@ test("team score per race = drivers' points / drivers who raced; season = sum; n
   assert.equal(red.drivers.get(100).points, 70);
 });
 
-test("pasting teams: a spreadsheet grid or one team per line, matched by name, alias or iRacing ID", () => {
+test("team CSV files: one row per driver (Team, Driver, iRacing ID) or the team grid", () => {
   const drivers = [
     { cust_id: 100, name: "Racer Alpha", aliases: ["Racer Alpha Jr"], here: true },
-    { cust_id: 101, name: "Racer Bravo", aliases: [], here: true },
+    { cust_id: 101, name: "Racer Bravo4", aliases: [], here: true },
     { cust_id: 102, name: "Racer Q Charlie", aliases: [], here: true },
     { cust_id: 103, name: "Same Name", aliases: [], here: false },
     { cust_id: 104, name: "Same Name", aliases: [], here: false },
   ];
-  let r = parseTeams("Red Team\tBlue Team\nRacer Alpha\tracer bravo\nRacer Charlie\t\n", drivers);
+  // one row per driver; a blank team = the row above; quotes and a byte-order mark from Excel
+  let r = parseTeams('\uFEFFTeam,Driver,iRacing ID\r\n"Red Team, East",Racer Alpha Jr,\r\n,Same Name,104\r\nBlue Team,Racer Bravo,101\r\n', drivers);
   assert.deepEqual(r.problems, []);
+  assert.deepEqual(r.teams, [{ name: "Red Team, East", custs: [100, 104] }, { name: "Blue Team", custs: [101] }]);
+  // the grid, saved as CSV (Excel in some countries uses semicolons)
+  r = parseTeams("Red Team;Blue Team\nRacer Alpha;racer bravo4\nRacer Charlie;\n", drivers);
   assert.deepEqual(r.teams, [{ name: "Red Team", custs: [100, 102] }, { name: "Blue Team", custs: [101] }]);
-  r = parseTeams("Red Team: Racer Alpha Jr, Same Name (104)\nBlue Team: 101", drivers);
-  assert.deepEqual(r.teams, [{ name: "Red Team", custs: [100, 104] }, { name: "Blue Team", custs: [101] }]);
-  r = parseTeams("Red Team: Same Name, Nobody Here\nBlue Team: Racer Alpha", drivers);
+  r = parseTeams("Team,Driver\nRed Team,Same Name\nRed Team,Nobody Here\nBlue Team,Racer Alpha", drivers);
   assert.deepEqual(r.problems.map(p => [p.team, p.text]), [["Red Team", "Same Name"], ["Red Team", "Nobody Here"]]);
-  r = parseTeams("Red Team: Racer Alpha\nBlue Team: Racer Alpha", drivers);
+  r = parseTeams("Team,Driver\nRed Team,Racer Alpha\nBlue Team,Racer Alpha", drivers);
   assert.match(r.problems[0].why, /already on Red Team/);
 });
 
@@ -63,9 +65,10 @@ test("the Teams tab: directors set the teams, everyone sees the team standings",
   await s.post("/test-cup/edit", { short_name: "Test Cup", slug: "test-cup", teams_form: "1", teams: "on" });
   let p = await s.page("/test-cup/teams");
   assert.match(text(p.html), /No teams for this season yet/);
-  const r = await s.post("/test-cup/teams", { teams: "Red Team\tBlue Team\nRacer A\tRacer C\nRacer B\tRacer D\nRacer Z\t" });
+  const csv = t => [["file", new File([t], "teams.csv", { type: "text/csv" })]];
+  const r = await s.post("/test-cup/teams", csv("Team,Driver,iRacing ID\nRed Team,Racer A,\nRed Team,Racer B,\nBlue Team,Racer C,\nBlue Team,Racer D,\nRed Team,Racer Z,"));
   assert.match(text(r.html), /Nothing was saved.*Red Team: "Racer Z": No driver by that name/);
-  await s.post("/test-cup/teams", { teams: "Red Team\tBlue Team\nRacer A\tRacer C\nRacer B\tRacer D" });
+  assert.match(text((await s.post("/test-cup/teams", csv("Team,Driver,iRacing ID\nRed Team,Racer A,\n,Racer B,\nBlue Team,Racer C,\n,Racer D,103"))).html), /Saved: 2 teams, 4 drivers/);
   s.cookie = "";                                                             // the public sees it
   p = await s.page("/test-cup/teams");
   assert.match(p.html, /href="\/test-cup\/teams"/);
@@ -74,5 +77,9 @@ test("the Teams tab: directors set the teams, everyone sees the team standings",
   assert.doesNotMatch(p.html, /Save teams/);
   await s.signIn({ id: "1", roles: [ADMIN_ROLE], nick: "Test Admin" });
   assert.match(text((await s.page("/history")).html), /Teams for Test Cup Season 1 saved: 2 teams, 4 drivers/);
-  assert.match((await s.page("/test-cup/teams")).html, /Red Team: Racer A \(100\), Racer B \(101\)/);   // the box holds the teams to edit
+  // the teams back as CSV, to edit and upload again
+  const dl = await s.go("/test-cup/teams?csv=1");
+  assert.match(dl.headers.get("content-disposition"), /test-cup-teams\.csv/);
+  assert.equal(await dl.text(), "Team,Driver,iRacing ID\r\nRed Team,Racer A,100\r\nRed Team,Racer B,101\r\nBlue Team,Racer C,102\r\nBlue Team,Racer D,103\r\n");
+  assert.match(text((await s.post("/test-cup/teams", { action: "clear" })).html), /Saved: this season has no teams now/);
 });

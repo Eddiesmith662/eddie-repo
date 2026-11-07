@@ -43,7 +43,7 @@
  *         /login, /auth/callback, /logout    Discord sign-in (auth.js)
  */
 import { latestRelease } from "./release.js";
-import { teamStandings, parseTeams, teamsText } from "./teams.js";
+import { teamStandings, parseTeams, teamsCsv } from "./teams.js";
 import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, importEvent, setSeriesRole, seriesById, seasonsOf,
   getRules, saveRules, seasonEvents, listAdjustments, addAdjustment, deleteAdjustment,
   importOverlay, listKeys, createKey, revokeKey, checkKey, deleteEvent, listFixes, fixResult, FIX_FIELDS, markOfficial, setHook, HOOKS,
@@ -793,7 +793,7 @@ function standingsBody(st) {
 
 // team points (the Warrior points system): team standings for a season, each team's drivers, and the editor
 const teamNum = n => Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/0$/, "");
-function teamsPage(sr, seasons, season, user, { teams = [], ts = null, text = "", problems = [], msg = "" } = {}) {
+function teamsPage(sr, seasons, season, user, { teams = [], ts = null, problems = [], msg = "" } = {}) {
   let body = seriesTabs(sr, "teams", seasons, season && season.id, user);
   if (!season) return page(`${sr.short_name} teams`, body + `<p class="hint">No races uploaded yet.</p>`, { user });
   body += `<p class="tag">${esc(season.name)} · Team points: in each race, a team scores its drivers' finishing points added together, divided by how many of its drivers raced. The season total is every race added up.</p>`;
@@ -808,9 +808,11 @@ function teamsPage(sr, seasons, season, user, { teams = [], ts = null, text = ""
   } else body += `<p class="hint">No teams for this season yet.</p>`;
   if (canEdit(user, sr)) {
     body += `<h2 id="edit">Set the teams</h2>`;
-    if (problems.length) body += `<div class="msg bad">Nothing was saved. Fix these, then save again:<ul>${problems.map(p => `<li><b>${esc(p.team)}:</b> "${esc(p.text)}": ${esc(p.why)}</li>`).join("")}</ul></div>`;
-    body += `<p class="tag">Copy the team grid from your spreadsheet (team names across the top, each team's drivers below) and paste it here. Or type one team per line: <code>Team name: Driver, Driver, Driver</code>. A driver can be their name as it appears in the results (any name they've raced under) or <code>Name (iRacing ID)</code>. A driver who hasn't raced in a GLR series yet needs their iRacing ID. This replaces this season's teams; empty it and save to remove them.</p>
-    <form method="post" action="#edit"><textarea name="teams" rows="${Math.min(30, Math.max(8, text.split("\n").length + 2))}" spellcheck="false">${esc(text)}</textarea><p><button class="btn">Save teams</button></p></form>`;
+    if (problems.length) body += `<div class="msg bad">Nothing was saved. Fix these in the file, then upload it again:<ul>${problems.map(p => `<li><b>${esc(p.team)}:</b> "${esc(p.text)}": ${esc(p.why)}</li>`).join("")}</ul></div>`;
+    body += `<p class="tag">Upload a CSV file with one row per driver and the columns <b>Team</b>, <b>Driver</b> and <b>iRacing ID</b>. The iRacing ID is only needed when the name doesn't match the results (iRacing sometimes adds a number to a name). A team grid saved as CSV (team names across the top, drivers below) works too. Uploading replaces this season's teams.</p>
+    <p><a class="tag" href="${BASE}/${esc(sr.slug)}/teams?csv=1${seasons.length > 1 ? `&season=${season.id}` : ""}">Download ${teams.length ? "the teams" : "a blank file"} as CSV</a> to edit in Excel or Google Sheets.</p>
+    <form method="post" action="#edit" enctype="multipart/form-data"><input type="file" name="file" accept=".csv,text/csv" required> <button class="btn">Upload teams</button></form>
+    ${teams.length ? `<form method="post" action="#edit" style="margin-top:12px" onsubmit="return confirm('Remove all of this season\\'s teams?')"><input type="hidden" name="action" value="clear"><button class="link">Remove all teams</button></form>` : ""}`;
   }
   return page(`${sr.short_name} teams`, body, { user });
 }
@@ -1829,21 +1831,29 @@ const site = {
         if (m[2] === "teams") {
           if (!sr.teams) return notFound("This series doesn't have team points.", user);
           if (!season) return teamsPage(sr, seasons, null, user);
-          let text = "", problems = [], msg = "";
+          if (url.searchParams.has("csv")) return new Response(teamsCsv(await getTeams(db, sr.id, season.id)), { headers: {
+            "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="${sr.slug}-teams.csv"`, "cache-control": "no-store" } });
+          let problems = [], msg = "";
           if (request.method === "POST") {
-            text = String((await request.formData()).get("teams") || "").slice(0, 20000);
-            const r = parseTeams(text, await driversForMatching(db, sr.id));
-            problems = r.problems;
-            if (!problems.length) {
-              await saveTeams(db, sr.id, season.id, r.teams);
-              const n = r.teams.reduce((a, t) => a + t.custs.length, 0);
-              await logChange(db, { by: `discord:${user.id}:${user.name}`, seriesId: sr.id, kind: "series", summary: r.teams.length ? `Teams for ${season.name} saved: ${r.teams.length} teams, ${n} drivers` : `Teams for ${season.name} removed` });
-              msg = r.teams.length ? `Saved: ${r.teams.length} teams, ${n} drivers.` : "Saved: this season has no teams now.";
+            const f = await request.formData(), file = f.get("file");
+            let r = null;
+            if (f.get("action") === "clear") r = { teams: [], problems: [] };
+            else if (!file || typeof file === "string" || !file.size) msg = "Pick a CSV file to upload.";
+            else if (file.size > 200000) msg = "That file is too big to be a team list.";
+            else r = parseTeams(await file.text(), await driversForMatching(db, sr.id));
+            if (r) {
+              problems = r.problems;
+              if (!problems.length) {
+                await saveTeams(db, sr.id, season.id, r.teams);
+                const n = r.teams.reduce((a, t) => a + t.custs.length, 0);
+                await logChange(db, { by: `discord:${user.id}:${user.name}`, seriesId: sr.id, kind: "series", summary: r.teams.length ? `Teams for ${season.name} saved: ${r.teams.length} teams, ${n} drivers` : `Teams for ${season.name} removed` });
+                msg = r.teams.length ? `Saved: ${r.teams.length} teams, ${n} drivers.` : "Saved: this season has no teams now.";
+              }
             }
           }
           const teams = await getTeams(db, sr.id, season.id);
           const ts = teams.length ? teamStandings(teams, (await seasonStandings(db, sr, season))) : null;
-          return teamsPage(sr, seasons, season, user, { teams, ts, text: problems.length ? text : teamsText(teams), problems, msg });
+          return teamsPage(sr, seasons, season, user, { teams, ts, problems, msg });
         }
         if (m[2] === "rules") {
           const info = season ? await getRules(db, season.id, sr.id) : {};

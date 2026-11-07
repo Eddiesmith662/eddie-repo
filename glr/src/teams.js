@@ -40,25 +40,48 @@ export function teamStandings(teams, standings) {
 // (only when at least a first and last name are left, so "Racer Z" doesn't become just "racer")
 const loose = s => { const w = normName(s).split(" ").filter(w => w.length > 1 && !/^(jr|sr|ii|iii|iv)$/.test(w)); return w.length > 1 ? w.join(" ") : ""; };
 
+// a CSV file's rows (quoted fields, commas or semicolons, any line ending)
+export function csvRows(text) {
+  text = String(text || "").replace(/^\uFEFF/, "");
+  const first = text.split(/\r?\n/, 1)[0], sep = (first.match(/;/g) || []).length > (first.match(/,/g) || []).length ? ";" : (first.includes("\t") && !first.includes(",") ? "\t" : ",");
+  const rows = []; let row = [], cell = "", q = false;
+  for (let i = 0; i < text.length; i++) {
+    const c = text[i];
+    if (q) { if (c === '"') { if (text[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += c; }
+    else if (c === '"') q = true;
+    else if (c === sep) { row.push(cell.trim()); cell = ""; }
+    else if (c === "\n" || c === "\r") { if (c === "\r" && text[i + 1] === "\n") i++; row.push(cell.trim()); rows.push(row); row = []; cell = ""; }
+    else cell += c;
+  }
+  if (cell || row.length) { row.push(cell.trim()); rows.push(row); }
+  return rows.filter(r => r.some(Boolean));
+}
+
 /**
- * Teams pasted from a spreadsheet or typed. Two ways:
- *   - the grid copied from a spreadsheet: the first row is the team names, each column below it that team's drivers
- *   - one team per line: "Team name: Driver, Driver, Driver"
- * A driver is their name as the site knows it (any name they've raced under), "Name (iRacing ID)", or just the ID.
+ * Teams from a CSV file. Two layouts:
+ *   - one row per driver, with a header row: Team, Driver, iRacing ID (the ID is optional; a blank Team means the
+ *     same team as the row above)
+ *   - the team grid: team names across the first row, each team's drivers in the column below
+ * A driver is matched by their name as the site knows it (any name they've raced under), or by the iRacing ID.
  * drivers: [{ cust_id, name, aliases: [names], here }] (here: has raced in this series, preferred when names clash)
  * -> { teams: [{ name, custs: [] }], problems: [{ team, text, why }] }
  */
 export function parseTeams(text, drivers) {
-  const cols = [];
-  const lines = String(text || "").replace(/\r/g, "").split("\n");
-  if (lines.some(l => l.includes("\t"))) {
-    const rows = lines.filter(l => l.trim()).map(l => l.split("\t").map(c => c.trim()));
-    (rows[0] || []).forEach((name, j) => { if (name) cols.push({ name, entries: rows.slice(1).map(r => r[j] || "").filter(Boolean) }); });
-  } else {
-    for (const l of lines) {
-      const m = /^([^:]+):(.*)$/.exec(l.trim());
-      if (m) cols.push({ name: m[1].trim(), entries: m[2].split(/[,;]/).map(x => x.trim()).filter(Boolean) });
+  const rows = csvRows(text), cols = [];
+  const head = (rows[0] || []).map(h => h.toLowerCase());
+  const ti = head.findIndex(h => /^team/.test(h)), di = head.findIndex(h => /^(driver|name)/.test(h)), ii = head.findIndex(h => /iracing|\bid\b|cust/.test(h));
+  if (ti >= 0 && di >= 0) {
+    let team = "";
+    for (const r of rows.slice(1)) {
+      team = r[ti] || team;
+      const name = r[di] || "", id = ii >= 0 ? (r[ii] || "").replace(/\D/g, "") : "";
+      if (!team || (!name && !id)) continue;
+      let c = cols.find(x => x.name === team);
+      if (!c) cols.push(c = { name: team, entries: [] });
+      c.entries.push(id ? `${name} (${id})` : name);
     }
+  } else {
+    (rows[0] || []).forEach((name, j) => { if (name) cols.push({ name, entries: rows.slice(1).map(r => r[j] || "").filter(Boolean) }); });
   }
   const byId = new Map(drivers.map(d => [d.cust_id, d]));
   const exact = new Map(), lax = new Map();
@@ -74,7 +97,7 @@ export function parseTeams(text, drivers) {
       const id = (/\((\d+)\)\s*$/.exec(e) || /^(\d+)$/.exec(e) || [])[1];
       let found = id ? (byId.has(Number(id)) ? [byId.get(Number(id))] : []) : pick(exact.get(normName(e)));
       if (!id && !found.length) found = pick(lax.get(loose(e)));
-      if (!found.length) { problems.push({ team: t.name, text: e, why: id ? "No driver with that iRacing ID has raced here." : "No driver by that name has raced here." }); continue; }
+      if (!found.length) { problems.push({ team: t.name, text: e, why: id ? "No driver with that iRacing ID has raced in GLR yet." : "No driver by that name has raced in GLR. Check the spelling, or add their iRacing ID." }); continue; }
       if (found.length > 1) { problems.push({ team: t.name, text: e, why: `More than one driver has that name: ${found.map(d => `${d.name} (${d.cust_id})`).join(", ")}. Add the right iRacing ID.` }); continue; }
       const d = found[0];
       if (seen.has(d.cust_id) && seen.get(d.cust_id) !== t.name) { problems.push({ team: t.name, text: e, why: `${d.name} is already on ${seen.get(d.cust_id)}.` }); continue; }
@@ -86,5 +109,6 @@ export function parseTeams(text, drivers) {
   return { teams, problems };
 }
 
-// the teams as text for the edit box, one per line, so they can be changed and saved again
-export const teamsText = teams => teams.map(t => `${t.name}: ${t.members.map(m => `${m.name} (${m.cust_id})`).join(", ")}`).join("\n");
+// the teams as a CSV file, one row per driver, to edit and upload again
+const csvCell = v => /[",\n;]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v);
+export const teamsCsv = teams => ["Team,Driver,iRacing ID", ...teams.flatMap(t => t.members.map(m => [t.name, m.name, m.cust_id].map(csvCell).join(",")))].join("\r\n") + "\r\n";
