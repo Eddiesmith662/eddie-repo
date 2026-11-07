@@ -14,15 +14,18 @@ set "PY=%PYHOME%\python.exe"
 set "PYARGS="
 if exist "%PY%" exit /b 0
 
-echo Setting up Python for the overlay (one time only, about 30 MB). This takes a minute or two...
+rem Plain words for a steward or producer starting it for the first time: no download details, no red error text
+echo.
+echo   Setting up VSPEED: one time only, about a minute. Please leave this window open...
+echo.
 set "PYTMP=%LOCALAPPDATA%\VSPEED\download"
 if exist "%PYTMP%" rd /s /q "%PYTMP%"
 mkdir "%PYTMP%" 2>nul
 set "PYZIP=%PYTMP%\python.tar.gz"
-powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; Invoke-WebRequest -UseBasicParsing -Uri $env:PYURL -OutFile $env:PYZIP; if ((Get-FileHash -Algorithm SHA256 -LiteralPath $env:PYZIP).Hash -ne $env:PYSHA) { throw 'the download did not match its checksum' }"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "$ErrorActionPreference='Stop'; $ProgressPreference='SilentlyContinue'; [Net.ServicePointManager]::SecurityProtocol=[Net.SecurityProtocolType]::Tls12; try { Invoke-WebRequest -UseBasicParsing -Uri $env:PYURL -OutFile $env:PYZIP } catch { Write-Host '  The download did not work:' $_.Exception.Message; exit 1 }; if ((Get-FileHash -Algorithm SHA256 -LiteralPath $env:PYZIP).Hash -ne $env:PYSHA) { Write-Host '  The download was damaged (it did not match its checksum).'; exit 1 }"
 if errorlevel 1 goto fallback
 rem Windows' own tar (another tar on PATH, e.g. Git's, can't handle C:\ paths)
-"%SystemRoot%\System32\tar.exe" -xzf "%PYZIP%" -C "%PYTMP%"
+"%SystemRoot%\System32\tar.exe" -xzf "%PYZIP%" -C "%PYTMP%" >nul 2>nul
 if errorlevel 1 goto fallback
 if not exist "%PYTMP%\python\python.exe" goto fallback
 rem only a complete copy gets the final name, so a half-finished setup is never used
@@ -30,13 +33,14 @@ if exist "%PYHOME%" rd /s /q "%PYHOME%"
 move "%PYTMP%\python" "%PYHOME%" >nul
 if errorlevel 1 goto fallback
 rd /s /q "%PYTMP%"
-echo Python is ready.
+echo   Done: VSPEED is set up. Starting...
+echo.
 exit /b 0
 
 :fallback
 if exist "%PYTMP%" rd /s /q "%PYTMP%"
 echo.
-echo Couldn't set up the overlay's own Python (no internet connection?). Trying an installed Python instead.
+echo   Couldn't finish setting up (is the internet connected?). Trying a Python already on this PC instead...
 set "PYARGS="
 where py >nul 2>nul
 if errorlevel 1 goto plain
@@ -51,5 +55,5 @@ if errorlevel 1 goto none
 set "PY=python"
 exit /b 0
 :none
-echo Python was not found either. Check the internet connection and run this again.
+echo   No Python on this PC either. Check the internet connection, then start VSPEED again.
 exit /b 1

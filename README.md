@@ -243,6 +243,11 @@ graphics, vMix or OBS: just iRacing and this. The steward needs to be a session 
 iRacing shares every driver's incident points. The Race Control page opens in your browser by itself (best on a
 second screen); if it doesn't, open **http://localhost:8766/racecontrol**. `--no-browser` turns that off. It works the same whether or not the race is being broadcast.
 
+The first time it runs, it puts a **VSPEED Race Control** shortcut on the desktop: from then on the steward starts
+race control with that, and its black window stays minimized on the taskbar (look there if the page doesn't open).
+A deleted shortcut isn't put back; double-click `race-control-shortcut.bat` to make it again, for example after
+moving the folder.
+
 Race control has its own port (**8766**; the overlay is 8765) and keeps all its own files (settings, logs, results,
 calls) in `data\steward`, so it can run beside the overlay on the same PC, from the same folder, without the two
 sharing buttons or saving over each other's settings and results. Only one copy of each can run at a time. Race
@@ -348,6 +353,7 @@ For whoever looks after the overlay.
 start.bat                  run against iRacing (checks for updates first)
 start-demo.bat             a pretend race; start-demo-qualifying.bat a pretend qualifying session
 start-race-control.bat     race control, for a steward (add --demo for a pretend race)
+race-control-shortcut.bat  puts the VSPEED Race Control shortcut on the desktop (done by itself the first time)
 restore-previous.bat       go back to the version before the last update
 python-setup.bat           sets up the overlay's own Python the first time
 data\                      YOUR files, never touched by updates:
