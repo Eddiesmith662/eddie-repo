@@ -56,6 +56,9 @@
      slanted edge, so the title starts just clear of the plate. Part of the logo, so the Layout tab moves them together. */
   #logo .plate, #logo .accent { z-index: 2; }
   #logo .lbar { position: absolute; left: 273px; top: 0; width: 630px; height: 72px; z-index: 1; pointer-events: none; }
+  /* Track conditions is wider (780) so its text stays at 28 px like the recap's: the title is longer and the sky can be
+     MOSTLY CLOUDY with 3-digit temperatures (Eddie, Nov 7 2026) */
+  #logo #conds { width: 780px; }
   #logo .lbar.on { visibility: visible; }               /* shows even when the VSPEED logo itself is switched off */
   #logo .lbar .clip { position: absolute; inset: 0; overflow: hidden; }
   #logo .lbar .bar { position: absolute; inset: 0; background: #000; display: flex; align-items: center; gap: 26px; padding-left: 60px;
