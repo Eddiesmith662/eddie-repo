@@ -1,0 +1,534 @@
+{
+ "about": "iRacing's official track maps for race control's Map tab: iRacing track id -> the map's folder at https://members-assets.iracing.com/public/track-maps/<folder>/ (layers: background, inactive, active, pitroad, start-finish, turns) and the track's name. Every layout at every venue on GLR's schedules (GLR HUB, Nov 7 2026); the folders were found from the track pages at brakinglab.com and each was checked to load from iRacing. The maps are loaded from iRacing when a race opens, never copied here. A track that's missing: add one line (its id is in the 'No map' message on the Map tab).",
+ "base": "https://members-assets.iracing.com/public/track-maps/",
+ "tracks": {
+  "20": {
+   "folder": "tracks_homestead/20-homestead-oval",
+   "name": "Homestead Miami Speedway - Oval"
+  },
+  "21": {
+   "folder": "tracks_homestead/21-homestead-roada",
+   "name": "Homestead Miami Speedway - Road Course A"
+  },
+  "22": {
+   "folder": "tracks_homestead/22-homestead-roadb",
+   "name": "Homestead Miami Speedway - Road Course B"
+  },
+  "26": {
+   "folder": "tracks_daytona_2011/26-daytona-road",
+   "name": "Daytona International Speedway - Road Course - 2008"
+  },
+  "27": {
+   "folder": "tracks_daytona_2011/27-daytona-oval",
+   "name": "Daytona International Speedway - Oval - 2008"
+  },
+  "29": {
+   "folder": "tracks_daytona_2011/29-daytona-short",
+   "name": "Daytona International Speedway - Short - 2008"
+  },
+  "51": {
+   "folder": "tracks_atlanta/51-atlanta-roadcourse",
+   "name": "EchoPark Speedway (Atlanta) - Road - 2008"
+  },
+  "52": {
+   "folder": "tracks_atlanta/52-atlanta-legendsoval",
+   "name": "EchoPark Speedway (Atlanta) - Legends Oval - 2008"
+  },
+  "53": {
+   "folder": "tracks_atlanta/53-atlanta-quadoval",
+   "name": "EchoPark Speedway (Atlanta) - Oval - 2008"
+  },
+  "95": {
+   "folder": "tracks_sebring/95-sebring-international",
+   "name": "Sebring International Raceway - International"
+  },
+  "96": {
+   "folder": "tracks_sebring/96-sebring-modified",
+   "name": "Sebring International Raceway - Modified"
+  },
+  "97": {
+   "folder": "tracks_sebring/97-sebring-club",
+   "name": "Sebring International Raceway - Club"
+  },
+  "101": {
+   "folder": "tracks_bristol/101-bristol",
+   "name": "Bristol Motor Speedway - Dual Pit Roads"
+  },
+  "103": {
+   "folder": "tracks_vegas/103-vegas-oval",
+   "name": "Las Vegas Motor Speedway - Oval"
+  },
+  "104": {
+   "folder": "tracks_phoenix/104-phoenix-oval",
+   "name": "[Legacy] Phoenix Raceway - 2008 - Oval"
+  },
+  "105": {
+   "folder": "tracks_phoenix/105-phoenix-road",
+   "name": "[Legacy] Phoenix Raceway - 2008 - Road Course"
+  },
+  "110": {
+   "folder": "tracks_vegas/110-vegas-legends",
+   "name": "Las Vegas Motor Speedway - Legends Oval"
+  },
+  "111": {
+   "folder": "tracks_vegas/111-vegas-roadlong",
+   "name": "Las Vegas Motor Speedway - Road Course Long"
+  },
+  "112": {
+   "folder": "tracks_vegas/112-vegas-roadshort",
+   "name": "Las Vegas Motor Speedway - Road Course Short"
+  },
+  "113": {
+   "folder": "tracks_vegas/113-vegas-inflegends",
+   "name": "Las Vegas Motor Speedway - Infield Legends Oval"
+  },
+  "114": {
+   "folder": "tracks_vegas/114-vegas-roadcombined",
+   "name": "Las Vegas Motor Speedway - Road Course Combined"
+  },
+  "115": {
+   "folder": "tracks_darlington/115-darlington",
+   "name": "Darlington Raceway"
+  },
+  "116": {
+   "folder": "tracks_talladega/116-talladega",
+   "name": "Talladega Superspeedway"
+  },
+  "117": {
+   "folder": "tracks_texas/117-texas-infieldrclong",
+   "name": "[Legacy] Texas Motor Speedway - 2009 - Road Course Long"
+  },
+  "118": {
+   "folder": "tracks_texas/118-texas-infieldrcshorta",
+   "name": "[Legacy] Texas Motor Speedway - 2009 - Road Course Short A"
+  },
+  "119": {
+   "folder": "tracks_texas/119-texas-infieldrcshortb",
+   "name": "[Legacy] Texas Motor Speedway - 2009 - Road Course Short B"
+  },
+  "120": {
+   "folder": "tracks_texas/120-texas-legendsoval",
+   "name": "[Legacy] Texas Motor Speedway - 2009 - Legends Oval"
+  },
+  "121": {
+   "folder": "tracks_texas/121-texas-oval",
+   "name": "[Legacy] Texas Motor Speedway - 2009 - Oval"
+  },
+  "122": {
+   "folder": "tracks_texas/122-texas-roadcourse",
+   "name": "[Legacy] Texas Motor Speedway - 2009 - Road Course Combined"
+  },
+  "123": {
+   "folder": "tracks_chicagoland/123-chicagoland",
+   "name": "Chicagoland Speedway"
+  },
+  "124": {
+   "folder": "tracks_michigan/124-michigan",
+   "name": "[Legacy] Michigan International Speedway - 2009"
+  },
+  "133": {
+   "folder": "tracks_indianapolis/133-indianapolis-oval",
+   "name": "Indianapolis Motor Speedway - NASCAR Oval - 2009"
+  },
+  "134": {
+   "folder": "tracks_indianapolis/134-indianapolis-road",
+   "name": "Indianapolis Motor Speedway - Road Course - 2009"
+  },
+  "136": {
+   "folder": "tracks_pocono/136-pocono-oval",
+   "name": "[Legacy] Pocono Raceway - 2009 - Oval"
+  },
+  "137": {
+   "folder": "tracks_pocono/137-pocono-east",
+   "name": "[Legacy] Pocono Raceway - 2009 - East"
+  },
+  "138": {
+   "folder": "tracks_pocono/138-pocono-south",
+   "name": "[Legacy] Pocono Raceway - 2009 - South"
+  },
+  "139": {
+   "folder": "tracks_pocono/139-pocono-north",
+   "name": "[Legacy] Pocono Raceway - 2009 - North"
+  },
+  "140": {
+   "folder": "tracks_pocono/140-pocono-international",
+   "name": "[Legacy] Pocono Raceway - 2009 - International"
+  },
+  "163": {
+   "folder": "tracks_spa/163-spa-up",
+   "name": "Circuit de Spa-Francorchamps - Grand Prix Pits - 2010"
+  },
+  "164": {
+   "folder": "tracks_spa/164-spa-low",
+   "name": "Circuit de Spa-Francorchamps - Classic Pits - 2010"
+  },
+  "165": {
+   "folder": "tracks_spa/165-spa-combined",
+   "name": "Circuit de Spa-Francorchamps - Endurance - 2010"
+  },
+  "168": {
+   "folder": "tracks_suzuka/168-suzuka-grandprix",
+   "name": "Suzuka International Racing Course - Grand Prix"
+  },
+  "169": {
+   "folder": "tracks_iowa/169-iowa-oval",
+   "name": "Iowa Speedway - Oval - 2011"
+  },
+  "170": {
+   "folder": "tracks_iowa/170-iowa-road",
+   "name": "Iowa Speedway - Road Course - 2011"
+  },
+  "171": {
+   "folder": "tracks_iowa/171-iowa-legends",
+   "name": "Iowa Speedway - Legends - 2011"
+  },
+  "172": {
+   "folder": "tracks_iowa/172-iowa-inflegends",
+   "name": "Iowa Speedway - Infield Legends - 2011"
+  },
+  "174": {
+   "folder": "tracks_suzuka/174-suzuka-east",
+   "name": "Suzuka International Racing Course - East"
+  },
+  "175": {
+   "folder": "tracks_suzuka/175-suzuka-west",
+   "name": "Suzuka International Racing Course - West"
+  },
+  "176": {
+   "folder": "tracks_suzuka/176-suzuka-westchicane",
+   "name": "Suzuka International Racing Course - West w/chicane"
+  },
+  "178": {
+   "folder": "tracks_indianapolis/178-indianapolis-ovalindypit",
+   "name": "Indianapolis Motor Speedway - Open Wheel Oval - 2009"
+  },
+  "179": {
+   "folder": "tracks_longbeach/179-longbeach",
+   "name": "Long Beach Street Circuit"
+  },
+  "188": {
+   "folder": "tracks_kentucky/188-kentucky-oval",
+   "name": "[Legacy] Kentucky Speedway - 2011 - Oval"
+  },
+  "189": {
+   "folder": "tracks_kentucky/189-kentucky-legend",
+   "name": "[Legacy] Kentucky Speedway - 2011 - Legends"
+  },
+  "191": {
+   "folder": "tracks_daytona_2011/191-daytona-2011-oval",
+   "name": "Daytona International Speedway - Oval"
+  },
+  "192": {
+   "folder": "tracks_daytona_2011/192-daytona-2011-road",
+   "name": "Daytona International Speedway - Road Course"
+  },
+  "194": {
+   "folder": "tracks_daytona_2011/194-daytona-2011-short",
+   "name": "Daytona International Speedway - Short"
+  },
+  "203": {
+   "folder": "tracks_rockingham/203-rockingham-oval",
+   "name": "Rockingham Speedway - Oval - 2012"
+  },
+  "204": {
+   "folder": "tracks_rockingham/204-rockingham-road",
+   "name": "Rockingham Speedway - Road Course"
+  },
+  "205": {
+   "folder": "tracks_rockingham/205-rockingham-infroad",
+   "name": "Rockingham Speedway - Infield Road Course"
+  },
+  "206": {
+   "folder": "tracks_rockingham/206-rockingham-shortroad",
+   "name": "Rockingham Speedway - Short Road Course"
+  },
+  "214": {
+   "folder": "tracks_kansas/214-kansas-oval",
+   "name": "Kansas Speedway - Oval"
+  },
+  "215": {
+   "folder": "tracks_kansas/215-kansas-full",
+   "name": "Kansas Speedway - Road Course"
+  },
+  "216": {
+   "folder": "tracks_kansas/216-kansas-short",
+   "name": "Kansas Speedway - Infield Road Course"
+  },
+  "225": {
+   "folder": "tracks_california/225-california-oval",
+   "name": "Auto Club Speedway - Oval"
+  },
+  "226": {
+   "folder": "tracks_california/226-california-competition",
+   "name": "Auto Club Speedway - Competition"
+  },
+  "228": {
+   "folder": "tracks_california/228-california-interiora",
+   "name": "Auto Club Speedway - Interior"
+  },
+  "232": {
+   "folder": "tracks_irp/232-irp",
+   "name": "Lucas Oil Indianapolis Raceway Park - Oval"
+  },
+  "238": {
+   "folder": "tracks_gateway/238-gateway-road",
+   "name": "World Wide Technology Raceway (Gateway) - Road Course"
+  },
+  "239": {
+   "folder": "tracks_monza/239-monza-full",
+   "name": "Autodromo Nazionale Monza - Grand Prix"
+  },
+  "240": {
+   "folder": "tracks_monza/240-monza-historic",
+   "name": "Autodromo Nazionale Monza - Combined without chicanes"
+  },
+  "241": {
+   "folder": "tracks_monza/241-monza-junior",
+   "name": "Autodromo Nazionale Monza - Junior"
+  },
+  "242": {
+   "folder": "tracks_monza/242-monza-nochicane",
+   "name": "Autodromo Nazionale Monza - GP without chicanes"
+  },
+  "243": {
+   "folder": "tracks_monza/243-monza-oval",
+   "name": "Autodromo Nazionale Monza - Oval - Right turning"
+  },
+  "244": {
+   "folder": "tracks_monza/244-monza-gpsecondchicane",
+   "name": "Autodromo Nazionale Monza - GP without first chicane"
+  },
+  "245": {
+   "folder": "tracks_monza/245-monza-ovalleft",
+   "name": "Autodromo Nazionale Monza - Oval - Left turning"
+  },
+  "246": {
+   "folder": "tracks_monza/246-monza-historicsecondchicane",
+   "name": "Autodromo Nazionale Monza - Combined without first chicane"
+  },
+  "247": {
+   "folder": "tracks_monza/247-monza-combinedchicanes",
+   "name": "Autodromo Nazionale Monza - Combined"
+  },
+  "273": {
+   "folder": "tracks_eldora/273-eldora",
+   "name": "Eldora Speedway"
+  },
+  "276": {
+   "folder": "tracks_michigan_2018/276-michigan-2018",
+   "name": "Michigan International Speedway"
+  },
+  "277": {
+   "folder": "tracks_pocono_2016/277-pocono-2016",
+   "name": "Pocono Raceway"
+  },
+  "314": {
+   "folder": "tracks_charlottedirt/314-charlottedirt",
+   "name": "The Dirt Track at Charlotte"
+  },
+  "357": {
+   "folder": "tracks_texas_2020/357-texas-2020-oval",
+   "name": "Texas Motor Speedway - Oval"
+  },
+  "362": {
+   "folder": "tracks_homestead/362-homestead-ovalindy",
+   "name": "Homestead Miami Speedway - Open Wheel Oval"
+  },
+  "364": {
+   "folder": "tracks_texas_2020/364-texas-2020-legendsoval",
+   "name": "Texas Motor Speedway - Legends Oval"
+  },
+  "365": {
+   "folder": "tracks_bristol/365-bristol-fullpit",
+   "name": "Bristol Motor Speedway - Single Pit Roads"
+  },
+  "366": {
+   "folder": "tracks_northwilkesboro/366-northwilkesboro",
+   "name": "North Wilkesboro Speedway - Oval - 1987"
+  },
+  "371": {
+   "folder": "tracks_kentucky_2020/371-kentucky-2020-oval",
+   "name": "Kentucky Speedway - Oval"
+  },
+  "381": {
+   "folder": "tracks_daytona_2011/381-daytona-2011-roadnascar2020",
+   "name": "Daytona International Speedway - NASCAR Road"
+  },
+  "400": {
+   "folder": "tracks_nashvilless/400-nashvilless",
+   "name": "Nashville Superspeedway"
+  },
+  "403": {
+   "folder": "tracks_spielberg/403-spielberg-gp",
+   "name": "Red Bull Ring - Grand Prix"
+  },
+  "404": {
+   "folder": "tracks_spielberg/404-spielberg-national",
+   "name": "Red Bull Ring - National"
+  },
+  "405": {
+   "folder": "tracks_chicago/405-chicago",
+   "name": "Chicago Street Course - Prototype"
+  },
+  "407": {
+   "folder": "tracks_spielberg/407-spielberg-north",
+   "name": "Red Bull Ring - North"
+  },
+  "413": {
+   "folder": "tracks_hungaroring/413-hungaroring",
+   "name": "Hungaroring"
+  },
+  "418": {
+   "folder": "tracks_phoenix_2021/418-phoenix-2021-oval",
+   "name": "Phoenix Raceway - Oval"
+  },
+  "419": {
+   "folder": "tracks_phoenix_2021/419-phoenix-2021-ovalopen",
+   "name": "Phoenix Raceway - Oval w/open dogleg"
+  },
+  "432": {
+   "folder": "tracks_watkinsglen/432-watkinsglen-2021-classic",
+   "name": "Watkins Glen International - Classic"
+  },
+  "433": {
+   "folder": "tracks_watkinsglen/433-watkinsglen-2021-cupcircuit",
+   "name": "Watkins Glen International - Cup"
+  },
+  "434": {
+   "folder": "tracks_watkinsglen/434-watkinsglen-2021-fullcourse",
+   "name": "Watkins Glen International - Boot"
+  },
+  "435": {
+   "folder": "tracks_watkinsglen/435-watkinsglen-2021-fullnoloop",
+   "name": "Watkins Glen International - Classic Boot"
+  },
+  "447": {
+   "folder": "tracks_atlanta/447-atlanta-2022-oval",
+   "name": "EchoPark Speedway (Atlanta) - Oval"
+  },
+  "448": {
+   "folder": "tracks_indianapolis/448-indianapolis-2022-road",
+   "name": "Indianapolis Motor Speedway - Road Course"
+  },
+  "452": {
+   "folder": "tracks_wheatland/452-wheatland",
+   "name": "Lucas Oil Speedway - Dirt Oval"
+  },
+  "453": {
+   "folder": "tracks_indianapolis/453-indianapolis-2022-oval",
+   "name": "Indianapolis Motor Speedway - Open Wheel Oval"
+  },
+  "465": {
+   "folder": "tracks_virginia/465-virginia-2022-full",
+   "name": "Virginia International Raceway - Full Course"
+  },
+  "466": {
+   "folder": "tracks_virginia/466-virginia-2022-grand",
+   "name": "Virginia International Raceway - Grand Course"
+  },
+  "467": {
+   "folder": "tracks_virginia/467-virginia-2022-north",
+   "name": "Virginia International Raceway - North Course"
+  },
+  "468": {
+   "folder": "tracks_virginia/468-virginia-2022-south",
+   "name": "Virginia International Raceway - South Course"
+  },
+  "469": {
+   "folder": "tracks_virginia/469-virginia-2022-patriot",
+   "name": "Virginia International Raceway - Patriot Course"
+  },
+  "483": {
+   "folder": "tracks_chicago/483-chicago-2023",
+   "name": "Chicago Street Course - 2023 Cup"
+  },
+  "522": {
+   "folder": "tracks_indianapolis/522-indianapolis-2022-ovalnascar",
+   "name": "Indianapolis Motor Speedway - NASCAR Oval"
+  },
+  "523": {
+   "folder": "tracks_spa/523-spa-2024-up",
+   "name": "Circuit de Spa-Francorchamps - Grand Prix Pits"
+  },
+  "524": {
+   "folder": "tracks_spa/524-spa-2024-low",
+   "name": "Circuit de Spa-Francorchamps - Classic Pits"
+  },
+  "525": {
+   "folder": "tracks_spa/525-spa-2024-combined",
+   "name": "Circuit de Spa-Francorchamps - Endurance"
+  },
+  "550": {
+   "folder": "tracks_charlotte/550-charlotte-2025-legendsrc2025",
+   "name": "Charlotte Motor Speedway - Legends Road Course 2025"
+  },
+  "551": {
+   "folder": "tracks_charlotte/551-charlotte-2025-legendsrclong",
+   "name": "Charlotte Motor Speedway - Infield Road Course Long"
+  },
+  "552": {
+   "folder": "tracks_charlotte/552-charlotte-2025-legendsrcshort",
+   "name": "Charlotte Motor Speedway - Infield Road Course"
+  },
+  "553": {
+   "folder": "tracks_charlotte/553-charlotte-2025-roval2019",
+   "name": "Charlotte Motor Speedway - Roval 2019"
+  },
+  "554": {
+   "folder": "tracks_charlotte/554-charlotte-2025-roval2025",
+   "name": "Charlotte Motor Speedway - Roval 2025"
+  },
+  "555": {
+   "folder": "tracks_charlotte/555-charlotte-2025-rovalnochicanes",
+   "name": "Charlotte Motor Speedway - Roval No Chicanes"
+  },
+  "556": {
+   "folder": "tracks_charlotte/556-charlotte-2025-oval",
+   "name": "Charlotte Motor Speedway - Oval"
+  },
+  "557": {
+   "folder": "tracks_charlotte/557-charlotte-2025-legendsoval",
+   "name": "Charlotte Motor Speedway - Legends Oval"
+  },
+  "559": {
+   "folder": "tracks_iowa/559-iowa-2025-oval",
+   "name": "Iowa Speedway - Oval"
+  },
+  "560": {
+   "folder": "tracks_gateway/560-gateway-2025-oval",
+   "name": "World Wide Technology Raceway (Gateway) - Oval"
+  },
+  "561": {
+   "folder": "tracks_richmond/561-richmond-2025",
+   "name": "Richmond Raceway"
+  },
+  "562": {
+   "folder": "tracks_northwilkesboro/562-northwilkesboro-2025",
+   "name": "North Wilkesboro Speedway - Oval"
+  },
+  "583": {
+   "folder": "tracks_rockingham/583-rockingham-2025-oval",
+   "name": "Rockingham Speedway - Oval"
+  },
+  "589": {
+   "folder": "tracks_coronado/589-coronado",
+   "name": "Qualcomm Circuit (Naval Base Coronado)"
+  },
+  "596": {
+   "folder": "tracks_roadamerica/596-roadamerica-2026-full",
+   "name": "Road America - Full Course"
+  },
+  "597": {
+   "folder": "tracks_roadamerica/597-roadamerica-2026-bend",
+   "name": "Road America - Bend"
+  },
+  "598": {
+   "folder": "tracks_roadamerica/598-roadamerica-2026-east",
+   "name": "Road America - Short East"
+  },
+  "599": {
+   "folder": "tracks_roadamerica/599-roadamerica-2026-west",
+   "name": "Road America - Short West"
+  }
+ }
+}

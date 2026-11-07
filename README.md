@@ -259,6 +259,13 @@ control from before v1.5.38 kept its calls in `data\race-control`; they're copie
   before it the replay starts). Replaying marks it **Reviewing**.
 - **Logged**: iRacing's own penalties (black flag, warning, disqualified), cautions and retirements. They're recorded
   for the stewards, not decisions, and nothing is done with them.
+- **Map** (a tab beside the running order): iRacing's own map of the track, with every car on it (the camera car
+  ringed, cars in the pits dimmed, black-flagged cars marked, cars in an incident in the last 30 s flashing) and a
+  warning mark where each open incident happened. Click a car to put the camera on it; click a mark to open that
+  incident. **Pop out map** opens it in a window of its own for a second screen (clicking a mark there replays it).
+  The maps load from iRacing's public map server each time (nothing is stored), so the PC needs to be online. A track
+  that isn't in `static\trackmaps.json` says "No map for this track yet": add one line with its iRacing track id and
+  map folder.
 - **Making a call** (middle): pick the car, the call (warning, drive-through, stop-and-go, time penalty, end of line,
   positions, points, disqualified or no action), the number of seconds / positions / points where it needs one, and
   the reason, then **Make the call**. The incident moves to **Decided** (or **No action**). For something that isn't
@@ -399,6 +406,9 @@ about 10 seconds and never touches the `data` folder: it uses a throwaway one.
 - **Race control** (`tests\test_race_control.py`): the incident queue, the catch-up after a replay, calls, the exact
   commands typed into iRacing, In the sim / Served / didn't show, clearing, and the race's saved file (picked up after a
   restart, damaged file kept aside). Sending runs against the demo race, so iRacing isn't needed.
+- **Race control's map** (`tests\test_race_control_map.py`): the track list, the track id from iRacing, where on the
+  lap each incident happened, and placing cars on a made-up oval (in a browser; skipped where Playwright isn't
+  installed).
 - **Race control and the league site** (`tests\test_race_control_site.py`): signing in, the race file, waiting and
   trying again, races the site turns down, the other stewards' calls, and official results going with the sign-in,
   against a stand-in for the site. The site's own side is tested in `glr\test\racecontrol.test.mjs`.

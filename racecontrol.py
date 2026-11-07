@@ -157,6 +157,12 @@ def _car(live, idx):
     return next((c for c in live.get("cars") or [] if c.get("idx") == idx), None)
 
 
+def _lap_pos(car):
+    """Where on the lap a car is, 0 to 1 from the start/finish line (for the Map tab), or None."""
+    p = (car or {}).get("progress")
+    return round(p % 1.0, 4) if isinstance(p, (int, float)) else None
+
+
 def _item_from(ev, live):
     c = _car(live, ev.get("idx")) or {}
     auto = ev["type"] in AUTO and ev.get("src") == "iracing"
@@ -165,7 +171,7 @@ def _item_from(ev, live):
         "sess": ev.get("sess", 0), "sessName": ev.get("sessName", ""), "t": ev.get("t"), "lap": ev.get("lap"),
         "idx": ev.get("idx"), "num": ev.get("num", ""), "name": ev.get("name", ""), "custId": c.get("custId", ""),
         "pos": ev.get("pos"), "cars": ev.get("cars") or [], "status": "logged" if auto or ev["type"] in INFO else "new", "auto": auto,
-        "afterReview": False, "at": _now(),
+        "afterReview": False, "at": _now(), "lapPos": _lap_pos(c),
     }
 
 

@@ -594,6 +594,7 @@ class IRacingSource:
             "gwcLimit": (lambda v: int(v) if str(v).isdigit() else None)((wi.get("WeekendOptions") or {}).get("GreenWhiteCheckeredLimit")),
             "subId": wi.get("SubSessionID"),
             "leagueId": wi.get("LeagueID") or None,      # the iRacing league this session belongs to (0 = not a league race)
+            "trackId": wi.get("TrackID") or None,        # iRacing's id for this track and layout: race control's Map tab
             "gridOrder": grid_order,
             "track": wi.get("TrackDisplayName", ""),
             "sessions": sessions,
@@ -766,6 +767,7 @@ class IRacingSource:
                 "track": self.info.get("track", ""),
                 "subId": self.info.get("subId"),
                 "leagueId": self.info.get("leagueId"),          # race control and the league site need it (0/None: not a league race)
+                "trackId": self.info.get("trackId"),            # race control's Map tab picks iRacing's map by it
                 "sessionName": (sess.get("SessionName") or "").upper(),
                 "sessionType": stype,
                 "isRace": is_race,
@@ -1416,6 +1418,7 @@ class DemoSource:
             self.cam = cars[0]["idx"]
         return {
             "connected": True, "source": "demo", "track": "Demo Speedway",
+            "trackId": 116,     # the demo shows Talladega's map on race control's Map tab, so it can be tried without iRacing
             "sessionName": "RACE", "sessionType": "race", "isRace": True,
             "sessionState": self.state, "lap": min(lap_now, self.total), "totalLaps": self.total,
             "weather": DEMO_WEATHER, "timeRemain": "", "flag": flag, "isReplay": self.__dict__.get("rp", {}).get("replay", False),
@@ -1567,6 +1570,7 @@ class DemoQualSource(DemoSource):
         left = max(0, self.length - (now - self.t0))
         return {
             "connected": True, "source": "demo", "track": "Demo Speedway",
+            "trackId": 116,     # the demo shows Talladega's map on race control's Map tab, so it can be tried without iRacing
             "sessionName": "QUALIFY", "sessionType": "lone qualify", "isRace": False,
             "sessionState": 4, "lap": 0, "totalLaps": 0, "weather": DEMO_WEATHER, "timeRemain": fmt_clock(left), "flag": "green",
             "isReplay": False, "replaySpeed": 1, "replaySlow": False, "uiHidden": False, "camLap": 1,

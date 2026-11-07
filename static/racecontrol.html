@@ -142,6 +142,37 @@
   .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #111; border: 1px solid var(--red); padding: 10px 16px; border-radius: 6px; z-index: 99; display: none; }
   section.det { overflow-y: auto; }
   /* narrower screens: the page scrolls instead of fitting the window */
+  /* Map tab (static/rcmap.js): iRacing's official map, toned for this dark page */
+  .tabs { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; }
+  .tabs .tab { padding: 5px 12px; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; background: transparent; color: var(--dim); border-color: transparent; }
+  .tabs .tab.on { color: var(--text); border-color: #4a4a4b; background: #2c2c2d; }
+  .tabs > button:not(.tab) { padding: 3px 10px; font-size: 12px; }
+  .rcmap { flex: 1; min-height: 0; position: relative; background: #121213; border-radius: 5px; overflow: hidden; }
+  .rcmap[hidden] { display: none; }
+  .rcmap-svg { width: 100%; height: 100%; display: block; }
+  .rcmap-msg { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; text-align: center; color: var(--dim); font-size: 14px; padding: 20px; line-height: 1.5; }
+  .rcmap-msg span { font-size: 12px; }
+  .L-background { opacity: .35; }
+  .L-inactive * { fill: #333335 !important; stroke: none !important; }
+  .L-active * { fill: #5d5d60 !important; stroke: none !important; }
+  .L-pitroad * { fill: #33A1FF !important; stroke: none !important; opacity: .45; }
+  .L-start-finish * { fill: var(--red) !important; stroke: none !important; }
+  .L-turns text, .L-turns tspan { fill: #8a8a8d !important; }
+  .rcmap .car { cursor: pointer; transition: transform .25s linear; }
+  .rcmap .car circle { fill: #f2f2f2; stroke: #111; stroke-width: 3; }
+  .rcmap .car text { fill: #111; font: 700 17px Bahnschrift, Arial, sans-serif; pointer-events: none; }
+  .rcmap .car.pit circle { fill: #33A1FF; } .rcmap .car.pit text { fill: #fff; }
+  .rcmap .car.bf circle { fill: #111; stroke: #fff; stroke-width: 5; } .rcmap .car.bf text { fill: #fff; }
+  .rcmap .car.cam circle { fill: var(--red); stroke: #fff; stroke-width: 4; } .rcmap .car.cam text { fill: #fff; }
+  .rcmap .car.flash circle { animation: rcflash .7s steps(2, start) infinite; }
+  @keyframes rcflash { to { fill: var(--amber); stroke: #fff; } }
+  .rcmap .mark { cursor: pointer; } .rcmap .mark path { fill: var(--amber); stroke: #111; stroke-width: 3; }
+  .rcmap .mark.new path { fill: var(--red); } .rcmap .mark text { fill: #111; font: 800 20px Arial, sans-serif; pointer-events: none; }
+  .rcmap .mark.new text { fill: #fff; }
+  /* the map on its own (Pop out, /racecontrol?solo=map) */
+  body.solo .wrap { grid-template-columns: 1fr; grid-template-rows: 1fr; }
+  body.solo .wrap > section:not(.ro), body.solo .ro > h2:first-child, body.solo .rp, body.solo .tabs, body.solo #orderPane, body.solo .ro .hint, body.solo .steward, body.solo #site, body.solo .hbar a { display: none !important; }
+  body.solo #mapPane { display: block !important; }
   @media (max-width: 1250px) { html, body { height: auto; } .wrap { flex: none; grid-template-columns: 1fr 1fr; grid-template-rows: auto; }
     section { min-height: 420px; max-height: 80vh; } section.det { max-height: none; } section.ro { grid-column: 1 / -1; } }
   @media (max-width: 760px) { .wrap { grid-template-columns: 1fr; } }
@@ -193,11 +224,14 @@
       <button data-r="speed" data-v="0.5">½ speed</button><button data-r="ff">▶▶</button><button data-r="prevlap">◀ Lap</button><button data-r="nextlap">Lap ▶</button>
       <button data-r="live" class="live" style="grid-column: 1 / -1">LIVE</button>
     </div>
-    <h2 class="rph">Running order<span class="grow"></span><button id="clearAll" title="Sends !clearall: removes every driver's penalties in iRacing">Clear all penalties</button></h2>
-    <div class="scroll">
+    <div class="tabs"><button class="tab on" data-tab="order">Running order</button><button class="tab" data-tab="map">Map</button><span class="grow"></span>
+      <button id="mapPop" title="The map on its own, in a window you can put on another screen">Pop out map</button>
+      <button id="clearAll" title="Sends !clearall: removes every driver's penalties in iRacing">Clear all penalties</button></div>
+    <div class="scroll" id="orderPane">
       <table><thead><tr><th>P</th><th>#</th><th>Driver</th><th class="r">Laps</th><th class="r">Gap</th><th class="r">Inc</th><th class="r">Pits</th><th></th></tr></thead><tbody id="order"></tbody></table>
     </div>
-    <p class="hint">Click a driver to put the camera on them. Double-click for a call that isn't from an incident.</p>
+    <div class="rcmap" id="mapPane" hidden></div>
+    <p class="hint" id="roHint">Click a driver to put the camera on them. Double-click for a call that isn't from an incident.</p>
   </section>
 
   <section class="log">
@@ -206,6 +240,7 @@
   </section>
 </div>
 <div class="toast" id="toast"></div>
+<script src="/static/rcmap.js"></script>
 
 <script>
 const $ = id => document.getElementById(id);
@@ -274,6 +309,7 @@ function renderLive() {
       <td class="cl">${c.blackFlag ? `<button data-clear="${c.idx}" title="Sends !clear #${esc(c.num)}">Clear</button>` : ''}</td></tr>`).join('')
     || `<tr><td colspan="8" class="empty">${on ? 'No cars yet' : 'Waiting for iRacing'}</td></tr>`;
   if ($('order')._h !== html) { $('order')._h = html; $('order').innerHTML = html; }
+  renderMap();
   if (cur == null && document.activeElement && !$('det').contains(document.activeElement)) renderDet();   // keep the car list fresh for a new call
 }
 $('order').onclick = e => {
@@ -567,7 +603,28 @@ function renderCalls() {
 }
 $('calls').onclick = e => { const wd = e.target.closest('[data-wd]'); if (wd) return withdraw(wd.dataset.wd); const sd = e.target.closest('[data-send]'); if (sd) sendSim(sd.dataset.send); };
 
-function render() { renderTypes(); renderQueue(); renderDet(); renderCalls(); }
+/* ---------- map tab and pop-out ---------- */
+const SOLO = new URLSearchParams(location.search).get('solo') === 'map';
+let tab = SOLO ? 'map' : load('rcTab', 'order');
+if (SOLO) { document.body.classList.add('solo'); document.title = 'VSPEED Race Control · Map'; }
+function setTab(t) {
+  tab = t; if (!SOLO) store('rcTab', t);
+  document.querySelectorAll('.tabs .tab').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
+  $('orderPane').hidden = t !== 'order'; $('mapPane').hidden = t !== 'map';
+  $('roHint').textContent = t === 'map' ? 'Click a car to put the camera on it. Click a ! to open that incident.'
+    : 'Click a driver to put the camera on them. Double-click for a call that isn\'t from an incident.';
+  renderMap();
+}
+document.querySelector('.tabs').onclick = e => { const b = e.target.closest('.tab'); if (b) setTab(b.dataset.tab); };
+$('mapPop').onclick = () => window.open('/racecontrol?solo=map', 'rcmap', 'width=1280,height=760');
+RCMap.mount($('mapPane'), {
+  onCar: idx => post('/api/camera', { carIdx: idx }),
+  onIncident: id => { if (SOLO) { replay(id); toast('Replaying it in the sim'); } else { open(id); } },
+});
+function renderMap() { if (tab === 'map' || SOLO) RCMap.update(L, RC); }
+
+function render() { renderTypes(); renderQueue(); renderDet(); renderCalls(); renderMap(); }
+setTab(tab);
 connect(); rcFetch(); setInterval(rcFetch, 5000);
 </script>
 </body>
