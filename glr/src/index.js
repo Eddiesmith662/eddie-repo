@@ -42,6 +42,7 @@
  *                                 members site (CORS): for one-time backfills of past races
  *         /login, /auth/callback, /logout    Discord sign-in (auth.js)
  */
+import { latestRelease } from "./release.js";
 import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, importEvent, setSeriesRole, seriesById, seasonsOf,
   getRules, saveRules, seasonEvents, listAdjustments, addAdjustment, deleteAdjustment,
   importOverlay, listKeys, createKey, revokeKey, checkKey, deleteEvent, listFixes, fixResult, FIX_FIELDS, markOfficial, setHook, HOOKS,
@@ -132,7 +133,7 @@ label.up{margin:0 0 0 10px;display:inline;color:var(--link);font-size:13px;curso
 .stw{margin:18px 0 4px;font-size:14px}tr.wd td b,tr.wd td:first-child{text-decoration:line-through;opacity:.6}textarea{width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
 input.search{width:100%;max-width:360px;margin:0 0 12px;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
 __THEME_CSS__</style></head><body><header><a class="brand" href="${BASE}/">__THEME_BRAND__</a>__THEME_SWITCH__<div class="me"><a href="${BASE}/schedule">Schedule</a><a href="${BASE}/drivers">Drivers</a>${user
-  ? `${user.cust ? `<a href="${BASE}/me">My races</a>` : ""}<a href="${BASE}/protests">Protests</a>${user.official ? `<a href="${BASE}/history">History</a>${user.admin ? `<a href="${BASE}/accounts">Accounts</a><a href="${BASE}/keys">Overlay keys</a><a href="${BASE}/settings">Settings</a>` : ""}<a href="${BASE}/upload">Upload results</a>` : ""}<span class="tag">${esc(user.name)}</span><form method="post" action="${BASE}/logout"><button class="link">Sign out</button></form>`
+  ? `${user.cust ? `<a href="${BASE}/me">My races</a>` : ""}<a href="${BASE}/protests">Protests</a>${user.producer || usesRaceControl(user) ? `<a href="${BASE}/downloads">Downloads</a>` : ""}${user.official ? `<a href="${BASE}/history">History</a>${user.admin ? `<a href="${BASE}/accounts">Accounts</a><a href="${BASE}/keys">Overlay keys</a><a href="${BASE}/settings">Settings</a>` : ""}<a href="${BASE}/upload">Upload results</a>` : ""}<span class="tag">${esc(user.name)}</span><form method="post" action="${BASE}/logout"><button class="link">Sign out</button></form>`
   : `<a href="${BASE}/login">Sign in</a>`}</div></header><main>${body}</main></body></html>`,
   { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
 
@@ -371,6 +372,26 @@ function protestsPage(user, { open = [], recent = [], mine = [], steward = false
     + (mine.length ? protestTable(mine) : `<p class="hint">You haven't filed any protests. To file one, open the race's results and go to its stewards' report.</p>`);
   else body += `<p class="hint">Only drivers can file protests. <a href="${BASE}/me/driver?back=${BASE}/protests">Which driver are you?</a></p>`;
   return page("Protests", body, { user });
+}
+
+// who can sign race control in: the race control role, a series director (role + an assigned series), an admin
+const usesRaceControl = user => !!user && (user.steward || (user.directs || []).length > 0);
+
+// the programs, for the accounts that use them: producers the broadcast overlay, stewards race control
+function downloadsPage(user, rel) {
+  const link = what => `<p><a class="btn" href="${esc(rel.url)}" rel="noopener">${what}</a> ${rel.tag ? `<span class="tag">${esc(rel.tag)} · from GitHub</span>` : `<span class="tag">the latest version, on GitHub</span>`}</p>`;
+  const steps = (start, after, signin) => `<ol class="steps">
+    <li>Download the zip. Right-click it &gt; <b>Properties</b> &gt; tick <b>Unblock</b> &gt; <b>OK</b> (otherwise Windows warns about every start file).</li>
+    <li>Extract it to a folder that isn't synced by OneDrive, for example <code>C:\\VSPEED</code>.</li>
+    <li>Double-click <b>${start}</b>. The first start sets itself up in about a minute; leave the window open.${after}</li>
+    <li>${signin}</li></ol>`;
+  let body = `<h1>Downloads</h1><p class="sub">One program with two start files: the broadcast overlay for producers, race control for stewards. Once it's installed, it keeps itself up to date.</p>`;
+  if (user.producer) body += `<h2>Broadcast overlay</h2>` + link("Download the VSPEED broadcast overlay")
+    + steps("start.bat", "", "In the control panel: <b>Setup &gt; League site upload &gt; Sign in with Discord</b>, then press Allow on this site.");
+  if (usesRaceControl(user)) body += `<h2>Race control</h2>` + link("Download VSPEED race control")
+    + steps("start-race-control.bat", " It also puts a <b>VSPEED Race Control</b> shortcut on your desktop: use that from then on.", "Press <b>Sign in</b> on race control's league site bar, then press Allow on this site.");
+  body += `<p class="tag">The zip is the whole VSPEED project, so it also holds the code for this site and the announcer relay: you can ignore those folders.</p>`;
+  return page("Downloads", body, { user });
 }
 
 // asked once after signing in: which driver are you? (or "I don't race")
@@ -1471,6 +1492,11 @@ const site = {
           ev = await getEvent(db, sub);
         }
         return stewardsPage(ev, user, { protests: await listProtests(db, { sub }), steward, msg });
+      }
+      if (path === `${BASE}/downloads`) {
+        if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/downloads`, 302);
+        if (!user.producer && !usesRaceControl(user)) return notFound("Downloads are for producers and race control.", user);
+        return downloadsPage(user, await latestRelease(db));
       }
       if (path === `${BASE}/me/driver`) {
         // which driver are you? Asked once after signing in; open any time from My races or Protests ("Not you?")
