@@ -124,6 +124,40 @@ class Gaps(unittest.TestCase):
         self.assertEqual([c["gap"] for c in cars], ["50.000", "+0.250", "NO TIME"])
 
 
+class StartingPositions(unittest.TestCase):
+    """add_extras: where each car started, overall and within its class (driver info shows the class one in a
+    multi-class race, next to the class place)."""
+    def cars(self):
+        # grid: 1 GTP, 2 GT3, 3 GTP, 4 GT3, 5 GT3; running order now: 4, 1, 2, 5, 3
+        cls = {1: "GTP", 2: "GT3", 3: "GTP", 4: "GT3", 5: "GT3"}
+        now = [4, 1, 2, 5, 3]
+        per = {}
+        out = []
+        for pos, idx in enumerate(now, 1):
+            per[cls[idx]] = per.get(cls[idx], 0) + 1
+            out.append({"idx": idx, "cls": cls[idx], "pos": pos, "classPos": per[cls[idx]], "progress": None})
+        return out
+
+    def test_overall_and_class_start(self):
+        cars = self.cars()
+        server.add_extras(cars, True, [1, 2, 3, 4, 5], {}, {}, 0.0, 0.0)
+        by = {c["idx"]: c for c in cars}
+        self.assertEqual([by[i]["startPos"] for i in (1, 2, 3, 4, 5)], [1, 2, 3, 4, 5])
+        self.assertEqual([by[i]["classStartPos"] for i in (1, 2, 3, 4, 5)], [1, 1, 2, 2, 3])
+        self.assertEqual(by[4]["classGained"], 1)                  # started 2nd in GT3, 1st in GT3 now
+
+    def test_not_in_practice_or_qualifying(self):
+        cars = self.cars()
+        server.add_extras(cars, False, [1, 2, 3, 4, 5], {}, {}, 0.0, 0.0)
+        self.assertTrue(all(c["startPos"] is None and c["classStartPos"] is None for c in cars))
+
+    def test_car_not_on_the_grid(self):
+        cars = self.cars()
+        server.add_extras(cars, True, [1, 2, 3, 4], {}, {}, 0.0, 0.0)   # car 5 joined late
+        c5 = next(c for c in cars if c["idx"] == 5)
+        self.assertEqual((c5["startPos"], c5["classStartPos"]), (None, None))
+
+
 class Formatting(unittest.TestCase):
     def test_fmt_lap(self):
         self.assertEqual(fmt_lap(83.456), "1:23.456")

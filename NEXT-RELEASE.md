@@ -13,4 +13,4 @@ How it works (CLAUDE.md, "Three chats, one repo"):
 
 ## Notes
 
-(Nothing yet. v1.5.38 was published Nov 7, 2026.)
+Driver info now shows where the driver started, next to the gap and lap times: STARTED P12 (STARTS P12 during the pace laps). In a multi-class race it's their starting place in their class, like the class place shown beside it. Races only.

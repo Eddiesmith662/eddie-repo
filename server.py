@@ -1027,6 +1027,7 @@ def add_extras(cars, is_race, start_order, pit_store, speed_store, now_s, track_
         c["startPos"] = sp
         c["gained"] = (sp - c["pos"]) if sp else None
         c["classGained"] = (start_cls[idx] - c["classPos"]) if is_race and idx in start_cls else None
+        c["classStartPos"] = start_cls.get(idx) if is_race else None    # starting place within the class (driver info)
         # speed from how far the car moved around the lap since the last reading, smoothed
         prog, mph = c.get("progress"), None
         prev = speed_store.get(idx)
