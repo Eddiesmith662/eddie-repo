@@ -2,7 +2,8 @@
  * Sign in with Discord. Any member of the league's Discord server can sign in (drivers do, to file protests). What
  * they can do comes from their roles there:
  *   admin role (DISCORD_ROLE_ID)      edits every series, and is a steward everywhere
- *   a series' role (Edit series)      edits that series, and stewards it
+ *   Series official role (Site settings) + an admin's assignment (Accounts)   edits those series, and stewards them
+ *   (before that role is set: each series' own role, from Edit series)
  *   race control role (Site settings) steward for every series: reviews protests and makes decisions
  * Roles are checked again every 15 minutes, so taking one away takes effect within that.
  *
@@ -20,7 +21,7 @@
  *   race control (stewards)      token "vsrc_...", session kind 'rc', link page /rc/link
  *   broadcast overlay (producers) token "vsov_...", session kind 'ov', link page /overlay/link
  */
-import { ensureSchema, seriesRoles, getSetting, linkedDriver, noteAccount } from "./db.js";
+import { ensureSchema, seriesRoles, getSetting, linkedDriver, noteAccount, directorOf } from "./db.js";
 
 const API = "https://discord.com/api/v10";
 const COOKIE = "glr_session", STATE = "glr_state";
@@ -56,8 +57,8 @@ async function schema(db) {
 
 // the roles that matter here: the admin role, any series' role, the race control role and the producer role
 async function relevant(env, roles) {
-  const series = await seriesRoles(env.DB), rc = await getSetting(env.DB, "steward_role"), pr = await getSetting(env.DB, "producer_role");
-  return roles.filter(r => r === env.DISCORD_ROLE_ID || (rc && r === rc) || (pr && r === pr) || series.some(s => s.role_id === r));
+  const series = await seriesRoles(env.DB), rc = await getSetting(env.DB, "steward_role"), pr = await getSetting(env.DB, "producer_role"), so = await getSetting(env.DB, "official_role");
+  return roles.filter(r => r === env.DISCORD_ROLE_ID || (rc && r === rc) || (pr && r === pr) || (so && r === so) || series.some(s => s.role_id === r));
 }
 
 const hex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
@@ -256,10 +257,14 @@ export async function revokeProgramSession(env, id) {
 // connects an overlay), and their linked driver
 async function describe(env, u) {
   const admin = u.roles.includes(env.DISCORD_ROLE_ID);
-  const series = await seriesRoles(env.DB), rc = await getSetting(env.DB, "steward_role"), pr = await getSetting(env.DB, "producer_role");
-  const official = admin || series.some(x => x.role_id && u.roles.includes(x.role_id));
+  const rc = await getSetting(env.DB, "steward_role"), pr = await getSetting(env.DB, "producer_role"), so = await getSetting(env.DB, "official_role");
+  // the series they direct: with the Series official role set, the role plus an admin's assignment; before that, each
+  // series' own role (the old way, until an admin saves the Series official role on Site settings)
+  const directs = so ? (u.roles.includes(so) ? await directorOf(env.DB, u.id) : [])
+    : (await seriesRoles(env.DB)).filter(x => x.role_id && u.roles.includes(x.role_id)).map(x => x.id);
+  const official = admin || directs.length > 0;
   const link = await linkedDriver(env.DB, u.id);
-  return { ...u, admin, official, steward: admin || (!!rc && u.roles.includes(rc)), producer: admin || (!!pr && u.roles.includes(pr)),
+  return { ...u, admin, official, directs, steward: admin || (!!rc && u.roles.includes(rc)), producer: admin || (!!pr && u.roles.includes(pr)),
     cust: link && link.cust_id ? link.cust_id : null, driverName: link ? link.name || "" : "", noDriver: !!link && !link.cust_id };
 }
 
@@ -271,6 +276,6 @@ export async function logout(request, env) {
 }
 
 // may this signed-in person edit this series? (admins: every series)
-export const canEdit = (user, series) => !!user && (user.admin || (!!series && !!series.role_id && user.roles.includes(series.role_id)));
+export const canEdit = (user, series) => !!user && (user.admin || (!!series && (user.directs || []).includes(series.id)));
 // may they review protests and make decisions for this series? (race control role, or the series' officials)
 export const canSteward = (user, series) => !!user && (user.steward || canEdit(user, series));

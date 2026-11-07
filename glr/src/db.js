@@ -78,6 +78,9 @@ const SCHEMA = [
      discord_id TEXT PRIMARY KEY, cust_id INTEGER NOT NULL, discord_name TEXT, linked_at TEXT)`,
   // everyone who has signed in with Discord (the admins' Accounts page), and claims on a driver someone else already has
   `CREATE TABLE IF NOT EXISTS accounts (discord_id TEXT PRIMARY KEY, name TEXT, first_seen TEXT, last_seen TEXT)`,
+  // series directors: which series each official runs (with the Series official role from Site settings)
+  `CREATE TABLE IF NOT EXISTS series_directors (
+     discord_id TEXT NOT NULL, series_id INTEGER NOT NULL, assigned_at TEXT, assigned_by TEXT, PRIMARY KEY (discord_id, series_id))`,
   `CREATE TABLE IF NOT EXISTS link_claims (
      id INTEGER PRIMARY KEY AUTOINCREMENT, discord_id TEXT NOT NULL, discord_name TEXT, cust_id INTEGER NOT NULL,
      created_at TEXT, status TEXT NOT NULL DEFAULT 'open', decided_by TEXT, decided_at TEXT)`,
@@ -957,6 +960,31 @@ export async function listAccounts(db) {
   } catch { /* no sessions table yet */ }
   return (await db.prepare(`SELECT a.*, l.cust_id, l.linked_at, d.name AS driver FROM accounts a LEFT JOIN driver_links l ON l.discord_id = a.discord_id
       LEFT JOIN drivers d ON d.cust_id = l.cust_id ORDER BY a.name COLLATE NOCASE`).all()).results;
+}
+
+// the series an admin has assigned to this Discord account
+export async function directorOf(db, discordId) {
+  await ensureSchema(db);
+  return (await db.prepare(`SELECT series_id FROM series_directors WHERE discord_id = ?`).bind(discordId).all()).results.map(r => r.series_id);
+}
+// every assignment: { discord_id, series_id, name, short_name }
+export async function listDirectors(db) {
+  await ensureSchema(db);
+  return (await db.prepare(`SELECT sd.*, a.name, sr.short_name FROM series_directors sd LEFT JOIN accounts a ON a.discord_id = sd.discord_id
+      JOIN series sr ON sr.id = sd.series_id ORDER BY sr.short_name, a.name COLLATE NOCASE`).all()).results;
+}
+export async function setDirector(db, discordId, seriesId, on, by) {
+  await ensureSchema(db);
+  if (on) await db.prepare(`INSERT OR IGNORE INTO series_directors (discord_id, series_id, assigned_at, assigned_by) VALUES (?, ?, ?, ?)`)
+    .bind(discordId, seriesId, new Date().toISOString(), by).run();
+  else await db.prepare(`DELETE FROM series_directors WHERE discord_id = ? AND series_id = ?`).bind(discordId, seriesId).run();
+}
+// each account's Discord roles, as of their last sign-in check (the Accounts page shows who has the role)
+export async function accountRoles(db) {
+  try {
+    const rows = (await db.prepare(`SELECT discord_id, roles FROM sessions WHERE kind = 'web' ORDER BY checked`).all()).results;
+    return new Map(rows.map(r => [r.discord_id, JSON.parse(r.roles || "[]")]));
+  } catch { return new Map(); }
 }
 
 // claims on a driver someone else is linked to: the open ones, or the one with this id

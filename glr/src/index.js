@@ -48,7 +48,7 @@ import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, i
   logChange, listChanges, whoName, mergeDrivers, separateDriver, aliasesOf, findDrivers,
   seriesEvents, allSeriesEvents, listRoster, addRoster, removeRoster, listSchedule, upcoming, addSchedule, addScheduleLines, deleteSchedule,
   scheduleEntry, linkScheduleTo, getSetting, setSetting, editSchedule,
-  linkDriver, unlinkDriver, setLink, linkedAccount, listAccounts, listClaims, decideClaim, searchDrivers, normName, decisionsFor, fileProtest, listProtests, getProtest, setProtestStatus, listDecisions, addDecision, deleteDecision,
+  linkDriver, unlinkDriver, setLink, linkedAccount, listAccounts, listClaims, decideClaim, directorOf, listDirectors, setDirector, accountRoles, searchDrivers, normName, decisionsFor, fileProtest, listProtests, getProtest, setProtestStatus, listDecisions, addDecision, deleteDecision,
   saveRaceCalls, raceCalls } from "./db.js";
 import { KINDS, AMOUNT, CHANGES_ORDER, decisionText } from "./stewards.js";
 import { resultsPost, standingsPost, penaltyPost, fixPost, decisionPost, enqueue, processQueue, queueFor, retryQueued, discardQueued, isRecent } from "./discord.js";
@@ -192,13 +192,18 @@ function hooksHtml(sr, queue, note) {
     <form method="post" action="#discord" style="display:inline"><input type="hidden" name="action" value="discard"><input type="hidden" name="id" value="${q.id}"><button class="link">Discard</button></form></td></tr>`).join("") + `</table></div>` : ""}`;
 }
 
-function seriesEditPage(sr, user, err = "", queue = [], note = "") {
+// the series edit page's directors list (admins), once the Series official role is set
+const dirOpts = async (db, seriesId) => ({ officialRole: await getSetting(db, "official_role"), directors: (await listDirectors(db)).filter(d => d.series_id === seriesId) });
+
+function seriesEditPage(sr, user, err = "", queue = [], note = "", { officialRole = "", directors = [] } = {}) {
   return page(`Edit ${sr.short_name}`, `<p class="crumb"><a href="${BASE}/">GLR</a> › <a href="${BASE}/${esc(sr.slug)}">${esc(sr.short_name)}</a></p>
     <h1>Edit series</h1><p class="sub">${esc(sr.name)} · iRacing league ${sr.id}</p>${err ? `<div class="msg bad">${esc(err)}</div>` : ""}
     <form method="post"><label for="sn">Short name (shown on the site)</label><input type="text" id="sn" name="short_name" value="${esc(sr.short_name)}" maxlength="40" required>
     <label for="sl">Address: glrhub.app/…</label><input type="text" id="sl" name="slug" value="${esc(sr.slug)}" maxlength="40">
     <p class="tag">Changing the address breaks old links to this series. Race and driver links aren't affected.</p>
-    ${user && user.admin ? `<label for="rl">Discord role for this series' officials (role ID; leave empty for admins only)</label>
+    ${user && user.admin && officialRole ? `<p class="stw"><b>Series directors:</b> ${directors.length ? directors.map(d => esc(d.name || d.discord_id)).join(", ") : "none yet"}. <a href="${BASE}/accounts">Assign on the Accounts page</a>.</p>
+    <p class="tag">Directors need the Series official role in Discord too. They change only their series: its rules, penalties, results uploads and this page.</p>` : ""}
+    ${user && user.admin && !officialRole ? `<p class="tag">Being replaced: once the Series official role is saved on <a href="${BASE}/settings">Settings</a>, admins assign each series' directors on the Accounts page, and this role stops working.</p><label for="rl">Discord role for this series' officials (role ID; leave empty for admins only)</label>
     <input type="text" id="rl" name="role_id" value="${esc(sr.role_id || "")}" maxlength="25" inputmode="numeric">
     <p class="tag">People with this role can sign in and change only this series: its rules, penalties, results uploads and this page. In Discord: Server Settings › Roles › right-click the role › Copy Role ID.</p>` : ""}
     <p><button class="btn">Save</button></p></form>${hooksHtml(sr, queue, note)}`, { user });
@@ -406,7 +411,7 @@ function myRacesPage(user, d, { protests = [], decisions = [] } = {}) {
 }
 
 // admins: every Discord account that has signed in, its driver, and claims on a driver someone else has
-function accountsPage(user, { accounts = [], claims = [], all = [], msg = "" } = {}) {
+function accountsPage(user, { accounts = [], claims = [], all = [], msg = "", series = [], directors = [], roles = new Map(), officialRole = "" } = {}) {
   let body = `<h1>Accounts</h1><p class="sub">Everyone who has signed in with Discord, and which driver they said they are. Only officials see these links.</p>`;
   if (msg) body += `<div class="msg ${/^(Linked|Unlinked|Approved|Rejected|Set)/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>`;
   body += `<h2>Disputes</h2>` + (claims.length ? `<div class="wrap"><table><tr><th>Who</th><th>Says they're</th><th>Linked now to</th><th>Asked</th><th></th></tr>` + claims.map(c => `<tr>
@@ -414,15 +419,30 @@ function accountsPage(user, { accounts = [], claims = [], all = [], msg = "" } =
       <td><form method="post" style="display:inline" onsubmit="return confirm('Give ${esc(String(c.driver || "").replace(/['"\\]/g, ""))} to ${esc(String(c.discord_name || "").replace(/['"\\]/g, ""))}?${c.holder ? " The account linked now is unlinked and asked again." : ""}')"><input type="hidden" name="claim" value="${c.id}"><input type="hidden" name="action" value="approve"><button class="link">Approve</button></form>
       <form method="post" style="display:inline;margin-left:10px"><input type="hidden" name="claim" value="${c.id}"><input type="hidden" name="action" value="reject"><button class="link">Reject</button></form></td></tr>`).join("") + `</table></div>`
     : `<p class="hint">None. When someone says they're a driver who is already linked to another account, it waits here for an admin.</p>`);
+  const short = id => (series.find(x => x.id === id) || {}).short_name || id;
+  // the series each account runs: assigned (with the role), or, before the switch, through each series' old role
+  const directs = a => {
+    if (!officialRole) {
+      const r = roles.get(a.discord_id) || [], old = series.filter(x => x.role_id && r.includes(x.role_id));
+      const mine = directors.filter(d => d.discord_id === a.discord_id);
+      return (old.length ? `<span class="tag">Official now (old role): ${old.map(x => esc(x.short_name)).join(", ")}</span><br>` : "") + dirForm(a, mine);
+    }
+    const has = roles.has(a.discord_id) ? roles.get(a.discord_id).includes(officialRole) : null;
+    const mine = directors.filter(d => d.discord_id === a.discord_id);
+    return dirForm(a, mine) + (mine.length && has === false ? `<br><span class="tag" style="color:#d33">No Series official role in Discord: not active</span>` : "");
+  };
+  const dirForm = (a, mine) => mine.map(d => `<form method="post" style="display:inline;margin-right:8px"><input type="hidden" name="action" value="undirect"><input type="hidden" name="id" value="${esc(a.discord_id)}"><input type="hidden" name="series" value="${d.series_id}">${esc(short(d.series_id))} <button class="link" title="Remove">×</button></form>`).join("")
+    + (series.length > mine.length ? `<form method="post" style="display:inline"><input type="hidden" name="action" value="direct"><input type="hidden" name="id" value="${esc(a.discord_id)}"><select name="series" onchange="this.form.submit()"><option value="">Add series…</option>${series.filter(x => !mine.some(d => d.series_id === x.id)).map(x => `<option value="${x.id}">${esc(x.short_name)}</option>`).join("")}</select></form>` : "");
   const linked = a => a.cust_id ? driverLink(a.cust_id, a.driver || a.cust_id) : a.cust_id === 0 ? `<span class="tag">I don't race</span>` : `<span class="tag">Not answered</span>`;
   body += `<h2>Accounts</h2><input class="search" placeholder="Find a name" data-rows="#acc tr.r">
-    <div class="wrap"><table id="acc"><tr><th>Discord</th><th>Driver</th><th>Last signed in</th><th>Change</th></tr>` + accounts.map(a => `<tr class="r">
-      <td>${esc(a.name || "")}<br><span class="tag">${esc(a.discord_id)}</span></td><td>${linked(a)}</td><td>${day(a.last_seen)}</td>
+    <div class="wrap"><table id="acc"><tr><th>Discord</th><th>Driver</th><th>Directs</th><th>Last signed in</th><th>Change driver</th></tr>` + accounts.map(a => `<tr class="r">
+      <td>${esc(a.name || "")}<br><span class="tag">${esc(a.discord_id)}</span></td><td>${linked(a)}</td><td style="white-space:normal">${directs(a)}</td><td>${day(a.last_seen)}</td>
       <td style="white-space:normal"><form method="post" style="display:inline"><input type="hidden" name="action" value="set"><input type="hidden" name="id" value="${esc(a.discord_id)}">
         <input type="text" name="driver" list="drl" placeholder="Driver name or iRacing ID" autocomplete="off" style="width:200px"> <button class="link">Set</button></form>
         ${a.cust_id != null ? `<form method="post" style="display:inline;margin-left:10px" onsubmit="return confirm('Unlink? They are asked which driver they are at their next sign-in.')"><input type="hidden" name="action" value="unlink"><input type="hidden" name="id" value="${esc(a.discord_id)}"><button class="link">Unlink</button></form>` : ""}</td></tr>`).join("") +
     `</table></div><datalist id="drl"><option value="I don't race">${all.map(x => `<option value="${esc(x.name)} (${x.cust_id})">`).join("")}</datalist>
-    <p class="tag">Setting a driver another account has moves it: that account is unlinked and asked again at its next sign-in. Every change goes in History.</p>` + SORT_JS;
+    <p class="tag">Setting a driver another account has moves it: that account is unlinked and asked again at its next sign-in. Every change goes in History.</p>
+    <p class="tag">Directs: the series this person runs as a series official. ${officialRole ? "They need the Series official role in Discord too." : "Not in use until the Series official role is saved on <a href=\"" + BASE + "/settings\">Settings</a>; until then each series' own role decides, shown as \"Official now (old role)\"."}</p>` + SORT_JS;
   return page("Accounts", body, { user });
 }
 
@@ -959,7 +979,7 @@ function historyPage(rows, user) {
   return page("History", body, { user });
 }
 
-function settingsPage(cur, short, user, msg = "", stewardRole = "", producerRole = "") {
+function settingsPage(cur, short, user, msg = "", stewardRole = "", producerRole = "", officialRole = "") {
   let body = `<h1>Site settings</h1><p class="sub">How the site looks for everyone.</p>${msg ? `<div class="msg ${/^Saved/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>` : ""}
   <form method="post"><fieldset><legend>Theme</legend>${Object.entries(THEMES).map(([k, t]) => `<label class="chk"><input type="radio" name="theme" value="${k}"${k === cur ? " checked" : ""}>
     <span><b>${esc(t.label)}</b> <span class="tag">${esc(t.note)}</span> <a href="${BASE}?theme=${k}" target="_blank">Preview</a></span></label>`).join("")}</fieldset>
@@ -968,6 +988,8 @@ function settingsPage(cur, short, user, msg = "", stewardRole = "", producerRole
   <p class="tag">Stewards review protests and make decisions on each race's stewards' report. Each series' officials can steward their own series too. In Discord: Server Settings › Roles › right-click the role › Copy Role ID.</p>
   <label for="pr">Producer role (Discord role ID; its members can sign a broadcast overlay in to the site)</label><input type="text" id="pr" name="producer_role" value="${esc(producerRole)}" maxlength="25" inputmode="numeric">
   <p class="tag">A signed-in overlay sends race results and shows race control's calls in the penalty box, as that producer. Admins count as producers. Overlay keys still work too.</p>
+  <label for="so">Series official role (Discord role ID; its members run the series an admin assigns them)</label><input type="text" id="so" name="official_role" value="${esc(officialRole)}" maxlength="25" inputmode="numeric">
+  <p class="tag">Assign each director their series on the <a href="${BASE}/accounts">Accounts</a> page. ${officialRole ? "" : "<b>Saving this switches off each series' own role</b> (on its Edit page): assign everyone on the Accounts page first, where you can see who is an official now. "}Taking the role away in Discord removes all their series within 15 minutes.</p>
   <p><button class="btn">Save</button></p></form>`;
   return page("Site settings", body, { user });
 }
@@ -1495,6 +1517,12 @@ const site = {
                 await logChange(db, { by, kind: "account", summary: a === "approve" ? `Admin gave driver ${c.driver} to ${c.discord_name}${c.moved_from ? ` (was linked to ${c.moved_from})` : ""}` : `Admin turned down ${c.discord_name}'s claim to be ${c.driver}` });
                 msg = a === "approve" ? `Approved: ${c.discord_name} is now ${c.driver}.` : `Rejected: ${c.discord_name} isn't linked to ${c.driver}.`;
               }
+            } else if (a === "direct" || a === "undirect") {
+              const id = String(f.get("id")), nm = await nameOf(id), sr = await seriesById(db, Number(f.get("series")));
+              if (!sr) throw new Error("Pick a series.");
+              await setDirector(db, id, sr.id, a === "direct", by);
+              await logChange(db, { by, seriesId: sr.id, kind: "account", summary: a === "direct" ? `Admin made ${nm} a director of ${sr.short_name}` : `Admin removed ${nm} as a director of ${sr.short_name}` });
+              msg = a === "direct" ? `Set: ${nm} directs ${sr.short_name}.` : `Set: ${nm} no longer directs ${sr.short_name}.`;
             } else if (a === "unlink") {
               const id = String(f.get("id")), nm = await nameOf(id);
               await unlinkDriver(db, id);
@@ -1514,7 +1542,8 @@ const site = {
             }
           } catch (e) { msg = e.message; }
         }
-        return accountsPage(user, { accounts: await listAccounts(db), claims: await listClaims(db), all: await findDrivers(db), msg });
+        return accountsPage(user, { accounts: await listAccounts(db), claims: await listClaims(db), all: await findDrivers(db), msg,
+          series: await listSeries(db), directors: await listDirectors(db), roles: await accountRoles(db), officialRole: await getSetting(db, "official_role") });
       }
       if (path === `${BASE}/protests`) {
         if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/protests`, 302);
@@ -1578,10 +1607,11 @@ const site = {
         if (request.method === "POST") {
           if (!sameOrigin(request, url)) return notFound("Save from this page.", user);
           const f = await request.formData(), theme = String(f.get("theme") || ""), short = String(f.get("short") || "").trim().slice(0, 20);
-          const rc = String(f.get("steward_role") || "").trim(), pr = String(f.get("producer_role") || "").trim();
+          const rc = String(f.get("steward_role") || "").trim(), pr = String(f.get("producer_role") || "").trim(), so = String(f.get("official_role") || "").trim();
           if (!THEMES[theme]) msg = "Pick a theme.";
           else if (rc && !/^\d{5,25}$/.test(rc)) msg = "The race control role should be a Discord role ID (numbers only), or empty.";
           else if (pr && !/^\d{5,25}$/.test(pr)) msg = "The producer role should be a Discord role ID (numbers only), or empty.";
+          else if (so && !/^\d{5,25}$/.test(so)) msg = "The series official role should be a Discord role ID (numbers only), or empty.";
           else {
             await setSetting(db, "theme", theme); await setSetting(db, "league_short", short || "GLR");
             if (rc !== await getSetting(db, "steward_role")) {
@@ -1592,18 +1622,22 @@ const site = {
               await setSetting(db, "producer_role", pr);
               await logChange(db, { by: `discord:${user.id}:${user.name}`, kind: "series", summary: pr ? `Producer role set to ${pr}` : "Producer role removed" });
             }
+            if (so !== (await getSetting(db, "official_role") || "")) {
+              await setSetting(db, "official_role", so);
+              await logChange(db, { by: `discord:${user.id}:${user.name}`, kind: "series", summary: so ? `Series official role set to ${so}: directors are now assigned on the Accounts page` : "Series official role removed: each series' own role is used again" });
+            }
             themeCache = null;
             await logChange(db, { by: `discord:${user.id}:${user.name}`, kind: "series", summary: `Site theme set to ${THEMES[theme].label}${short ? `, short name ${short}` : ""}` });
             msg = "Saved.";
           }
         }
         const cur = await siteTheme(db, new URL(url.origin + BASE));
-        return settingsPage(cur.theme, cur.short, user, msg, await getSetting(db, "steward_role"), await getSetting(db, "producer_role"));
+        return settingsPage(cur.theme, cur.short, user, msg, await getSetting(db, "steward_role"), await getSetting(db, "producer_role"), await getSetting(db, "official_role"));
       }
       if (path === `${BASE}/history`) {
         if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/history`, 302);
         if (!user.official) return notFound("History is for series officials.", user);
-        const mine = user.admin ? null : (await listSeries(db)).filter(x => x.role_id && user.roles.includes(x.role_id)).map(x => x.id);
+        const mine = user.admin ? null : user.directs;
         return historyPage(await listChanges(db, { seriesIds: mine }), user);
       }
       if ((m = path.match(/^\/drivers\/(\d+)$/))) {
@@ -1825,7 +1859,7 @@ const site = {
                 await logChange(db, { by: `discord:${user.id}:${user.name}`, seriesId: sr.id, kind: "webhook", summary: `Discord ${kind} webhook ${sr[`hook_${kind}`] ? "replaced" : "set"}` });
               }
             } catch (e) { note = e.message; }
-            return seriesEditPage(await getSeries(db, sr.slug), user, "", await queueFor(db, sr.id), note);
+            return seriesEditPage(await getSeries(db, sr.slug), user, "", await queueFor(db, sr.id), note, await dirOpts(db, sr.id));
           }
           try {
             const who = `discord:${user.id}:${user.name}`;
@@ -1837,9 +1871,9 @@ const site = {
             if (r.shortName !== sr.short_name || r.slug !== sr.slug)
               await logChange(db, { by: who, seriesId: sr.id, kind: "series", summary: `Name or address changed: ${sr.short_name} (/${sr.slug}) → ${r.shortName} (/${r.slug})` });
             return Response.redirect(`${url.origin}${BASE}/${r.slug}`, 303); }
-          catch (e) { return seriesEditPage({ ...sr, short_name: f.get("short_name") || sr.short_name, slug: f.get("slug") || sr.slug }, user, e.message, await queueFor(db, sr.id)); }
+          catch (e) { return seriesEditPage({ ...sr, short_name: f.get("short_name") || sr.short_name, slug: f.get("slug") || sr.slug }, user, e.message, await queueFor(db, sr.id), "", await dirOpts(db, sr.id)); }
         }
-        return seriesEditPage(sr, user, "", await queueFor(db, sr.id));
+        return seriesEditPage(sr, user, "", await queueFor(db, sr.id), "", await dirOpts(db, sr.id));
       }
       if ((m = path.match(/^\/([a-z0-9-]+)$/))) { const sr = await getSeries(db, m[1]); if (sr) return seriesPage(sr, user); }
       return notFound("Check the link.", user);

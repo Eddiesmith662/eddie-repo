@@ -118,3 +118,41 @@ test("a link follows a driver merged into another record", async () => {
   assert.match((await s.page("/")).html, /My races/);
   assert.match(text((await s.page("/me")).html), /iRacing ID 100/);
 });
+
+test("series directors: one Discord role, and an admin assigns each director their series", async () => {
+  const s = await site();
+  await s.addRace({ sub: 9100, date: week(0), league: 5555, leagueName: "GLR Other SERIES", season: 600 });
+  const OFFICIAL = "333333", dir = { id: "70", roles: [OFFICIAL], nick: "Cup Director" };
+  // the old way still works until the role is saved: a series' own role
+  await s.post("/test-cup/edit", { short_name: "Test Cup", slug: "test-cup", role_id: "222222" });
+  await signInTo(s, { id: "71", roles: ["222222"], nick: "Old Official" });
+  await s.post("/me/driver", { cust: "0", back: "/" });
+  assert.ok((await s.page("/test-cup/rules")).html.includes("Save rules"));
+  await signInTo(s, dir);
+  await s.post("/me/driver", { cust: "0", back: "/" });
+  await s.signIn(ADMIN);
+  assert.match(text((await s.page("/accounts")).html), /Old Official .*Official now \(old role\): Test Cup/);
+
+  // the admin assigns the director, then saves the role: the old series role stops working
+  assert.match(text((await s.post("/accounts", { action: "direct", id: "70", series: "4242" })).html), /Set: Cup Director directs Test Cup/);
+  assert.equal((await s.post("/settings", { theme: "glr", short: "GLR", steward_role: "", producer_role: "", official_role: OFFICIAL })).html.includes("Saved"), true);
+  assert.match(text((await s.page("/test-cup/edit")).html), /Series directors: Cup Director/);
+  await signInTo(s, { id: "71", roles: ["222222"], nick: "Old Official" });
+  assert.ok(!(await s.page("/test-cup/rules")).html.includes("Save rules"));
+  await signInTo(s, dir);
+  assert.ok((await s.page("/test-cup/rules")).html.includes("Save rules"));          // their series
+  assert.ok(!(await s.page("/other/rules")).html.includes("Save rules"));            // not another
+  assert.match((await s.page("/")).html, /href="\/history">History/);
+
+  // the assignment without the role does nothing; the role without an assignment does nothing
+  await signInTo(s, { id: "70", roles: [], nick: "Cup Director" });
+  assert.ok(!(await s.page("/test-cup/rules")).html.includes("Save rules"));
+  await s.signIn(ADMIN);
+  assert.match(text((await s.page("/accounts")).html), /No Series official role in Discord: not active/);
+  await s.post("/accounts", { action: "undirect", id: "70", series: "4242" });
+  await signInTo(s, dir);
+  assert.ok(!(await s.page("/test-cup/rules")).html.includes("Save rules"));
+  assert.doesNotMatch((await s.page("/")).html, /History/);
+  await s.signIn(ADMIN);
+  assert.match(text((await s.page("/history")).html), /Admin removed Cup Director as a director of Test Cup/);
+});
