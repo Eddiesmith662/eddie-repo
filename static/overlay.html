@@ -41,14 +41,14 @@
   #logo { top: 30px; left: 40px; transform-origin: left; }
   #logo .plate {
     position: relative; overflow: hidden;
-    width: 330px; height: 72px; background: var(--grey);
+    width: 292px; height: 72px; background: var(--grey);   /* the ticker's width (Nov 7 2026, was 330) */
     transform: skewX(-14deg); transform-origin: left bottom; display: flex; align-items: center; justify-content: center;
     box-shadow: 5px 5px 0 var(--black), 0 4px 18px rgba(0,0,0,.35);   /* hard black drop shadow along the bottom and right */
   }
   #logo .plate img { height: 34px; transform: skewX(14deg); }
   /* straight (non-slanted) version, picked by right-clicking the VSPEED logo tile */
   #logo.straight .plate, #logo.straight .plate img, #logo.straight .accent { transform: none; }
-  #logo .accent { height: 5px; width: 330px; transform: skewX(-14deg); transform-origin: left top; position: relative; }
+  #logo .accent { height: 5px; width: 292px; transform: skewX(-14deg); transform-origin: left top; position: relative; }
   #logo .accent::after { content: ""; position: absolute; left: 0; top: 0; height: 100%; width: 38%; background: var(--red); }
 
   /* ---------- Top right league ---------- */
@@ -62,7 +62,7 @@
   #league .tag.replay { background: var(--blue); color: #fff; }
 
   /* ---------- Timing tower ---------- */
-  #tower { top: 120px; left: 40px; width: 330px; }
+  #tower { top: 120px; left: 40px; width: 292px; }   /* 292: the width Eddie asked for (Nov 7 2026, was 330) */
   #tower .head {
     background: var(--grey); padding: 10px 14px 9px; font-size: 21px; text-transform: uppercase;
     letter-spacing: .5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; position: relative;
@@ -115,13 +115,13 @@
   .row > *:not(.bg) { position: relative; }
   .row .pos { width: 42px; height: 100%; display: flex; align-items: center; justify-content: center; background: var(--poscol); font-size: 18px; }
   .row .cls { width: 4px; height: 100%; }
-  .row .num { width: 46px; text-align: center; color: var(--midgrey); font-size: 17px; }
+  .row .num { width: 40px; text-align: center; color: var(--midgrey); font-size: 17px; }
   .row .name { flex: 1; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; letter-spacing: .3px; }
-  .row .gap { width: 92px; text-align: right; padding-right: 12px; font-family: var(--light); font-weight: 300; font-size: 17px; font-variant-numeric: tabular-nums; }
+  .row .gap { width: 80px; text-align: right; padding-right: 12px; font-family: var(--light); font-weight: 300; font-size: 17px; font-variant-numeric: tabular-nums; }
   /* pit road: the gap cell becomes a blue pit tag (box timer, then the stop time) */
-  /* a tighter box than the gap column (78px + 14px gap = the same 92px), text centred */
+  /* a tighter box than the gap column (70px + 10px gap = the same 80px), text centred */
   .row .gap.pitc { align-self: stretch; display: flex; align-items: center; justify-content: center; background: var(--blue); color: #fff;
-                   width: 78px; margin-left: 14px; padding: 0 6px; white-space: nowrap;
+                   width: 70px; margin-left: 10px; padding: 0 6px; white-space: nowrap;
                    font-family: var(--semi); font-weight: 600; font-size: 16px; letter-spacing: .5px; }
   .row .gap.pitc.pitdone { background: #111; box-shadow: inset 4px 0 0 var(--blue); }
   .row .pit { font-size: 12px; background: var(--blue); color: #fff; padding: 1px 6px; margin-right: 6px; letter-spacing: 1px; display: none; }
@@ -247,18 +247,19 @@
   #pitrace .sh { display: flex; background: var(--black); font-family: var(--light); font-weight: 300; font-size: 11px; padding: 4px 0; letter-spacing: 1px; }
   #pitrace .r { display: flex; align-items: center; height: var(--row); font-size: 17px; background: #1e1e1f; }   /* solid: the ticker rows are underneath */
   #pitrace .r:nth-child(odd) { background: #151515; }
-  #pitrace .c1 { width: 38px; text-align: center; }
+  /* columns trimmed with the narrower ticker (Nov 7 2026) so names keep their room: 34 / 34 / 48 / 56 (were 38 / 40 / 52 / 62) */
+  #pitrace .c1 { width: 34px; text-align: center; }
   #pitrace .r .c1 { background: #080808; height: 100%; display: flex; align-items: center; justify-content: center; }
   #pitrace .cc { width: 4px; align-self: stretch; }
-  #pitrace .c2 { width: 40px; text-align: center; color: var(--midgrey); }
+  #pitrace .c2 { width: 34px; text-align: center; color: var(--midgrey); }
   #pitrace .sh .c2 { color: #fff; }
   #pitrace .c3 { flex: 1; min-width: 0; padding-left: 2px; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #pitrace .c5 { width: 52px; text-align: center; }
+  #pitrace .c5 { width: 48px; text-align: center; }
   #pitrace .r .c5 { height: 100%; display: flex; align-items: center; justify-content: center; font-size: 15px; color: #888; }
   #pitrace .r .c5.up { background: #1b3a26; color: var(--green); }
   #pitrace .r .c5.dn { background: #3d1820; color: #ff5a6e; }
   #pitrace .r .c5.pen { background: #fff; color: #111; font-size: 9px; letter-spacing: .5px; }
-  #pitrace .c6 { width: 62px; text-align: right; padding-right: 10px; font-variant-numeric: tabular-nums; }
+  #pitrace .c6 { width: 56px; text-align: right; padding-right: 10px; font-variant-numeric: tabular-nums; }
   #pitrace .r .c6 { font-family: var(--light); font-weight: 300; font-size: 16px; }
   #pitrace .r .c6.best { color: #c86bff; font-family: var(--semi); font-weight: 600; }   /* fastest stop, like a fastest lap */
   #pitrace .ft { background: var(--black); font-family: var(--light); font-weight: 300; font-size: 13px; padding: 6px 12px; letter-spacing: .3px; color: #ddd; line-height: 1.35; }
@@ -277,14 +278,15 @@
   #livepts .r.cutafter:last-child::after { bottom: 0; }          /* the cutoff is the last place shown: line along the bottom edge */
   #livepts .r.cutbefore::before { content: ""; position: absolute; left: 0; right: 0; top: 0; height: 4px; background: var(--red); z-index: 2; }   /* the cutoff is just above the first place shown */
   #livepts .r.away .c3 { color: #9a9a9a; }                     /* in the standings but not in this race */
-  #livepts .c1 { width: 38px; text-align: center; }
+  /* columns trimmed with the narrower ticker (Nov 7 2026) so names keep their room: 34 / 34 / 44 / 60 (were 38 / 40 / 46 / 64) */
+  #livepts .c1 { width: 34px; text-align: center; }
   #livepts .r .c1 { background: #080808; height: 100%; display: flex; align-items: center; justify-content: center; }
-  #livepts .c2 { width: 40px; text-align: center; color: var(--midgrey); }
+  #livepts .c2 { width: 34px; text-align: center; color: var(--midgrey); }
   #livepts .sh .c2 { color: #fff; }
   #livepts .r.qual .c2 { color: #b9d3b7; }
   #livepts .c3 { flex: 1; min-width: 0; padding-left: 2px; text-transform: uppercase; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-  #livepts .c4 { width: 46px; text-align: right; font-variant-numeric: tabular-nums; }
-  #livepts .c5 { width: 64px; text-align: right; padding-right: 10px; font-variant-numeric: tabular-nums; }
+  #livepts .c4 { width: 44px; text-align: right; font-variant-numeric: tabular-nums; }
+  #livepts .c5 { width: 60px; text-align: right; padding-right: 10px; font-variant-numeric: tabular-nums; }
   #livepts .r .c5 { font-family: var(--light); font-weight: 300; font-size: 15px; }
   #livepts .r .c5.neg { color: #ff8a96; }
   #livepts .r .c5.lock { font-family: var(--semi); font-weight: 600; font-size: 12px; letter-spacing: .5px; }
@@ -460,6 +462,26 @@ function lastName(n) {
 function tickerName(n) {   // first initial + last name: Ryan Carter -> R. CARTER
   const first = cleanName(n).split(/\s+/)[0] || '', last = lastName(n);
   return first && first.toUpperCase() !== last ? first[0].toUpperCase() + '. ' + last : last;
+}
+/* A name too wide for its cell is squeezed narrower instead of being cut off: at most 15% narrower, and past that it
+   ends in "…" as before. The ticker is narrower since Nov 7 2026 (292 px), and long surnames such as T. STUBBLEFIELD
+   no longer fit Live points or Race off pit road. Used on the ticker's names and both panels' name column.
+   Each cell is worked out once per name (the cell remembers it), all cells read first and then all changed, so it
+   doesn't make the page lay out again for every row. */
+const SQUEEZE_MIN = 0.85;
+function fitNames(els) {
+  const todo = [...els].filter(el => el && el.dataset.fit !== el.textContent);
+  todo.forEach(el => { el.style.flex = el.style.marginRight = el.style.transform = ''; });
+  const sizes = todo.map(el => [el.clientWidth, el.scrollWidth]);
+  todo.forEach((el, i) => {
+    const [room, need] = sizes[i];
+    if (!room) return;                         // not laid out yet: try again next time
+    el.dataset.fit = el.textContent;
+    if (need <= room) return;
+    // drawn narrower by k, but laid out k times wider and pulled back, so the columns after it don't move
+    const k = Math.max(SQUEEZE_MIN, room / need), w = room / k;
+    Object.assign(el.style, { flex: `0 0 ${w}px`, marginRight: `${room - w}px`, transform: `scaleX(${k})`, transformOrigin: 'left center' });
+  });
 }
 /* ---------- in / out animations ----------
    show(id, on) plays the widget's intro or exit once per change (like the standings,
@@ -884,7 +906,9 @@ function renderTower() {
     el.children[1].textContent = S.classFilter || multi ? c.classPos : c.pos;
     el.children[2].style.background = multi ? (c.clsColor || 'transparent') : 'transparent';
     el.children[3].textContent = c.num;
-    el.children[4].textContent = tickerName(c.name);
+    const nm = tickerName(c.name);
+    if (el.children[4].textContent !== nm) el.children[4].textContent = nm;
+    fitNames([el.children[4]]);
     const inClass = !!S.classFilter || split;
     const g = S.towerMode === 'leader' ? (inClass ? c.classGap : c.gap) : (inClass ? c.classInterval : c.interval);
     // pit road: the gap cell turns blue and shows PIT, the running box time, then the final stop time
@@ -1116,9 +1140,10 @@ function renderPitrace() {
       (r.penalty ? '<span class="c5 pen">PENALTY</span>' : `<span class="c5 ${r.gained > 0 ? 'up' : r.gained < 0 ? 'dn' : ''}">${r.gained > 0 ? '▲ ' + r.gained : r.gained < 0 ? '▼ ' + -r.gained : '–'}</span>`) +
       `<span class="c6 ${r.stop != null && r.stop === best ? 'best' : ''}">${r.stop != null ? r.stop.toFixed(1) + 's' : ''}</span></div>`).join('') +
     (stayed.length ? `<div class="ft"><b>STAYED OUT</b>${stayed.slice(0, 6).map(c => '#' + esc(c.num)).join('  ')}${stayed.length > 6 ? '  +' + (stayed.length - 6) + ' more' : ''}</div>` : '');
-  if ($('prBody').innerHTML !== html) {
+  if ($('prBody')._html !== html) {        // what was written last (the page's own HTML changes when a name is squeezed)
     const had = $('prBody').querySelectorAll('.r').length, sameCycle = renderPitrace.key === (isLive ? 'L' : 'F') + P.liveLap + P.listLap;
-    $('prBody').innerHTML = html;
+    $('prBody').innerHTML = $('prBody')._html = html;
+    fitNames($('prBody').querySelectorAll('.r .c3'));
     if (sameCycle && VIS.pitrace && VIS.pitrace.on)    // a car just came off pit road: its row slides in
       // (the row itself stays solid so the ticker underneath never shows through; its contents slide in)
       [...$('prBody').querySelectorAll('.r')].slice(had).forEach((r, i) => [...r.children].forEach(x => anim(x, [{ opacity: 0, transform: 'translateX(-24px)' }, { opacity: 1, transform: 'none' }], { duration: 420, delay: i * 80 })));
@@ -1165,7 +1190,10 @@ function renderLivePoints() {
       (r.status === 'lock' ? '<span class="c5 lock"><span>IN</span></span>' : r.status === 'champ' ? '<span class="c5 lock champ"><span>CHAMP</span></span>'
         : r.cut === 'MISSED' ? '<span class="c5 lock missed"><span>MISSED</span></span>'
         : `<span class="c5 ${/^-/.test(r.cut) ? 'neg' : ''}">${esc(r.cut)}</span>`) + '</div>').join('');
-  if ($('lpBody').innerHTML !== html) $('lpBody').innerHTML = html;
+  if ($('lpBody')._html !== html) {        // what was written last (the page's own HTML changes when a name is squeezed)
+    $('lpBody').innerHTML = $('lpBody')._html = html;
+    fitNames($('lpBody').querySelectorAll('.r .c3'));
+  }
 }
 
 /* ---------- biggest movers: top 5 positions gained since the start ---------- */
