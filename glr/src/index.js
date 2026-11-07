@@ -1,43 +1,43 @@
 /*
- * VSPEED GLR league site (vspeedlivetiming.app/glr).
+ * VSPEED GLR league site (glrhub.app (and vspeedlivetiming.app/glr, which forwards)).
  *
  * Pages:  /glr                    every series with its latest race, then the latest races
- *         /glr/<series>           one series (its short address, e.g. /glr/arca): seasons and races
- *         /glr/<series>/standings  standings for a season (?season=<id>, newest by default), by class when multi-class
- *         /glr/<series>/schedule  the series' races: upcoming, and completed ones linked to their results
- *         /glr/schedule           the league calendar: every series' upcoming races
- *         /glr/<series>/stats     driver stats for a season or all seasons (?season=<id>|all)
- *         /glr/<series>/drivers   everyone who has raced in the series, plus drivers its officials have added
- *         /glr/drivers            the league driver list: every driver in every series
- *         /glr/<series>/rules     the season's points and playoff rules; that series' officials can change them
- *         /glr/<series>/penalties points penalties and adjustments, with reasons
- *         /glr/<series>/edit      officials: the series' short name and address; admins: its Discord role
- *         /glr/results/<session>  one race (iRacing subsession id), split by class in a multi-class race
- *         /glr/results/<session>/stewards  the stewards' report: protests and decisions; drivers file protests here,
+ *         /<series>           one series (its short address, e.g. /arca): seasons and races
+ *         /<series>/standings  standings for a season (?season=<id>, newest by default), by class when multi-class
+ *         /<series>/schedule  the series' races: upcoming, and completed ones linked to their results
+ *         /schedule           the league calendar: every series' upcoming races
+ *         /<series>/stats     driver stats for a season or all seasons (?season=<id>|all)
+ *         /<series>/drivers   everyone who has raced in the series, plus drivers its officials have added
+ *         /drivers            the league driver list: every driver in every series
+ *         /<series>/rules     the season's points and playoff rules; that series' officials can change them
+ *         /<series>/penalties points penalties and adjustments, with reasons
+ *         /<series>/edit      officials: the series' short name and address; admins: its Discord role
+ *         /results/<session>  one race (iRacing subsession id), split by class in a multi-class race
+ *         /results/<session>/stewards  the stewards' report: protests and decisions; drivers file protests here,
  *                                 stewards decide them
- *         /glr/protests           signed in: stewards see open protests, drivers see their own
- *         /glr/drivers/<cust id>  one driver: every name they've raced under, stats and races by series
- * Data:   /glr/api/series, /glr/api/series/<series>, /glr/api/events, /glr/api/results/<session>,
- *         /glr/api/drivers/<cust id>, /glr/api/standings/<series>?season=<id>   (the same, as JSON)
- *         /glr/health
- *         /glr/upload             officials upload iRacing result files (JSON or CSV)
- *         /glr/keys               admins: overlay keys, for producers' overlays to send their race results
- *         /glr/<series>/widget/standings|schedule|results   small pages to embed on a website or use in OBS/vMix
+ *         /protests           signed in: stewards see open protests, drivers see their own
+ *         /drivers/<cust id>  one driver: every name they've raced under, stats and races by series
+ * Data:   /api/series, /api/series/<series>, /api/events, /api/results/<session>,
+ *         /api/drivers/<cust id>, /api/standings/<series>?season=<id>   (the same, as JSON)
+ *         /health
+ *         /upload             officials upload iRacing result files (JSON or CSV)
+ *         /keys               admins: overlay keys, for producers' overlays to send their race results
+ *         /<series>/widget/standings|schedule|results   small pages to embed on a website or use in OBS/vMix
  *                                 (?rows=10&bg=transparent|page&theme=glr|vspeed&class=GT3&refresh=60)
- *         /glr/<series>/embed     the widgets with options, a preview and the code to paste
- *         /glr/settings           admins: the site's theme, the league's short name and the race control role
- *         /glr/theme/<file>       the themes' images (the GLR logo)
- *         /glr/history            officials: who changed what (admins: every series; series officials: their own)
- *         /glr/api/overlay/results  POST from an overlay (Authorization: Bearer <key>): provisional results
- *         /glr/api/overlay/check    GET with the same header: is this key good?
- *         /glr/api/overlay/calls/<session>  GET with the same header: race control's calls on a race (penalty box)
- *         /glr/api/rc/...           race control (Authorization: Bearer vsrc_...): link + link/poll to sign in, check,
+ *         /<series>/embed     the widgets with options, a preview and the code to paste
+ *         /settings           admins: the site's theme, the league's short name and the race control role
+ *         /theme/<file>       the themes' images (the GLR logo)
+ *         /history            officials: who changed what (admins: every series; series officials: their own)
+ *         /api/overlay/results  POST from an overlay (Authorization: Bearer <key>): provisional results
+ *         /api/overlay/check    GET with the same header: is this key good?
+ *         /api/overlay/calls/<session>  GET with the same header: race control's calls on a race (penalty box)
+ *         /api/rc/...           race control (Authorization: Bearer vsrc_...): link + link/poll to sign in, check,
  *                                   signout, races/<session> (PUT the race's calls, GET every call on it). See the plan
  *                                   doc, "Sending calls to the site (phase 5c)".
- *         /glr/rc/link?code=...     where a steward presses Allow for race control on their PC
- *         /glr/api/import         POST official iRacing results (the results JSON) with an import key, from the iRacing
+ *         /rc/link?code=...     where a steward presses Allow for race control on their PC
+ *         /api/import         POST official iRacing results (the results JSON) with an import key, from the iRacing
  *                                 members site (CORS): for one-time backfills of past races
- *         /glr/login, /glr/auth/callback, /glr/logout    Discord sign-in (auth.js)
+ *         /login, /auth/callback, /logout    Discord sign-in (auth.js)
  */
 import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, importEvent, setSeriesRole, seriesById, seasonsOf,
   getRules, saveRules, seasonEvents, listAdjustments, addAdjustment, deleteAdjustment,
@@ -57,7 +57,10 @@ import { parseExport, parseOverlay } from "./parse.js";
 import { configured, login, callback, currentUser, logout, canEdit, canSteward, cookies,
   raceControlUser, rcLinkStart, rcLinkPoll, rcLinkFind, rcLinkAllow, rcSignOut, listRcSessions, revokeRcSession } from "./auth.js";
 
-const BASE = "/glr";
+// the site sits at the front of its own domain (glrhub.app, Nov 7 2026); it was vspeedlivetiming.app/glr before
+const BASE = "";
+export const SITE = "https://glrhub.app";
+const OLD_HOST = "vspeedlivetiming.app", OLD_BASE = "/glr";
 const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const json = (obj, status = 200) => new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json", "cache-control": "no-store" } });
 
@@ -125,7 +128,7 @@ label.up{margin:0 0 0 10px;display:inline;color:var(--link);font-size:13px;curso
 .protest details{margin-top:6px}.protest summary{cursor:pointer;color:var(--link);font-size:14px}.dec .grid select,.dec .grid input,.dec input[type=text]{width:100%}
 .stw{margin:18px 0 4px;font-size:14px}tr.wd td b,tr.wd td:first-child{text-decoration:line-through;opacity:.6}textarea{width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
 input.search{width:100%;max-width:360px;margin:0 0 12px;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
-__THEME_CSS__</style></head><body><header><a class="brand" href="${BASE}">__THEME_BRAND__</a>__THEME_SWITCH__<div class="me"><a href="${BASE}/schedule">Schedule</a><a href="${BASE}/drivers">Drivers</a>${user
+__THEME_CSS__</style></head><body><header><a class="brand" href="${BASE}/">__THEME_BRAND__</a>__THEME_SWITCH__<div class="me"><a href="${BASE}/schedule">Schedule</a><a href="${BASE}/drivers">Drivers</a>${user
   ? `<a href="${BASE}/protests">Protests</a>${user.official ? `<a href="${BASE}/history">History</a>${user.admin ? `<a href="${BASE}/keys">Overlay keys</a><a href="${BASE}/settings">Settings</a>` : ""}<a href="${BASE}/upload">Upload results</a>` : ""}<span class="tag">${esc(user.name)}</span><form method="post" action="${BASE}/logout"><button class="link">Sign out</button></form>`
   : `<a href="${BASE}/login">Sign in</a>`}</div></header><main>${body}</main></body></html>`,
   { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
@@ -133,7 +136,7 @@ __THEME_CSS__</style></head><body><header><a class="brand" href="${BASE}">__THEM
 const notFound = (what, user) => page("Not found", `<h1>Not found</h1><p class="sub">${esc(what)}</p>`, { status: 404, user });
 const driverLink = (id, name) => `<a href="${BASE}/drivers/${id}">${esc(name)}</a>`;
 const seriesLink = e => e.slug ? `<a href="${BASE}/${esc(e.slug)}">${esc(e.short_name)}</a>` : esc(e.series_name || "");
-const crumb = e => e.slug ? `<p class="crumb"><a href="${BASE}">GLR</a> › <a href="${BASE}/${esc(e.slug)}">${esc(e.short_name)}</a></p>` : "";
+const crumb = e => e.slug ? `<p class="crumb"><a href="${BASE}/">GLR</a> › <a href="${BASE}/${esc(e.slug)}">${esc(e.short_name)}</a></p>` : "";
 const cls = c => c ? `<span class="cls">${esc(c)}</span>` : "";
 const prov = e => e.status === "provisional" ? `<span class="prov" title="Sent by a producer's overlay. Replaced by the iRacing results file when it's uploaded.">Provisional</span>` : "";
 // "Name" for one winner; "[LMP2] Name · [GT3] Name" for a multi-class race
@@ -187,10 +190,10 @@ function hooksHtml(sr, queue, note) {
 }
 
 function seriesEditPage(sr, user, err = "", queue = [], note = "") {
-  return page(`Edit ${sr.short_name}`, `<p class="crumb"><a href="${BASE}">GLR</a> › <a href="${BASE}/${esc(sr.slug)}">${esc(sr.short_name)}</a></p>
+  return page(`Edit ${sr.short_name}`, `<p class="crumb"><a href="${BASE}/">GLR</a> › <a href="${BASE}/${esc(sr.slug)}">${esc(sr.short_name)}</a></p>
     <h1>Edit series</h1><p class="sub">${esc(sr.name)} · iRacing league ${sr.id}</p>${err ? `<div class="msg bad">${esc(err)}</div>` : ""}
     <form method="post"><label for="sn">Short name (shown on the site)</label><input type="text" id="sn" name="short_name" value="${esc(sr.short_name)}" maxlength="40" required>
-    <label for="sl">Address: vspeedlivetiming.app/glr/…</label><input type="text" id="sl" name="slug" value="${esc(sr.slug)}" maxlength="40">
+    <label for="sl">Address: glrhub.app/…</label><input type="text" id="sl" name="slug" value="${esc(sr.slug)}" maxlength="40">
     <p class="tag">Changing the address breaks old links to this series. Race and driver links aren't affected.</p>
     ${user && user.admin ? `<label for="rl">Discord role for this series' officials (role ID; leave empty for admins only)</label>
     <input type="text" id="rl" name="role_id" value="${esc(sr.role_id || "")}" maxlength="25" inputmode="numeric">
@@ -404,7 +407,7 @@ function seriesTabs(sr, on, seasons, seasonId, user) {
   const pick = !["results", "drivers", "schedule"].includes(on) && opts.length > 1 ? `<form class="season" method="get"><select name="season" onchange="this.form.submit()">${opts.map(se =>
     `<option value="${se.id}"${se.id === seasonId ? " selected" : ""}>${esc(se.name)}</option>`).join("")}</select></form>` : "";
   const logo = ASSETS[`series-${sr.id}.png`] ? `<img class="shlogo" src="${BASE}/theme/series-${sr.id}.png" alt="${esc(sr.short_name)} logo">` : "";
-  return `<p class="crumb"><a href="${BASE}">GLR</a></p><div class="shead">${logo}<div><h1>${esc(sr.short_name)}</h1><p class="sub">${esc(sr.name)}${canEdit(user, sr) ? ` · <a href="${BASE}/${esc(sr.slug)}/edit">Edit series</a> · <a href="${BASE}/${esc(sr.slug)}/embed">Embed on a website</a>` : ""}</p></div></div>
+  return `<p class="crumb"><a href="${BASE}/">GLR</a></p><div class="shead">${logo}<div><h1>${esc(sr.short_name)}</h1><p class="sub">${esc(sr.name)}${canEdit(user, sr) ? ` · <a href="${BASE}/${esc(sr.slug)}/edit">Edit series</a> · <a href="${BASE}/${esc(sr.slug)}/embed">Embed on a website</a>` : ""}</p></div></div>
     <nav class="tabs">${t("results", "Results", "")}${t("schedule", "Schedule", "/schedule")}${t("standings", "Standings", "/standings")}${t("stats", "Stats", "/stats")}${t("drivers", "Drivers", "/drivers")}${t("rules", "Rules", "/rules")}${t("penalties", "Penalties", "/penalties")}${pick}</nav>`;
 }
 
@@ -913,7 +916,7 @@ const MOON = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 14.5A8 8 
 const MODE_SWITCH = `<button type="button" class="mode" id="modeSw" role="switch" aria-checked="false" aria-label="Dark mode" title="Dark mode">
 <span class="knob">${SUN}${MOON}</span></button><script>(()=>{const b=document.getElementById("modeSw"),h=document.documentElement,
 show=()=>b.setAttribute("aria-checked",h.classList.contains("dark"));show();b.onclick=()=>{const d=h.classList.toggle("dark");show();
-try{document.cookie="glr_mode="+(d?"dark":"light")+";path=${BASE};max-age=31536000;samesite=lax"}catch(e){}}})()</script>`;
+try{document.cookie="glr_mode="+(d?"dark":"light")+";path=/;max-age=31536000;samesite=lax"}catch(e){}}})()</script>`;
 async function applyTheme(res, db, url, request) {
   if (!(res.headers.get("content-type") || "").startsWith("text/html")) return res;
   const { theme, short } = await siteTheme(db, url), t = THEMES[theme];
@@ -1067,7 +1070,7 @@ function rcLinkPage(code, user, { done = false, msg = "" } = {}) {
   if (done) return page("Race control sign-in", body + `<div class="msg ok">Done. Race control on that PC is signed in as ${esc(user.name)}. You can close this page.</div>`, { user });
   body += `<p class="sub">Race control on a PC is asking to send calls to this site as you, <b>${esc(user.name)}</b>.</p>
     <p>Check this code matches the one race control shows:</p><p style="font:700 28px/1.2 'JetBrains Mono',monospace;letter-spacing:.08em">${esc(code)}</p>
-    <form method="post"><input type="hidden" name="code" value="${esc(code)}"><p><button class="btn">Allow</button> <a href="${BASE}">Cancel</a></p></form>
+    <form method="post"><input type="hidden" name="code" value="${esc(code)}"><p><button class="btn">Allow</button> <a href="${BASE}/">Cancel</a></p></form>
     <p class="tag">It keeps working while you have a steward role in the league's Discord. Sign it out in race control, or on the Keys page.</p>`;
   return page("Race control sign-in", body, { user });
 }
@@ -1078,6 +1081,18 @@ const site = {
   },
 
   async fetch(request, env, ctx) {
+    const u = new URL(request.url);
+    if (u.hostname === OLD_HOST) {
+      if (u.pathname !== OLD_BASE && !u.pathname.startsWith(OLD_BASE + "/")) return new Response("Not found", { status: 404 });
+      const rest = u.pathname.slice(OLD_BASE.length) || "/";
+      // overlays and race control already out there send to vspeedlivetiming.app/glr/api/...: a program can't follow a
+      // forward with what it sent, so these are answered here, as if they came to glrhub.app
+      if (rest.startsWith("/api/")) {
+        request = new Request(SITE + rest + u.search, request);
+        return applyTheme(await site.route(request, env, ctx), env.DB, new URL(request.url), request);
+      }
+      return Response.redirect(SITE + rest + u.search, 301);     // pages, widgets, sign-in: the same page on glrhub.app
+    }
     return applyTheme(await site.route(request, env, ctx), env.DB, new URL(request.url), request);
   },
 
@@ -1095,7 +1110,7 @@ const site = {
       let m;
       if (path === `${BASE}/login`) {
         if (!configured(env)) return page("Sign in", `<h1>Sign in</h1><p class="sub">Discord sign-in isn't set up yet.</p>`);
-        return login(env, url, url.searchParams.get("back") || BASE);
+        return login(env, url, url.searchParams.get("back") || "/");
       }
       if (path === `${BASE}/auth/callback`) {
         if (!configured(env)) return notFound("Discord sign-in isn't set up yet.");
@@ -1134,7 +1149,7 @@ const site = {
       }
       // the broadcast overlay reads race control's calls for the race it's showing (for the penalty box). Same as race
       // control's GET, without the stewards' names.
-      if ((m = path.match(/^\/glr\/api\/overlay\/calls\/(\d+)$/))) {
+      if ((m = path.match(/^\/api\/overlay\/calls\/(\d+)$/))) {
         if (!await checkKey(db, bearer(request), "overlay", false) && !await raceControlUser(request, env))
           return json({ ok: false, error: "The site doesn't recognise this key. Make a new one on the site's Overlay keys page." }, 401);
         const calls = (await raceCalls(db, Number(m[1]))).map(({ madeBy, withdrawnBy, ...c }) => c);
@@ -1190,7 +1205,7 @@ const site = {
           if (!mine.length) return json({ ok: false, error: "You don't have a steward role in the league's Discord any more." }, 403);
           return json({ ok: true, user: { id: rcu.id, name: rcu.name }, series: rcu.steward ? "all" : mine.map(x => x.id) });
         }
-        if ((m = path.match(/^\/glr\/api\/rc\/races\/(\d+)$/))) {
+        if ((m = path.match(/^\/api\/rc\/races\/(\d+)$/))) {
           const sub = Number(m[1]), by = `discord:${rcu.id}:${rcu.name}`;
           if (request.method === "PUT") {
             let file;
@@ -1256,15 +1271,15 @@ const site = {
       if (path === `${BASE}/api/me`) return json({ ok: true, user, signIn: configured(env) });
       if (path === `${BASE}/api/events`) return json({ ok: true, events: await listEvents(db, { season: Number(url.searchParams.get("season")) || 0 }) });
       if (path === `${BASE}/api/series`) return json({ ok: true, series: (await listSeries(db)).map(pub) });
-      if ((m = path.match(/^\/glr\/api\/series\/([a-z0-9-]+)$/))) { const sr = await getSeries(db, m[1]); return sr ? json({ ok: true, series: pub(sr) }) : json({ ok: false, error: "No such series" }, 404); }
-      if ((m = path.match(/^\/glr\/api\/results\/(\d+)$/))) { const ev = await getEvent(db, Number(m[1])); if (ev) ev.decisions = ev.decisions.map(({ made_by, adj_id, ...d }) => d); return ev ? json({ ok: true, event: ev }) : json({ ok: false, error: "No such race" }, 404); }
-      if ((m = path.match(/^\/glr\/api\/drivers\/(\d+)$/))) { const d = await getDriver(db, Number(m[1])); return d ? json({ ok: true, driver: d }) : json({ ok: false, error: "No such driver" }, 404); }
-      if (path === BASE) {
+      if ((m = path.match(/^\/api\/series\/([a-z0-9-]+)$/))) { const sr = await getSeries(db, m[1]); return sr ? json({ ok: true, series: pub(sr) }) : json({ ok: false, error: "No such series" }, 404); }
+      if ((m = path.match(/^\/api\/results\/(\d+)$/))) { const ev = await getEvent(db, Number(m[1])); if (ev) ev.decisions = ev.decisions.map(({ made_by, adj_id, ...d }) => d); return ev ? json({ ok: true, event: ev }) : json({ ok: false, error: "No such race" }, 404); }
+      if ((m = path.match(/^\/api\/drivers\/(\d+)$/))) { const d = await getDriver(db, Number(m[1])); return d ? json({ ok: true, driver: d }) : json({ ok: false, error: "No such driver" }, 404); }
+      if (path === "/") {
         const next = new Map();
         for (const r of await upcoming(db, 120)) if (!next.has(r.series_id)) next.set(r.series_id, r);
         return homePage(await listSeries(db), await listEvents(db, { limit: 15 }), user, next);
       }
-      if ((m = path.match(/^\/glr\/results\/(\d+)\/stewards$/))) {
+      if ((m = path.match(/^\/results\/(\d+)\/stewards$/))) {
         const sub = Number(m[1]);
         let ev = await getEvent(db, sub);
         if (!ev) return notFound("No race with that session number has been uploaded.", user);
@@ -1333,7 +1348,7 @@ const site = {
         return protestsPage(user, { steward, msg, open: list.filter(p => p.status === "open"), recent: list.filter(p => p.status !== "open").slice(0, 30),
           mine: user.cust ? await listProtests(db, { filer: user.cust, limit: 50 }) : [] });
       }
-      if ((m = path.match(/^\/glr\/results\/(\d+)$/))) {
+      if ((m = path.match(/^\/results\/(\d+)$/))) {
         const sub = Number(m[1]);
         let ev = await getEvent(db, sub);
         if (!ev) return notFound("No race with that session number has been uploaded.", user);
@@ -1374,7 +1389,7 @@ const site = {
         }
         return resultPage(ev, user, { fixes: await listFixes(db, sub), edit, msg, score: await raceScore(db, ev) });
       }
-      if ((m = path.match(/^\/glr\/theme\/([\w.-]+)$/))) {
+      if ((m = path.match(/^\/theme\/([\w.-]+)$/))) {
         const a = ASSETS[m[1]];
         if (!a) return new Response("Not found", { status: 404 });
         return new Response(Uint8Array.from(atob(a.data), c => c.charCodeAt(0)), { headers: { "content-type": a.type, "cache-control": "public, max-age=86400" } });
@@ -1409,7 +1424,7 @@ const site = {
         const mine = user.admin ? null : (await listSeries(db)).filter(x => x.role_id && user.roles.includes(x.role_id)).map(x => x.id);
         return historyPage(await listChanges(db, { seriesIds: mine }), user);
       }
-      if ((m = path.match(/^\/glr\/drivers\/(\d+)$/))) {
+      if ((m = path.match(/^\/drivers\/(\d+)$/))) {
         const cust = Number(m[1]);
         let msg = "";
         if (request.method === "POST") {
@@ -1437,7 +1452,7 @@ const site = {
         }
         return driverPage(d, user, user && user.admin ? { aliases: await aliasesOf(db, cust), all: await findDrivers(db), msg } : {});
       }
-      if ((m = path.match(/^\/glr\/api\/standings\/([a-z0-9-]+)$/))) {
+      if ((m = path.match(/^\/api\/standings\/([a-z0-9-]+)$/))) {
         const sr = await getSeries(db, m[1]);
         if (!sr) return json({ ok: false, error: "No such series" }, 404);
         const seasons = await seasonsOf(db, sr.id), season = pickSeason(seasons, url);
@@ -1447,7 +1462,7 @@ const site = {
       }
       if (path === `${BASE}/schedule`) return leagueSchedulePage(await upcoming(db), user);
       if (path === `${BASE}/api/schedule`) return json({ ok: true, races: (await upcoming(db)).map(r => ({ series: r.short_name, slug: r.slug, startsAt: r.starts_at, track: r.track, notes: r.notes })) });
-      if ((m = path.match(/^\/glr\/(?:api\/series\/)?([a-z0-9-]+)\/schedule$/))) {
+      if ((m = path.match(/^\/(?:api\/series\/)?([a-z0-9-]+)\/schedule$/))) {
         const sr = await getSeries(db, m[1]), api = path.startsWith(`${BASE}/api/`);
         if (!sr) return api ? json({ ok: false, error: "No such series" }, 404) : notFound("No series at that address.", user);
         let msg = "";
@@ -1479,7 +1494,7 @@ const site = {
         const w = new Map((await listEvents(db, { series: sr.id })).map(e => [e.subsession_id, e.winners]));
         return schedulePage(sr, rows, w, user, msg);
       }
-      if ((m = path.match(/^\/glr\/([a-z0-9-]+)\/widget\/(standings|schedule|results)$/))) {
+      if ((m = path.match(/^\/([a-z0-9-]+)\/widget\/(standings|schedule|results)$/))) {
         const sr = await getSeries(db, m[1]);
         if (!sr) return new Response("No such series", { status: 404 });
         const rows = Math.max(1, Math.min(60, Number(url.searchParams.get("rows")) || 10));
@@ -1493,7 +1508,7 @@ const site = {
         const last = (await listEvents(db, { series: sr.id, limit: 1 }))[0];
         return widgetPage(`${sr.short_name} results`, resultsWidget(sr, last && await getEvent(db, last.subsession_id), rows), opts);
       }
-      if ((m = path.match(/^\/glr\/([a-z0-9-]+)\/embed$/))) {
+      if ((m = path.match(/^\/([a-z0-9-]+)\/embed$/))) {
         const sr = await getSeries(db, m[1]);
         if (!sr) return notFound("No series at that address.", user);
         const classes = [...new Set((await seriesEvents(db, sr.id)).slice(-3).flatMap(e => e.results.map(r => r.car_class || "")))].filter(Boolean);
@@ -1501,7 +1516,7 @@ const site = {
       }
       if (path === `${BASE}/drivers`) return leagueDriversPage(await leagueDrivers(db), user);
       if (path === `${BASE}/api/drivers`) return json({ ok: true, drivers: await leagueDrivers(db) });
-      if ((m = path.match(/^\/glr\/(?:api\/series\/)?([a-z0-9-]+)\/(stats|drivers)$/))) {
+      if ((m = path.match(/^\/(?:api\/series\/)?([a-z0-9-]+)\/(stats|drivers)$/))) {
         const sr = await getSeries(db, m[1]), api = path.startsWith(`${BASE}/api/`);
         if (!sr) return api ? json({ ok: false, error: "No such series" }, 404) : notFound("No series at that address.", user);
         if (m[2] === "stats") {
@@ -1533,7 +1548,7 @@ const site = {
           added: roster.map(r => ({ custId: r.cust_id, name: r.name, number: r.car_number })) });
         return seriesDriversPage(sr, rows, roster, user, msg);
       }
-      if ((m = path.match(/^\/glr\/([a-z0-9-]+)\/(standings|rules|penalties)$/))) {
+      if ((m = path.match(/^\/([a-z0-9-]+)\/(standings|rules|penalties)$/))) {
         const sr = await getSeries(db, m[1]);
         if (!sr) return notFound("No series at that address.", user);
         const seasons = await seasonsOf(db, sr.id), season = pickSeason(seasons, url);
@@ -1599,7 +1614,7 @@ const site = {
         }
         return penaltiesPage(sr, seasons, season, season ? await listAdjustments(db, season.id) : [], events, user);
       }
-      if ((m = path.match(/^\/glr\/([a-z0-9-]+)\/edit$/))) {
+      if ((m = path.match(/^\/([a-z0-9-]+)\/edit$/))) {
         const sr = await getSeries(db, m[1]);
         if (!sr) return notFound("No series at that address.", user);
         if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${encodeURIComponent(path)}`, 302);
@@ -1643,7 +1658,7 @@ const site = {
         }
         return seriesEditPage(sr, user, "", await queueFor(db, sr.id));
       }
-      if ((m = path.match(/^\/glr\/([a-z0-9-]+)$/))) { const sr = await getSeries(db, m[1]); if (sr) return seriesPage(sr, user); }
+      if ((m = path.match(/^\/([a-z0-9-]+)$/))) { const sr = await getSeries(db, m[1]); if (sr) return seriesPage(sr, user); }
       return notFound("Check the link.", user);
     } catch (e) {
       console.error(e);

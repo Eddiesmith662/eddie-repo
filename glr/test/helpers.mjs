@@ -5,7 +5,7 @@ import worker from "../src/index.js";
 import { parseExport } from "../src/parse.js";
 import { importEvent } from "../src/db.js";
 
-export const ORIGIN = "https://vspeedlivetiming.app";
+export const ORIGIN = "https://glrhub.app";
 export const ADMIN_ROLE = "111111";
 
 // driver i: cust_id 100+i, "Racer A", "Racer B", ...
@@ -73,9 +73,9 @@ export function makeSite() {
   s.signIn = async (who) => {
     if (who) s.who = who;
     s.cookie = "";
-    const r = await s.go("/glr/login");
+    const r = await s.go("/login");
     const state = new URL(r.headers.get("location")).searchParams.get("state");
-    return (await s.go("/glr/auth/callback?code=x&state=" + state)).status;
+    return (await s.go("/auth/callback?code=x&state=" + state)).status;
   };
   s.post = async (path, fields) => {
     const fd = new FormData();
@@ -85,7 +85,7 @@ export function makeSite() {
   };
   s.upload = async (text, name = "results.json") => {
     const fd = new FormData(); fd.append("file", new Blob([text]), name);
-    const r = await s.go("/glr/api/upload", { method: "POST", body: fd, headers: { origin: ORIGIN } });
+    const r = await s.go("/api/upload", { method: "POST", body: fd, headers: { origin: ORIGIN } });
     return { status: r.status, body: await r.json() };
   };
   s.addRace = (opts, by = "") => importEvent(DB, parseExport(raceExport(opts)), by);

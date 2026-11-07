@@ -38,13 +38,13 @@ export function resultsPost(ev, origin, fixes = []) {
   const fast = race.filter(r => r.best_lap_ms > 0).sort((a, b) => a.best_lap_ms - b.best_lap_ms)[0];
   if (fast) fields.push({ name: "Fastest lap", value: `${car(fast)}${md(fast.name)} (${(fast.best_lap_ms / 1000).toFixed(3)})`, inline: true });
   if (fixes.length) fields.push({ name: "Corrected", value: fixes.map(f => `${md(f.name)}: ${md(f.reason)}`).join("\n").slice(0, 1024) });
-  return { embeds: [{ title: `${ev.short_name || "Results"}: ${ev.track}`, url: `${origin}/glr/results/${ev.subsession_id}`, color: COLOR,
+  return { embeds: [{ title: `${ev.short_name || "Results"}: ${ev.track}`, url: `${origin}/results/${ev.subsession_id}`, color: COLOR,
     description: (desc + facts).slice(0, 4000), fields, footer: { text: "Official results · VSPEED GLR" } }] };
 }
 
 // standings after a race: the current playoff round with its cut line, or the top of the regular season
 export function standingsPost(sr, season, st, ev, origin) {
-  const url = `${origin}/glr/${sr.slug}/standings`;
+  const url = `${origin}/${sr.slug}/standings`;
   const embeds = st.groups.slice(0, 9).map(g => {
     const p = g.playoffs, po = st.rules.playoffs;
     let title, lines;
@@ -75,20 +75,20 @@ export function standingsPost(sr, season, st, ev, origin) {
 }
 
 export function penaltyPost(sr, ev, a, origin) {
-  return { embeds: [{ title: `${sr.short_name}: ${a.points < 0 ? "penalty" : "points adjustment"}`, url: `${origin}/glr/${sr.slug}/penalties`, color: COLOR,
+  return { embeds: [{ title: `${sr.short_name}: ${a.points < 0 ? "penalty" : "points adjustment"}`, url: `${origin}/${sr.slug}/penalties`, color: COLOR,
     description: `${a.car_number ? `#${md(a.car_number)} ` : ""}**${md(a.name)}**: ${a.points > 0 ? "+" : "−"}${Math.abs(a.points)} points\n${md(ev.track)}, ${day(ev.start_time)}\n\n${md(a.reason)}`,
     footer: { text: "VSPEED GLR" } }] };
 }
 
 // a stewards' decision (warnings and penalties; "no action" isn't posted)
 export function decisionPost(sr, ev, d, origin) {
-  return { embeds: [{ title: `${sr.short_name}: stewards' decision`, url: `${origin}/glr/results/${ev.subsession_id}/stewards`, color: COLOR,
+  return { embeds: [{ title: `${sr.short_name}: stewards' decision`, url: `${origin}/results/${ev.subsession_id}/stewards`, color: COLOR,
     description: `${d.car_number ? `#${md(d.car_number)} ` : ""}**${md(d.name)}**: ${md(d.text)}\n${md(ev.track)}, ${day(ev.start_time)}\n\n${md(d.reason)}`,
     footer: { text: "VSPEED GLR stewards" } }] };
 }
 
 export function fixPost(sr, ev, name, change, reason, origin) {
-  return { embeds: [{ title: `${sr.short_name}: result corrected`, url: `${origin}/glr/results/${ev.subsession_id}`, color: COLOR,
+  return { embeds: [{ title: `${sr.short_name}: result corrected`, url: `${origin}/results/${ev.subsession_id}`, color: COLOR,
     description: `**${md(name)}** at ${md(ev.track)}, ${day(ev.start_time)}\n${md(change)}\n\n${md(reason)}`, footer: { text: "VSPEED GLR" } }] };
 }
 

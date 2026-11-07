@@ -9,7 +9,7 @@
  * rules) and brand(short) (the header's left side). A light theme can add dark (rules under html.dark): visitors then
  * get a dark mode switch in the header.
  */
-const BASE = "/glr";
+const BASE = "";      // the site is at the front of glrhub.app
 
 export const THEMES = {
   vspeed: {
