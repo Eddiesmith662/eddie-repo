@@ -180,14 +180,31 @@ function seriesPage(sr, user) {
 }
 
 const HOOK_LABEL = { results: "Results (when a race is official: podium, class winners, top 10)", standings: "Standings (after each official race)", teams: "Team standings (after each official race)", penalties: "Penalties and result fixes (when an official adds one)" };
+// posts that can be sent again by hand for the latest official race (Send latest): a missed post, or one on demand
+const LATEST = ["results", "standings", "teams"];
+async function postLatest(db, sr, kind, origin) {
+  const last = (await listEvents(db, { series: sr.id })).find(e => e.status === "official");
+  if (!last) throw new Error("This series has no official race yet.");
+  const ev = await getEvent(db, last.subsession_id);
+  const season = { id: ev.season_id, name: ev.season_name || "" };
+  if (kind === "results") await enqueue(db, sr.id, "results", "results", ev.subsession_id, resultsPost(ev, origin, await listFixes(db, ev.subsession_id)));
+  else if (kind === "standings") await enqueue(db, sr.id, "standings", "standings", ev.subsession_id, standingsPost(sr, season, await seasonStandings(db, sr, season), ev, origin));
+  else if (kind === "teams") {
+    const teams = await getTeams(db, sr.id, ev.season_id);
+    if (!teams.length) throw new Error("This season has no teams yet.");
+    await enqueue(db, sr.id, "teams", "teams", ev.subsession_id, teamStandingsPost(sr, season, teamStandings(teams, await seasonStandings(db, sr, season)), ev, origin));
+  } else throw new Error("That post can't be sent by hand.");
+  return ev;
+}
+
 function hooksHtml(sr, queue, note) {
   const masked = u => { const m = /\/webhooks\/(\d+)\/([\w-]+)$/.exec(u || ""); return m ? `Saved (…${esc(m[2].slice(-4))})` : ""; };
-  return `<h2 id="discord">Discord posts</h2>${note ? `<div class="msg ${/^(Saved|Removed|Test sent)/.test(note) ? "ok" : "bad"}">${esc(note)}</div>` : ""}
+  return `<h2 id="discord">Discord posts</h2>${note ? `<div class="msg ${/^(Saved|Removed|Test sent|Sent:)/.test(note) ? "ok" : "bad"}">${esc(note)}</div>` : ""}
   <p class="tag">Paste a webhook link for each channel to post to (in Discord: the channel's settings › Integrations › Webhooks › New Webhook › Copy Webhook URL). The same link can go in more than one box. Anyone with the link can post in that channel, so it's kept like a password and never shown again. Only races from the last 7 days post, so uploading an old season stays quiet.</p>
   ${HOOKS.filter(k => k !== "teams" || sr.teams).map(k => `<form method="post" action="#discord" class="hook"><input type="hidden" name="action" value="hook"><input type="hidden" name="kind" value="${k}">
     <label for="h_${k}">${HOOK_LABEL[k]}${sr[`hook_${k}`] ? ` · <b>${masked(sr[`hook_${k}`])}</b>` : ""}</label>
     <div class="row2"><input type="text" id="h_${k}" name="url" placeholder="${sr[`hook_${k}`] ? "Paste a new link to replace it" : "https://discord.com/api/webhooks/…"}" autocomplete="off" spellcheck="false">
-    <button class="btn">Save</button>${sr[`hook_${k}`] ? `<button class="btn ghost" name="test" value="1">Send test</button><button class="btn ghost" name="clear" value="1" onclick="return confirm('Stop posting these?')">Remove</button>` : ""}</div></form>`).join("")}
+    <button class="btn">Save</button>${sr[`hook_${k}`] ? `<button class="btn ghost" name="test" value="1">Send test</button>${LATEST.includes(k) ? `<button class="btn ghost" name="latest" value="1" onclick="return confirm('Post the ${k === "teams" ? "team standings" : k} for the latest official race to this channel now?')">Send latest</button>` : ""}<button class="btn ghost" name="clear" value="1" onclick="return confirm('Stop posting these?')">Remove</button>` : ""}</div></form>`).join("")}
   ${queue.length ? `<h2>Waiting to post</h2><div class="wrap"><table><tr><th>Post</th><th>Race</th><th>Problem</th><th></th></tr>` + queue.map(q => `<tr><td>${esc(q.kind)}</td>
     <td>${q.subsession_id ? `<a href="${BASE}/results/${q.subsession_id}">${q.subsession_id}</a>` : ""}</td><td style="white-space:normal">${esc(q.last_error || (q.attempts ? "" : "Sending…"))}${q.next_try > 8e15 ? " <b>(stopped)</b>" : ""}</td>
     <td><form method="post" action="#discord" style="display:inline"><input type="hidden" name="action" value="retry"><input type="hidden" name="id" value="${q.id}"><button class="link">Try again</button></form> ·
@@ -1954,6 +1971,13 @@ const site = {
               else if (act === "discard") await discardQueued(db, sr.id, Number(f.get("id")));
               else if (f.get("clear")) { await setHook(db, sr.id, kind, ""); note = "Removed.";
                 await logChange(db, { by: `discord:${user.id}:${user.name}`, seriesId: sr.id, kind: "webhook", summary: `Discord ${kind} posts switched off` }); }
+              else if (f.get("latest")) {
+                const ev = await postLatest(db, sr, kind, url.origin);
+                const out = await processQueue(db);
+                const what = kind === "teams" ? "Team standings" : kind[0].toUpperCase() + kind.slice(1);
+                await logChange(db, { by: `discord:${user.id}:${user.name}`, seriesId: sr.id, sub: ev.subsession_id, kind: "webhook", summary: `${what} for ${ev.track} posted to Discord by hand` });
+                note = out.includes("sent") ? `Sent: ${what.toLowerCase()} for ${ev.track}, ${day(ev.start_time)}. Check the channel.` : "It didn't go through; see Waiting to post below.";
+              }
               else if (f.get("test")) {
                 await enqueue(db, sr.id, kind, "test", null, { embeds: [{ title: `${sr.short_name}: test post`, color: 0xFF0D40,
                   description: `This channel will get the ${sr.short_name} ${kind === "teams" ? "team standings" : kind} posts from the VSPEED GLR site.`, url: `${url.origin}${BASE}/${sr.slug}` }] });

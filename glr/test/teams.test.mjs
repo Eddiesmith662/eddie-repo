@@ -135,3 +135,20 @@ test("embed codes and widget links use glrhub.app, not the old address", async (
   }
   assert.doesNotMatch(e, /vspeedlivetiming/);
 });
+
+test("Send latest posts the real results, standings or team standings for the latest official race", async () => {
+  const s = makeSite();
+  await s.signIn({ id: "1", roles: [ADMIN_ROLE], nick: "Test Admin" });
+  await s.addRace({ sub: 9001, date: week(0), order: [0, 1, 2, 3] });             // an old race: never posted on its own
+  const hook = "https://discord.com/api/webhooks/123456/abcdefghijklmnopqrstuvwxyz";
+  for (const kind of ["results", "standings", "penalties"]) await s.post("/test-cup/edit", { action: "hook", kind, url: hook });
+  const edit = (await s.page("/test-cup/edit")).html;
+  assert.equal((edit.match(/>Send latest</g) || []).length, 2);                   // results and standings; not penalties
+  for (const [kind, title] of [["results", /Test Oval/], ["standings", /Standings · 1 race/]]) {
+    s.sent.length = 0;
+    const r = await s.post("/test-cup/edit", { action: "hook", kind, url: "", latest: "1" });
+    assert.match(text(r.html), /Sent: .* for Test Oval/);
+    assert.match(JSON.parse(s.sent.find(x => x.url.startsWith(hook)).body).embeds[0].title, title);
+  }
+  assert.match(text((await s.page("/history")).html), /Standings for Test Oval posted to Discord by hand/);
+});
