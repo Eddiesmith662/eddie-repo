@@ -57,15 +57,17 @@
   #logo .recap { position: absolute; left: 273px; top: 0; width: 630px; height: 72px; z-index: 1; pointer-events: none; }
   #logo .recap.on { visibility: visible; }               /* shows even when the VSPEED logo itself is switched off */
   #logo .recap .clip { position: absolute; inset: 0; overflow: hidden; }
-  #logo .recap .bar { position: absolute; inset: 0; background: #000; display: flex; align-items: center; gap: 34px; padding-left: 60px;
+  #logo .recap .bar { position: absolute; inset: 0; background: #000; display: flex; align-items: center; gap: 26px; padding-left: 60px;
                       transform: translateX(-101%); transition: transform .45s cubic-bezier(.6,0,.8,.3); }
   #logo .recap.on .bar { transform: none; transition: transform .6s cubic-bezier(.2,.8,.2,1) .05s; }
   #logo .recap .ttl { display: flex; flex-direction: column; font-family: var(--semi); font-weight: 700; font-style: italic; font-size: 25px;
                       line-height: 1.02; letter-spacing: .5px; text-transform: uppercase; color: #fff; }
   #logo .recap .ttl span:last-child { color: var(--red); }
-  #logo .recap .st { display: flex; align-items: baseline; gap: 34px; white-space: nowrap; text-transform: uppercase; color: #fff;
-                     font-family: var(--light); font-weight: 300; font-size: 24px; letter-spacing: 1px; }
-  #logo .recap .st b { font-family: var(--semi); font-weight: 600; font-size: 34px; letter-spacing: 0; margin-right: 9px; }
+  /* the words the same height as the numbers (28 px both, so two-digit counts still fit the bar); cautions in yellow */
+  #logo .recap .st { display: flex; align-items: baseline; gap: 26px; white-space: nowrap; text-transform: uppercase; color: #fff;
+                     font-family: var(--light); font-weight: 300; font-size: 28px; letter-spacing: .5px; }
+  #logo .recap .st b { font-family: var(--semi); font-weight: 600; font-size: 28px; letter-spacing: 0; margin-right: 8px; }
+  #logo .recap .st .cau { color: var(--yellow); }
 
   /* ---------- Top right league ---------- */
   #league { top: 30px; right: 40px; display: flex; flex-direction: column; align-items: center; }
@@ -1380,8 +1382,8 @@ function renderRecap() {
   const on = !!S.show.recap && !!r && !covered && (LAYOUT_MODE || (L.connected && L.isRace));
   $('recap').classList.toggle('on', on);
   if (!r) return;
-  const part = (n, one, many) => `<span><b>${n}</b>${n === 1 ? one : many}</span>`;
-  const html = part(r.cautions, 'Caution', 'Cautions') + part(r.leadChanges, 'Lead change', 'Lead changes');
+  const part = (n, one, many, cls) => `<span class="${cls}"><b>${n}</b>${n === 1 ? one : many}</span>`;
+  const html = part(r.cautions, 'Caution', 'Cautions', 'cau') + part(r.leadChanges, 'Lead change', 'Lead changes', 'lc');
   if ($('rcText')._html !== html) $('rcText').innerHTML = $('rcText')._html = html;
 }
 
