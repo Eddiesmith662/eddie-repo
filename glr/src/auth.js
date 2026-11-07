@@ -20,7 +20,7 @@
  *   race control (stewards)      token "vsrc_...", session kind 'rc', link page /rc/link
  *   broadcast overlay (producers) token "vsov_...", session kind 'ov', link page /overlay/link
  */
-import { ensureSchema, seriesRoles, getSetting, linkedDriver } from "./db.js";
+import { ensureSchema, seriesRoles, getSetting, linkedDriver, noteAccount } from "./db.js";
 
 const API = "https://discord.com/api/v10";
 const COOKIE = "glr_session", STATE = "glr_state";
@@ -112,7 +112,11 @@ export async function callback(request, env, url) {
     .bind(await sha256(token), user.id, mem.nick || name, user.avatar || "", tok.access_token, tok.refresh_token || "",
           now + (tok.expires_in || 0) * 1000, now, now + DAYS * 864e5, now, JSON.stringify(roles)).run();
   await env.DB.prepare(`DELETE FROM sessions WHERE expires < ?`).bind(now).run();
-  return { response: redirect(decodeURIComponent(back || "/"), [setCookie(COOKIE, token, DAYS * 86400), setCookie(STATE, "", 0)]) };
+  await noteAccount(env.DB, user.id, mem.nick || name);
+  // asked once, right after signing in: which driver are they? (not on the way to allowing race control or the overlay)
+  let to = decodeURIComponent(back || "/");
+  if (!/^\/(rc|overlay)\/link/.test(to) && !await linkedDriver(env.DB, user.id)) to = "/me/driver?first=1&back=" + encodeURIComponent(to);
+  return { response: redirect(to, [setCookie(COOKIE, token, DAYS * 86400), setCookie(STATE, "", 0)]) };
 }
 
 // the signed-in person (browser cookie), or null. Re-asks Discord about their roles every 15 minutes.
@@ -256,7 +260,7 @@ async function describe(env, u) {
   const official = admin || series.some(x => x.role_id && u.roles.includes(x.role_id));
   const link = await linkedDriver(env.DB, u.id);
   return { ...u, admin, official, steward: admin || (!!rc && u.roles.includes(rc)), producer: admin || (!!pr && u.roles.includes(pr)),
-    cust: link ? link.cust_id : null, driverName: link ? link.name || "" : "" };
+    cust: link && link.cust_id ? link.cust_id : null, driverName: link ? link.name || "" : "", noDriver: !!link && !link.cust_id };
 }
 
 // POST /logout

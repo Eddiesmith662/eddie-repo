@@ -76,6 +76,11 @@ const SCHEMA = [
   // stewarding: which iRacing driver a Discord member is, protests they file, and the stewards' decisions
   `CREATE TABLE IF NOT EXISTS driver_links (
      discord_id TEXT PRIMARY KEY, cust_id INTEGER NOT NULL, discord_name TEXT, linked_at TEXT)`,
+  // everyone who has signed in with Discord (the admins' Accounts page), and claims on a driver someone else already has
+  `CREATE TABLE IF NOT EXISTS accounts (discord_id TEXT PRIMARY KEY, name TEXT, first_seen TEXT, last_seen TEXT)`,
+  `CREATE TABLE IF NOT EXISTS link_claims (
+     id INTEGER PRIMARY KEY AUTOINCREMENT, discord_id TEXT NOT NULL, discord_name TEXT, cust_id INTEGER NOT NULL,
+     created_at TEXT, status TEXT NOT NULL DEFAULT 'open', decided_by TEXT, decided_at TEXT)`,
   `CREATE TABLE IF NOT EXISTS protests (
      id INTEGER PRIMARY KEY AUTOINCREMENT, subsession_id INTEGER NOT NULL, series_id INTEGER,
      filed_by TEXT NOT NULL, filer_cust INTEGER NOT NULL, against_cust INTEGER, lap TEXT NOT NULL DEFAULT '',
@@ -646,6 +651,10 @@ export async function mergeDrivers(db, keep, drop, by) {
     db.prepare(`INSERT OR REPLACE INTO driver_aliases (from_cust, to_cust, merged_at, merged_by) VALUES (?, ?, ?, ?)`).bind(drop, keep, new Date().toISOString(), by),
     db.prepare(`DELETE FROM driver_names WHERE cust_id = ?`).bind(drop),
     db.prepare(`DELETE FROM drivers WHERE cust_id = ?`).bind(drop),
+    // a Discord account linked to the merged record follows it, unless someone is already linked to the kept one
+    db.prepare(`UPDATE driver_links SET cust_id = ?1 WHERE cust_id = ?2 AND NOT EXISTS (SELECT 1 FROM driver_links WHERE cust_id = ?1)`).bind(keep, drop),
+    db.prepare(`DELETE FROM driver_links WHERE cust_id = ?`).bind(drop),
+    db.prepare(`UPDATE link_claims SET cust_id = ? WHERE cust_id = ?`).bind(keep, drop),
   ]);
   await rebuildNames(db, keep);
   return { kept: a.name, merged: b.name };
@@ -869,22 +878,139 @@ export async function setSetting(db, key, value) {
 
 /* ---------- stewarding: protests and decisions ---------- */
 
-// which iRacing driver a signed-in Discord member is (they pick themselves once, the first time they file a protest)
+// which iRacing driver a signed-in Discord member is. They're asked once, right after their first sign-in.
+// cust_id 0 means they answered "I don't race".
 export async function linkedDriver(db, discordId) {
   await ensureSchema(db);
   return db.prepare(`SELECT l.*, d.name FROM driver_links l LEFT JOIN drivers d ON d.cust_id = l.cust_id WHERE l.discord_id = ?`).bind(discordId).first();
 }
+
+// a Discord account signed in (the Accounts page lists everyone who has)
+export async function noteAccount(db, discordId, name) {
+  await ensureSchema(db);
+  const now = new Date().toISOString();
+  await db.prepare(`INSERT INTO accounts (discord_id, name, first_seen, last_seen) VALUES (?1, ?2, ?3, ?3)
+      ON CONFLICT(discord_id) DO UPDATE SET name = ?2, last_seen = ?3`).bind(discordId, name || "", now).run();
+}
+
+/**
+ * Someone says which driver they are (cust 0: "I don't race"). A driver who is already linked to another account
+ * isn't moved: it becomes a claim for an admin to decide. Returns { linked } or { claim, holder }.
+ */
 export async function linkDriver(db, discordId, discordName, cust) {
   await ensureSchema(db);
-  if (!await db.prepare(`SELECT 1 AS ok FROM drivers WHERE cust_id = ?`).bind(cust).first()) throw new Error("Pick yourself from the list.");
-  const taken = await db.prepare(`SELECT discord_name FROM driver_links WHERE cust_id = ? AND discord_id <> ?`).bind(cust, discordId).first();
-  if (taken) throw new Error(`That driver is already linked to another Discord account (${taken.discord_name}). Ask an admin if that's wrong.`);
-  await db.prepare(`INSERT INTO driver_links (discord_id, cust_id, discord_name, linked_at) VALUES (?1, ?2, ?3, ?4)
-      ON CONFLICT(discord_id) DO UPDATE SET cust_id = ?2, discord_name = ?3, linked_at = ?4`).bind(discordId, cust, discordName, new Date().toISOString()).run();
+  cust = Number(cust) || 0;
+  if (cust && !await db.prepare(`SELECT 1 AS ok FROM drivers WHERE cust_id = ?`).bind(cust).first()) throw new Error("Pick yourself from the list.");
+  const taken = cust ? await db.prepare(`SELECT discord_name FROM driver_links WHERE cust_id = ? AND discord_id <> ?`).bind(cust, discordId).first() : null;
+  const now = new Date().toISOString();
+  if (taken) {
+    if (!await db.prepare(`SELECT 1 AS ok FROM link_claims WHERE discord_id = ? AND cust_id = ? AND status = 'open'`).bind(discordId, cust).first())
+      await db.prepare(`INSERT INTO link_claims (discord_id, discord_name, cust_id, created_at) VALUES (?, ?, ?, ?)`).bind(discordId, discordName, cust, now).run();
+    return { claim: true, holder: taken.discord_name || "" };
+  }
+  await db.batch([
+    db.prepare(`INSERT INTO driver_links (discord_id, cust_id, discord_name, linked_at) VALUES (?1, ?2, ?3, ?4)
+      ON CONFLICT(discord_id) DO UPDATE SET cust_id = ?2, discord_name = ?3, linked_at = ?4`).bind(discordId, cust, discordName, now),
+    // they settled on an answer: any claim they were waiting on is dropped
+    db.prepare(`UPDATE link_claims SET status = 'dropped', decided_at = ? WHERE discord_id = ? AND status = 'open'`).bind(now, discordId),
+  ]);
+  return { linked: true };
+}
+
+// an admin sets an account's driver (cust 0: "doesn't race"). Whoever had that driver before is unlinked and asked
+// again at their next sign-in. Returns that account's name, or "".
+export async function setLink(db, discordId, cust) {
+  await ensureSchema(db);
+  cust = Number(cust) || 0;
+  if (cust && !await db.prepare(`SELECT 1 AS ok FROM drivers WHERE cust_id = ?`).bind(cust).first()) throw new Error("No driver with that iRacing ID.");
+  const prev = cust ? await db.prepare(`SELECT discord_id, discord_name FROM driver_links WHERE cust_id = ? AND discord_id <> ?`).bind(cust, discordId).first() : null;
+  const acc = await db.prepare(`SELECT name FROM accounts WHERE discord_id = ?`).bind(discordId).first();
+  const name = acc ? acc.name : (await db.prepare(`SELECT discord_name FROM driver_links WHERE discord_id = ?`).bind(discordId).first() || {}).discord_name || "";
+  const now = new Date().toISOString();
+  await db.batch([
+    ...(prev ? [db.prepare(`DELETE FROM driver_links WHERE discord_id = ?`).bind(prev.discord_id)] : []),
+    db.prepare(`INSERT INTO driver_links (discord_id, cust_id, discord_name, linked_at) VALUES (?1, ?2, ?3, ?4)
+      ON CONFLICT(discord_id) DO UPDATE SET cust_id = ?2, discord_name = ?3, linked_at = ?4`).bind(discordId, cust, name, now),
+  ]);
+  return prev ? prev.discord_name || prev.discord_id : "";
 }
 export async function unlinkDriver(db, discordId) {
   await ensureSchema(db);
   await db.prepare(`DELETE FROM driver_links WHERE discord_id = ?`).bind(discordId).run();
+}
+
+// the Discord account linked to a driver (driver pages, for officials)
+export async function linkedAccount(db, cust) {
+  await ensureSchema(db);
+  return db.prepare(`SELECT l.discord_id, COALESCE(a.name, l.discord_name) AS name FROM driver_links l LEFT JOIN accounts a ON a.discord_id = l.discord_id
+      WHERE l.cust_id = ? AND l.cust_id <> 0`).bind(cust).first();
+}
+
+// the Accounts page: every Discord account that has signed in, with its driver
+export async function listAccounts(db) {
+  await ensureSchema(db);
+  // accounts from before this list existed: linked ones, and anyone signed in now
+  await db.prepare(`INSERT OR IGNORE INTO accounts (discord_id, name, first_seen, last_seen) SELECT discord_id, discord_name, linked_at, linked_at FROM driver_links`).run();
+  try {
+    await db.prepare(`INSERT OR IGNORE INTO accounts (discord_id, name, first_seen, last_seen)
+        SELECT discord_id, name, datetime(MIN(created) / 1000, 'unixepoch'), datetime(MAX(created) / 1000, 'unixepoch') FROM sessions WHERE kind = 'web' GROUP BY discord_id`).run();
+  } catch { /* no sessions table yet */ }
+  return (await db.prepare(`SELECT a.*, l.cust_id, l.linked_at, d.name AS driver FROM accounts a LEFT JOIN driver_links l ON l.discord_id = a.discord_id
+      LEFT JOIN drivers d ON d.cust_id = l.cust_id ORDER BY a.name COLLATE NOCASE`).all()).results;
+}
+
+// claims on a driver someone else is linked to: the open ones, or the one with this id
+export async function listClaims(db, { open = true, discordId = null } = {}) {
+  await ensureSchema(db);
+  const w = [], a = [];
+  if (open) w.push("c.status = 'open'");
+  if (discordId) { w.push("c.discord_id = ?"); a.push(discordId); }
+  return (await db.prepare(`SELECT c.*, d.name AS driver, l.discord_id AS holder_id, COALESCE(ha.name, l.discord_name) AS holder
+      FROM link_claims c LEFT JOIN drivers d ON d.cust_id = c.cust_id LEFT JOIN driver_links l ON l.cust_id = c.cust_id
+      LEFT JOIN accounts ha ON ha.discord_id = l.discord_id ${w.length ? "WHERE " + w.join(" AND ") : ""} ORDER BY c.id`).bind(...a).all()).results;
+}
+// an admin decides a claim. Approving moves the driver to the claimant. Returns the claim, or null.
+export async function decideClaim(db, id, approve, by) {
+  await ensureSchema(db);
+  const c = (await db.prepare(`SELECT c.*, d.name AS driver FROM link_claims c LEFT JOIN drivers d ON d.cust_id = c.cust_id WHERE c.id = ? AND c.status = 'open'`).bind(id).first());
+  if (!c) return null;
+  if (approve) c.moved_from = await setLink(db, c.discord_id, c.cust_id);
+  await db.prepare(`UPDATE link_claims SET status = ?, decided_by = ?, decided_at = ? WHERE id = ?`).bind(approve ? "approved" : "rejected", by, new Date().toISOString(), id).run();
+  return c;
+}
+
+// find drivers by name, any name they've raced under. Each: { cust_id, name, also, taken }
+export async function searchDrivers(db, q, limit = 25) {
+  await ensureSchema(db);
+  const words = normName(q).split(" ").filter(Boolean);
+  if (!words.length) return [];
+  const rows = (await db.prepare(`SELECT d.cust_id, d.name, n.name AS alias, (SELECT discord_id FROM driver_links l WHERE l.cust_id = d.cust_id) AS holder
+      FROM drivers d LEFT JOIN driver_names n ON n.cust_id = d.cust_id`).all()).results;
+  const found = new Map();
+  for (const r of rows) {
+    for (const nm of [r.name, r.alias]) {
+      if (!nm) continue;
+      const n = normName(nm), nw = n.split(" ");
+      if (!words.every(w => nw.some(x => x.startsWith(w)))) continue;     // each word starts a word of the name
+      const score = n === words.join(" ") ? 0 : n.startsWith(words[0]) ? 1 : 2;
+      const was = found.get(r.cust_id);
+      if (!was || score < was.score) found.set(r.cust_id, { cust_id: r.cust_id, name: r.name, also: nm !== r.name ? nm : "", taken: !!r.holder, score });
+    }
+  }
+  return [...found.values()].sort((a, b) => a.score - b.score || a.name.localeCompare(b.name)).slice(0, limit);
+}
+// a name for matching: lower case, letters and digits only. A Discord nickname also loses a car number or tag
+// ("Racer A #12", "Racer A [GLR]", "racer_a 12"), which drivers often add to it.
+export const normName = s => String(s || "").toLowerCase().normalize("NFKD").replace(/[\u0300-\u036f]/g, "")
+  .replace(/[\[(][^\])]*[\])]/g, " ").replace(/#\s*\d+/g, " ").replace(/[^a-z0-9]+/g, " ").replace(/(^| )\d+( |$)/g, " ").trim().replace(/\s+/g, " ");
+
+// "My races": what the stewards decided about this driver, newest first
+export async function decisionsFor(db, cust, limit = 50) {
+  await ensureSchema(db);
+  const rows = (await db.prepare(`SELECT d.*, e.track, e.start_time, sr.short_name AS series FROM decisions d JOIN events e ON e.subsession_id = d.subsession_id
+      LEFT JOIN series sr ON sr.id = d.series_id WHERE d.cust_id = ? ORDER BY e.start_time DESC, d.id DESC LIMIT ?`).bind(cust, limit).all()).results;
+  for (const d of rows) d.info = JSON.parse(d.info || "{}");
+  return rows;
 }
 
 const PROTEST_COLS = `p.*, e.track, e.start_time, sr.short_name AS series, sr.slug,
@@ -911,12 +1037,13 @@ export async function fileProtest(db, { sub, filedBy, filer, against, lap, what,
 }
 
 // protests: for one race, for some series (null = all), or filed by one driver; open first, newest first
-export async function listProtests(db, { sub = null, seriesIds = null, filer = null, open = false, limit = 200 } = {}) {
+export async function listProtests(db, { sub = null, seriesIds = null, filer = null, involving = null, open = false, limit = 200 } = {}) {
   await ensureSchema(db);
   const w = [], a = [];
   if (sub) { w.push("p.subsession_id = ?"); a.push(sub); }
   if (seriesIds) { if (!seriesIds.length) return []; w.push(`p.series_id IN (${seriesIds.map(() => "?").join(",")})`); a.push(...seriesIds); }
   if (filer) { w.push("p.filer_cust = ?"); a.push(filer); }
+  if (involving) { w.push("(p.filer_cust = ? OR p.against_cust = ?)"); a.push(involving, involving); }
   if (open) w.push("p.status = 'open'");
   return (await db.prepare(`SELECT ${PROTEST_COLS} FROM protests p JOIN events e ON e.subsession_id = p.subsession_id
       LEFT JOIN series sr ON sr.id = p.series_id ${w.length ? "WHERE " + w.join(" AND ") : ""}

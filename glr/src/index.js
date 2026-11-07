@@ -48,7 +48,7 @@ import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, i
   logChange, listChanges, whoName, mergeDrivers, separateDriver, aliasesOf, findDrivers,
   seriesEvents, allSeriesEvents, listRoster, addRoster, removeRoster, listSchedule, upcoming, addSchedule, addScheduleLines, deleteSchedule,
   scheduleEntry, linkScheduleTo, getSetting, setSetting, editSchedule,
-  linkDriver, unlinkDriver, fileProtest, listProtests, getProtest, setProtestStatus, listDecisions, addDecision, deleteDecision,
+  linkDriver, unlinkDriver, setLink, linkedAccount, listAccounts, listClaims, decideClaim, searchDrivers, normName, decisionsFor, fileProtest, listProtests, getProtest, setProtestStatus, listDecisions, addDecision, deleteDecision,
   saveRaceCalls, raceCalls } from "./db.js";
 import { KINDS, AMOUNT, CHANGES_ORDER, decisionText } from "./stewards.js";
 import { resultsPost, standingsPost, penaltyPost, fixPost, decisionPost, enqueue, processQueue, queueFor, retryQueued, discardQueued, isRecent } from "./discord.js";
@@ -132,7 +132,7 @@ label.up{margin:0 0 0 10px;display:inline;color:var(--link);font-size:13px;curso
 .stw{margin:18px 0 4px;font-size:14px}tr.wd td b,tr.wd td:first-child{text-decoration:line-through;opacity:.6}textarea{width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
 input.search{width:100%;max-width:360px;margin:0 0 12px;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
 __THEME_CSS__</style></head><body><header><a class="brand" href="${BASE}/">__THEME_BRAND__</a>__THEME_SWITCH__<div class="me"><a href="${BASE}/schedule">Schedule</a><a href="${BASE}/drivers">Drivers</a>${user
-  ? `<a href="${BASE}/protests">Protests</a>${user.official ? `<a href="${BASE}/history">History</a>${user.admin ? `<a href="${BASE}/keys">Overlay keys</a><a href="${BASE}/settings">Settings</a>` : ""}<a href="${BASE}/upload">Upload results</a>` : ""}<span class="tag">${esc(user.name)}</span><form method="post" action="${BASE}/logout"><button class="link">Sign out</button></form>`
+  ? `${user.cust ? `<a href="${BASE}/me">My races</a>` : ""}<a href="${BASE}/protests">Protests</a>${user.official ? `<a href="${BASE}/history">History</a>${user.admin ? `<a href="${BASE}/accounts">Accounts</a><a href="${BASE}/keys">Overlay keys</a><a href="${BASE}/settings">Settings</a>` : ""}<a href="${BASE}/upload">Upload results</a>` : ""}<span class="tag">${esc(user.name)}</span><form method="post" action="${BASE}/logout"><button class="link">Sign out</button></form>`
   : `<a href="${BASE}/login">Sign in</a>`}</div></header><main>${body}</main></body></html>`,
   { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
 
@@ -354,17 +354,76 @@ function stewardsPage(ev, user, { protests = [], steward = false, msg = "" } = {
   return page(`Stewards: ${ev.track}`, body, { user });
 }
 
-function protestsPage(user, { open = [], recent = [], mine = [], steward = false, msg = "" } = {}) {
-  const row = p => `<tr><td><a href="${BASE}/results/${p.subsession_id}/stewards#p${p.id}">${p.id}</a></td><td>${esc(p.series || "")}</td><td><a href="${BASE}/results/${p.subsession_id}/stewards">${esc(p.track)}</a><br><span class="tag">${day(p.start_time)}</span></td>
+const protestRow = p => `<tr><td><a href="${BASE}/results/${p.subsession_id}/stewards#p${p.id}">${p.id}</a></td><td>${esc(p.series || "")}</td><td><a href="${BASE}/results/${p.subsession_id}/stewards">${esc(p.track)}</a><br><span class="tag">${day(p.start_time)}</span></td>
     <td style="white-space:normal">${who(p)}${p.lap ? ` <span class="tag">· ${esc(p.lap)}</span>` : ""}</td><td>${statusTag(p)}</td><td>${day(p.created_at)}</td></tr>`;
-  const table = list => `<div class="wrap"><table><tr><th>#</th><th>Series</th><th>Race</th><th>Protest</th><th>Status</th><th>Filed</th></tr>${list.map(row).join("")}</table></div>`;
-  let body = `<h1>Protests</h1>${msg ? `<div class="msg ${/^Unlinked/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>` : ""}`;
-  if (steward) body += `<h2>Open</h2>` + (open.length ? table(open) : `<p class="hint">No open protests.</p>`) + (recent.length ? `<h2>Recently closed</h2>` + table(recent) : "");
+const protestTable = list => `<div class="wrap"><table><tr><th>#</th><th>Series</th><th>Race</th><th>Protest</th><th>Status</th><th>Filed</th></tr>${list.map(protestRow).join("")}</table></div>`;
+
+function protestsPage(user, { open = [], recent = [], mine = [], steward = false, msg = "" } = {}) {
+  let body = `<h1>Protests</h1>${msg ? `<div class="msg bad">${esc(msg)}</div>` : ""}`;
+  if (steward) body += `<h2>Open</h2>` + (open.length ? protestTable(open) : `<p class="hint">No open protests.</p>`) + (recent.length ? `<h2>Recently closed</h2>` + protestTable(recent) : "");
   body += `<h2>Yours</h2>`;
-  if (user.cust) body += `<p class="sub">Signed in as driver ${driverLink(user.cust, user.driverName || user.cust)}. <form method="post" style="display:inline" onsubmit="return confirm('Unlink? You pick your driver again next time you file a protest.')"><input type="hidden" name="action" value="unlink"><button class="link">Not you?</button></form></p>`
-    + (mine.length ? table(mine) : `<p class="hint">You haven't filed any protests. To file one, open the race's results and go to its stewards' report.</p>`);
-  else body += `<p class="hint">To file a protest, open the race's results and go to its stewards' report. You pick which driver you are the first time.</p>`;
+  if (user.cust) body += `<p class="sub">Signed in as driver ${driverLink(user.cust, user.driverName || user.cust)}. <a href="${BASE}/me/driver?back=${BASE}/protests">Not you?</a></p>`
+    + (mine.length ? protestTable(mine) : `<p class="hint">You haven't filed any protests. To file one, open the race's results and go to its stewards' report.</p>`);
+  else body += `<p class="hint">Only drivers can file protests. <a href="${BASE}/me/driver?back=${BASE}/protests">Which driver are you?</a></p>`;
   return page("Protests", body, { user });
+}
+
+// asked once after signing in: which driver are you? (or "I don't race")
+function whichDriverPage(user, { q = "", found = [], back = "/", first = false, claims = [], msg = "" } = {}) {
+  const b = `<input type="hidden" name="back" value="${esc(back)}">`;
+  let body = `<h1>Which driver are you?</h1>`;
+  if (msg) body += `<div class="msg bad">${esc(msg)}</div>`;
+  body += `<p class="sub">${first ? "One quick question, only this once. " : ""}Linking your Discord account to your iRacing driver lets you file protests and see your races, protests and the stewards' decisions about you in one place.</p>`;
+  if (user.cust) body += `<p class="hint">You're linked to ${driverLink(user.cust, user.driverName || user.cust)}. Pick another driver below only if that's wrong.</p>`;
+  else if (user.noDriver) body += `<p class="hint">You said you don't race. If you do now, find yourself below.</p>`;
+  for (const c of claims) body += `<div class="msg">Waiting for an admin: you said you're ${esc(c.driver || c.cust_id)}, who is linked to another Discord account. An admin will sort it out; nothing changes until then.</div>`;
+  body += `<form method="get" class="dec"><input type="hidden" name="back" value="${esc(back)}"><label for="q">Your name in iRacing</label>
+    <input type="text" id="q" name="q" value="${esc(q)}" maxlength="60" autocomplete="off" class="search"> <button class="btn ghost">Search</button></form>`;
+  if (q && !found.length) body += `<p class="hint">No driver by that name has raced here. Try your last name, or your iRacing ID.</p>`;
+  if (found.length) body += `<div class="wrap"><table><tr><th>Driver</th><th class="n">iRacing ID</th><th></th></tr>` + found.map(d => `<tr><td>${driverLink(d.cust_id, d.name)}${d.also ? ` <span class="tag">raced as ${esc(d.also)}</span>` : ""}</td>
+      <td class="n">${d.cust_id}</td><td><form method="post">${b}<input type="hidden" name="cust" value="${d.cust_id}"><button class="btn ghost">${d.cust_id === user.cust ? "That's me (now)" : "That's me"}</button></form>${d.taken && d.cust_id !== user.cust ? ` <span class="tag">already linked: goes to an admin</span>` : ""}</td></tr>`).join("") + `</table></div>`;
+  body += `<form method="post" style="margin-top:18px">${b}<input type="hidden" name="cust" value="0"><button class="btn ghost">I don't race</button>
+    <a class="tag" style="margin-left:12px" href="${esc(back)}">Ask me later</a></form>`;
+  return page("Which driver are you?", body, { user });
+}
+
+// a linked driver's own page: their races, protests by or about them, and the stewards' decisions about them
+function myRacesPage(user, d, { protests = [], decisions = [] } = {}) {
+  let body = `<h1>My races</h1><p class="sub">${driverLink(d.cust_id, d.name)} · iRacing ID ${d.cust_id} · <a href="${BASE}/me/driver?back=${BASE}/me">Not you?</a></p>`;
+  const races = [...d.races].sort((a, b) => String(b.start_time).localeCompare(String(a.start_time)));
+  body += `<h2>Races</h2>` + (races.length ? statCards(races) + `<div class="wrap"><table><tr><th>Date</th><th>Series</th><th>Track</th><th class="n">Start</th><th class="n">Finish</th><th class="n">Inc</th><th class="n">Pts</th><th></th></tr>` +
+    races.slice(0, 40).map(x => `<tr><td><a href="${BASE}/results/${x.subsession_id}">${day(x.start_time)}</a></td><td>${x.slug ? `<a href="${BASE}/${esc(x.slug)}">${esc(x.short_name)}</a>` : esc(x.series_name || "")}</td><td>${esc(x.track)}</td>
+      <td class="n">${x.start_pos ?? ""}</td><td class="n">${x.class_count > 1 ? cls(x.car_class) : ""}${place(x) ?? ""}<span class="tag"> / ${x.class_count > 1 ? x.class_starters : x.starters}</span></td><td class="n">${x.incidents ?? ""}</td>
+      <td class="n">${x.league_points ?? ""}</td><td><a class="tag" href="${BASE}/results/${x.subsession_id}/stewards">Stewards</a></td></tr>`).join("") + `</table></div>` +
+    (races.length > 40 ? `<p class="hint">The 40 most recent. Every race is on your <a href="${BASE}/drivers/${d.cust_id}">driver page</a>.</p>` : "")
+    : `<p class="hint">No races here yet.</p>`);
+  body += `<h2>Protests</h2><p class="tag">Filed by you or against you.</p>` + (protests.length ? protestTable(protests) : `<p class="hint">None.</p>`);
+  body += `<h2>Stewards' decisions</h2>` + (decisions.length ? `<div class="wrap"><table><tr><th>Race</th><th>Series</th><th>Decision</th><th>Reason</th><th>From</th></tr>` +
+    decisions.map(x => `<tr class="${x.status === "withdrawn" ? "wd" : ""}"><td><a href="${BASE}/results/${x.subsession_id}/stewards">${esc(x.track)}</a><br><span class="tag">${day(x.start_time)}</span></td><td>${esc(x.series || "")}</td>
+      <td><b>${esc(decisionText(x))}</b>${x.status === "withdrawn" ? ` <span class="tag">withdrawn</span>` : ""}</td><td style="white-space:normal">${esc(x.reason)}</td><td>${x.source === "race control" ? "Race control" : x.protest_id ? `Protest ${x.protest_id}` : "Stewards"}</td></tr>`).join("") + `</table></div>`
+    : `<p class="hint">None.</p>`);
+  return page("My races", body, { user });
+}
+
+// admins: every Discord account that has signed in, its driver, and claims on a driver someone else has
+function accountsPage(user, { accounts = [], claims = [], all = [], msg = "" } = {}) {
+  let body = `<h1>Accounts</h1><p class="sub">Everyone who has signed in with Discord, and which driver they said they are. Only officials see these links.</p>`;
+  if (msg) body += `<div class="msg ${/^(Linked|Unlinked|Approved|Rejected|Set)/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>`;
+  body += `<h2>Disputes</h2>` + (claims.length ? `<div class="wrap"><table><tr><th>Who</th><th>Says they're</th><th>Linked now to</th><th>Asked</th><th></th></tr>` + claims.map(c => `<tr>
+      <td>${esc(c.discord_name || c.discord_id)}</td><td>${driverLink(c.cust_id, c.driver || c.cust_id)}</td><td>${esc(c.holder || "nobody now")}</td><td>${day(c.created_at)}</td>
+      <td><form method="post" style="display:inline" onsubmit="return confirm('Give ${esc(String(c.driver || "").replace(/['"\\]/g, ""))} to ${esc(String(c.discord_name || "").replace(/['"\\]/g, ""))}?${c.holder ? " The account linked now is unlinked and asked again." : ""}')"><input type="hidden" name="claim" value="${c.id}"><input type="hidden" name="action" value="approve"><button class="link">Approve</button></form>
+      <form method="post" style="display:inline;margin-left:10px"><input type="hidden" name="claim" value="${c.id}"><input type="hidden" name="action" value="reject"><button class="link">Reject</button></form></td></tr>`).join("") + `</table></div>`
+    : `<p class="hint">None. When someone says they're a driver who is already linked to another account, it waits here for an admin.</p>`);
+  const linked = a => a.cust_id ? driverLink(a.cust_id, a.driver || a.cust_id) : a.cust_id === 0 ? `<span class="tag">I don't race</span>` : `<span class="tag">Not answered</span>`;
+  body += `<h2>Accounts</h2><input class="search" placeholder="Find a name" data-rows="#acc tr.r">
+    <div class="wrap"><table id="acc"><tr><th>Discord</th><th>Driver</th><th>Last signed in</th><th>Change</th></tr>` + accounts.map(a => `<tr class="r">
+      <td>${esc(a.name || "")}<br><span class="tag">${esc(a.discord_id)}</span></td><td>${linked(a)}</td><td>${day(a.last_seen)}</td>
+      <td style="white-space:normal"><form method="post" style="display:inline"><input type="hidden" name="action" value="set"><input type="hidden" name="id" value="${esc(a.discord_id)}">
+        <input type="text" name="driver" list="drl" placeholder="Driver name or iRacing ID" autocomplete="off" style="width:200px"> <button class="link">Set</button></form>
+        ${a.cust_id != null ? `<form method="post" style="display:inline;margin-left:10px" onsubmit="return confirm('Unlink? They are asked which driver they are at their next sign-in.')"><input type="hidden" name="action" value="unlink"><input type="hidden" name="id" value="${esc(a.discord_id)}"><button class="link">Unlink</button></form>` : ""}</td></tr>`).join("") +
+    `</table></div><datalist id="drl"><option value="I don't race">${all.map(x => `<option value="${esc(x.name)} (${x.cust_id})">`).join("")}</datalist>
+    <p class="tag">Setting a driver another account has moves it: that account is unlinked and asked again at its next sign-in. Every change goes in History.</p>` + SORT_JS;
+  return page("Accounts", body, { user });
 }
 
 // in a multi-class race a driver's finish is their place in class
@@ -390,11 +449,12 @@ function mergePanel(d, aliases, all, msg) {
   return h;
 }
 
-function driverPage(d, user, { aliases = [], all = [], msg = "" } = {}) {
+function driverPage(d, user, { aliases = [], all = [], msg = "", discord = null } = {}) {
   const other = d.names.filter(x => x.name !== d.name).map(x => esc(x.name));
   const bySeries = new Map();
   for (const x of d.races) { const k = x.series_id || 0; if (!bySeries.has(k)) bySeries.set(k, []); bySeries.get(k).push(x); }
   let body = `<h1>${esc(d.name)}</h1><p class="sub">iRacing ID ${d.cust_id}${other.length ? " · also raced as " + other.join(", ") : ""}</p>`;
+  if (user && user.official) body += `<p class="tag">Discord: ${discord ? esc(discord.name || discord.discord_id) : "not linked"}${user.admin ? ` · <a href="${BASE}/accounts">Accounts</a>` : ""} <span class="tag">(only officials see this)</span></p>`;
   if (!d.races.length) body += `<p class="hint">Hasn't raced yet. Added to a series' driver list by its officials.</p>`;
   if (bySeries.size > 1) body += `<h2>Career</h2>` + statCards(d.races);
   for (const races of bySeries.values()) {
@@ -1333,8 +1393,14 @@ const site = {
           const pid = Number(f.get("id")) || 0, p = pid ? await getProtest(db, pid) : null;
           try {
             if (a === "link") {
-              await linkDriver(db, user.id, user.name, Number(f.get("cust")));
+              const r = await linkDriver(db, user.id, user.name, Number(f.get("cust")));
+              if (r.claim) {
+                const dn = ev.sessions.race.find(x => x.cust_id === Number(f.get("cust")));
+                await logChange(db, { by, kind: "account", summary: `${user.name} says they're ${dn ? dn.name : f.get("cust")}, who is linked to ${r.holder}: waiting for an admin` });
+                throw new Error("That driver is already linked to another Discord account, so an admin will check it. You can file your protest once they've sorted it out.");
+              }
               user = await currentUser(request, env);
+              await logChange(db, { by, kind: "account", summary: `${user.name} linked to driver ${user.driverName}` });
               msg = `Linked: you're ${user.driverName}. Now fill in your protest.`;
             } else if (a === "protest") {
               if (!user.cust) throw new Error("First pick which driver you are (below).");
@@ -1384,13 +1450,75 @@ const site = {
         }
         return stewardsPage(ev, user, { protests: await listProtests(db, { sub }), steward, msg });
       }
-      if (path === `${BASE}/protests`) {
-        if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/protests`, 302);
+      if (path === `${BASE}/me/driver`) {
+        // which driver are you? Asked once after signing in; open any time from My races or Protests ("Not you?")
+        const back0 = url.searchParams.get("back") || "/";
+        if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${encodeURIComponent(`${BASE}/me/driver?back=${encodeURIComponent(back0)}`)}`, 302);
+        let msg = "", back = back0;
+        if (request.method === "POST" && sameOrigin(request, url)) {
+          const f = await request.formData(), cust = Number(f.get("cust")) || 0, by = `discord:${user.id}:${user.name}`;
+          back = String(f.get("back") || "/");
+          try {
+            const r = await linkDriver(db, user.id, user.name, cust);
+            const dn = cust ? (await getDriver(db, cust) || {}).name || String(cust) : "";
+            if (r.claim) {
+              await logChange(db, { by, kind: "account", summary: `${user.name} says they're ${dn}, who is linked to ${r.holder}: waiting for an admin` });
+            } else {
+              await logChange(db, { by, kind: "account", summary: cust ? `${user.name} linked to driver ${dn}` : `${user.name} said they don't race` });
+              return Response.redirect(`${url.origin}${/^\/(?!\/)/.test(back) ? back : "/"}`, 303);
+            }
+          } catch (e) { msg = e.message; }
+        }
+        const claims = await listClaims(db, { discordId: user.id });
+        const q = url.searchParams.has("q") ? url.searchParams.get("q") : (user.cust || user.noDriver || claims.length ? "" : normName(user.name));
+        let found = q ? await searchDrivers(db, q) : [];
+        if (!found.length && q && /^\d+$/.test(q.trim())) { const d = await getDriver(db, Number(q)); if (d) found = [{ cust_id: d.cust_id, name: d.name, also: "", taken: !!await linkedAccount(db, d.cust_id) }]; }
+        return whichDriverPage(user, { q, found, back: /^\/(?!\/)/.test(back) ? back : "/", first: url.searchParams.has("first"), claims, msg });
+      }
+      if (path === `${BASE}/me`) {
+        if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/me`, 302);
+        const d = user.cust ? await getDriver(db, user.cust) : null;
+        if (!d) return Response.redirect(`${url.origin}${BASE}/me/driver?back=${BASE}/me`, 302);
+        return myRacesPage(user, d, { protests: await listProtests(db, { involving: user.cust, limit: 50 }), decisions: await decisionsFor(db, user.cust) });
+      }
+      if (path === `${BASE}/accounts`) {
+        if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/accounts`, 302);
+        if (!user.admin) return notFound("Only admins can see accounts.", user);
         let msg = "";
         if (request.method === "POST" && sameOrigin(request, url)) {
-          const f = await request.formData();
-          if (f.get("action") === "unlink") { await unlinkDriver(db, user.id); user = await currentUser(request, env); msg = "Unlinked. You'll pick your driver again the next time you file a protest."; }
+          const f = await request.formData(), a = f.get("action"), by = `discord:${user.id}:${user.name}`;
+          const nameOf = async id => ((await listAccounts(db)).find(x => x.discord_id === id) || {}).name || id;
+          try {
+            if (a === "approve" || a === "reject") {
+              const c = await decideClaim(db, Number(f.get("claim")), a === "approve", by);
+              if (c) {
+                await logChange(db, { by, kind: "account", summary: a === "approve" ? `Admin gave driver ${c.driver} to ${c.discord_name}${c.moved_from ? ` (was linked to ${c.moved_from})` : ""}` : `Admin turned down ${c.discord_name}'s claim to be ${c.driver}` });
+                msg = a === "approve" ? `Approved: ${c.discord_name} is now ${c.driver}.` : `Rejected: ${c.discord_name} isn't linked to ${c.driver}.`;
+              }
+            } else if (a === "unlink") {
+              const id = String(f.get("id")), nm = await nameOf(id);
+              await unlinkDriver(db, id);
+              await logChange(db, { by, kind: "account", summary: `Admin unlinked ${nm} from their driver` });
+              msg = `Unlinked ${nm}. They're asked which driver they are at their next sign-in.`;
+            } else if (a === "set") {
+              const id = String(f.get("id")), txt = String(f.get("driver") || "").trim(), nm = await nameOf(id);
+              let cust = null;
+              if (/^i don.?t race$/i.test(txt)) cust = 0;
+              else if (/\((\d+)\)\s*$/.test(txt) || /^\d+$/.test(txt)) cust = Number((txt.match(/(\d+)\)?\s*$/) || [])[1]);
+              else { const hit = await searchDrivers(db, txt, 2); if (hit.length === 1 || (hit.length && hit[0].score === 0)) cust = hit[0].cust_id; }
+              if (cust === null) throw new Error(`Couldn't tell which driver "${txt}" is. Pick one from the list, or type their iRacing ID.`);
+              const was = await setLink(db, id, cust);
+              const dn = cust ? (await getDriver(db, cust) || {}).name || cust : "";
+              await logChange(db, { by, kind: "account", summary: cust ? `Admin linked ${nm} to driver ${dn}${was ? ` (was linked to ${was})` : ""}` : `Admin set ${nm} as not a driver` });
+              msg = cust ? `Set: ${nm} is ${dn}.${was ? ` ${was} was unlinked.` : ""}` : `Set: ${nm} doesn't race.`;
+            }
+          } catch (e) { msg = e.message; }
         }
+        return accountsPage(user, { accounts: await listAccounts(db), claims: await listClaims(db), all: await findDrivers(db), msg });
+      }
+      if (path === `${BASE}/protests`) {
+        if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/protests`, 302);
+        const msg = "";
         const all = await listSeries(db), mineSeries = user.steward ? null : all.filter(x => canSteward(user, x)).map(x => x.id);
         const steward = user.steward || (mineSeries && mineSeries.length > 0);
         const list = steward ? await listProtests(db, { seriesIds: mineSeries, limit: 80 }) : [];
@@ -1504,7 +1632,8 @@ const site = {
           if (!added.length) return notFound("No driver with that iRacing ID has raced here yet.", user);
           d = { cust_id: cust, name: added[0].name, names: [], races: [] };
         }
-        return driverPage(d, user, user && user.admin ? { aliases: await aliasesOf(db, cust), all: await findDrivers(db), msg } : {});
+        const discord = user && user.official ? await linkedAccount(db, cust) : null;
+        return driverPage(d, user, user && user.admin ? { aliases: await aliasesOf(db, cust), all: await findDrivers(db), msg, discord } : { discord });
       }
       if ((m = path.match(/^\/api\/standings\/([a-z0-9-]+)$/))) {
         const sr = await getSeries(db, m[1]);
