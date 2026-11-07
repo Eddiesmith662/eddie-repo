@@ -433,13 +433,13 @@ function myRacesPage(user, d, { protests = [], decisions = [] } = {}) {
 
 // admins: every Discord account that has signed in, its driver, and claims on a driver someone else has
 function accountsPage(user, { accounts = [], claims = [], all = [], msg = "", series = [], directors = [], roles = new Map(), officialRole = "" } = {}) {
-  let body = `<h1>Accounts</h1><p class="sub">Everyone who has signed in with Discord, and which driver they said they are. Only officials see these links.</p>`;
+  let body = `<h1>Accounts</h1><p class="sub">Everyone who has signed in to GLR HUB with Discord. Only officials can see which driver each person is.</p>`;
   if (msg) body += `<div class="msg ${/^(Linked|Unlinked|Approved|Rejected|Set)/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>`;
   body += `<h2>Disputes</h2>` + (claims.length ? `<div class="wrap"><table><tr><th>Who</th><th>Says they're</th><th>Linked now to</th><th>Asked</th><th></th></tr>` + claims.map(c => `<tr>
       <td>${esc(c.discord_name || c.discord_id)}</td><td>${driverLink(c.cust_id, c.driver || c.cust_id)}</td><td>${esc(c.holder || "nobody now")}</td><td>${day(c.created_at)}</td>
       <td><form method="post" style="display:inline" onsubmit="return confirm('Give ${esc(String(c.driver || "").replace(/['"\\]/g, ""))} to ${esc(String(c.discord_name || "").replace(/['"\\]/g, ""))}?${c.holder ? " The account linked now is unlinked and asked again." : ""}')"><input type="hidden" name="claim" value="${c.id}"><input type="hidden" name="action" value="approve"><button class="link">Approve</button></form>
       <form method="post" style="display:inline;margin-left:10px"><input type="hidden" name="claim" value="${c.id}"><input type="hidden" name="action" value="reject"><button class="link">Reject</button></form></td></tr>`).join("") + `</table></div>`
-    : `<p class="hint">None. When someone says they're a driver who is already linked to another account, it waits here for an admin.</p>`);
+    : `<p class="hint">None. If someone picks a driver who is already linked to another account, their request waits here for an admin to approve or reject.</p>`);
   const short = id => (series.find(x => x.id === id) || {}).short_name || id;
   // the series each account runs: assigned (with the role), or, before the switch, through each series' old role
   const directs = a => {
@@ -462,8 +462,10 @@ function accountsPage(user, { accounts = [], claims = [], all = [], msg = "", se
         <input type="text" name="driver" list="drl" placeholder="Driver name or iRacing ID" autocomplete="off" style="width:200px"> <button class="link">Set</button></form>
         ${a.cust_id != null ? `<form method="post" style="display:inline;margin-left:10px" onsubmit="return confirm('Unlink? They are asked which driver they are at their next sign-in.')"><input type="hidden" name="action" value="unlink"><input type="hidden" name="id" value="${esc(a.discord_id)}"><button class="link">Unlink</button></form>` : ""}</td></tr>`).join("") +
     `</table></div><datalist id="drl"><option value="I don't race">${all.map(x => `<option value="${esc(x.name)} (${x.cust_id})">`).join("")}</datalist>
-    <p class="tag">Setting a driver another account has moves it: that account is unlinked and asked again at its next sign-in. Every change goes in History.</p>
-    <p class="tag">Directs: the series this person runs as a series official. ${officialRole ? "They need the Series official role in Discord too." : "Not in use until the Series official role is saved on <a href=\"" + BASE + "/settings\">Settings</a>; until then each series' own role decides, shown as \"Official now (old role)\"."}</p>` + SORT_JS;
+    <ul class="tag">
+      <li><b>Driver:</b> the iRacing driver this person is. To change it, type a driver's name or iRacing ID under <b>Change driver</b> and press <b>Set</b>. If someone else was linked to that driver, they're unlinked, and GLR HUB asks them "Which driver are you?" the next time they sign in.</li>
+      <li><b>Directs:</b> the series this person is a director of. <b>Add series…</b> adds one; <b>×</b> removes it. ${officialRole ? "It only works if they also have the Series official role in Discord." : "Not used yet: for now, each series' old role decides who its officials are (shown as \"Official now (old role)\"). This column takes over when you save the Series official role on <a href=\"" + BASE + "/settings\">Settings</a>."}</li>
+      <li>Every change on this page is recorded in History.</li></ul>` + SORT_JS;
   return page("Accounts", body, { user });
 }
 
