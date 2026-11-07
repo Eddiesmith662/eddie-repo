@@ -1,4 +1,4 @@
-# Next release: v1.5.41 (draft)
+# Next release: v1.5.42 (draft)
 
 The release notes for the next overlay release, built up as changes land. Producers see the notes in the black window
 when the update is offered (the first 25 lines), so each change gets one short paragraph in plain words: what's
@@ -12,5 +12,3 @@ How it works (CLAUDE.md, "Three chats, one repo"):
   VERSION bump).
 
 ## Notes
-
-Race control: Pop out map now opens the map in its own window (in v1.5.40 the button did nothing). The same fault stopped Sign in from opening the league site's page by itself; it opens again now.
