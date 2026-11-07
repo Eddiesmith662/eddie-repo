@@ -2236,6 +2236,11 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/api/diagnostics":
             try:
                 zp = diag.save_zip(STATE.settings)
+                if RC["on"]:                          # race control: its race files too (queue and calls), not the sign-in
+                    try:
+                        racecontrol.add_to_diagnostics(zp)
+                    except Exception as e:
+                        diag.error("Could not add race control's files to the diagnostics: %r" % (e,), e)
                 return self.send_json({"ok": True, "name": os.path.basename(zp), "folder": diag.DIAG_DIR})
             except Exception as e:
                 diag.error("Could not save diagnostics: %r" % (e,), e)

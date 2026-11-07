@@ -35,6 +35,7 @@
   .steward input { width: 180px; text-transform: none; letter-spacing: 0; }
   .steward input.need { border-color: var(--amber); }
   .hbar a { color: var(--dim); font-size: 13px; }
+  .hbar #diagSave { padding: 4px 12px; font-size: 13px; }
   .steward input:disabled { opacity: 1; color: var(--text); border-color: transparent; background: rgba(0,0,0,.25); }
   .site { display: flex; align-items: center; gap: 8px; font-size: 13px; }
   .site button { padding: 4px 10px; font-size: 13px; }
@@ -172,7 +173,7 @@
   .rcmap.small .mark path, .rcmap.small .mark text { transform: scale(2.4); }
   /* the map on its own (Pop out, /racecontrol?solo=map) */
   body.solo .wrap { grid-template-columns: 1fr; grid-template-rows: 1fr; }
-  body.solo .wrap > section:not(.map), body.solo section.map > h2, body.solo .steward, body.solo #site, body.solo .hbar a { display: none !important; }
+  body.solo .wrap > section:not(.map), body.solo section.map > h2, body.solo .steward, body.solo #site, body.solo .hbar a, body.solo #diagSave { display: none !important; }
   body.solo section.map { grid-column: 1 / -1; }
   @media (max-width: 1250px) { html, body { height: auto; } .wrap { flex: none; grid-template-columns: 1fr 1fr; grid-template-rows: auto; }
     section { min-height: 420px; max-height: 80vh; } section.det { max-height: none; } section.ro, section.log, section.map { grid-column: 1 / -1; grid-row: auto; } section.map { min-height: 360px; } }
@@ -190,6 +191,7 @@
     <label class="steward">Steward <input id="steward" placeholder="Your name" maxlength="60" autocomplete="off"></label>
     <span class="site" id="site"></span>
     <a href="/control" target="_blank" title="The league site upload is set up on the control panel's Setup tab">League upload: <span id="lu">off</span></a>
+    <button id="diagSave" class="small" title="Saves a zip of the logs, the black box and race control's race files (not the sign-in) to send when something goes wrong. A copy stays in data\steward\diagnostics.">Save diagnostics</button>
     <span class="pill" id="ver" style="color:var(--dim)"></span>
   </div>
 </header>
@@ -613,6 +615,14 @@ $('calls').onclick = e => { const wd = e.target.closest('[data-wd]'); if (wd) re
 /* ---------- the map (small, bottom right) and its pop-out window ---------- */
 const SOLO = new URLSearchParams(location.search).get('solo') === 'map';
 if (SOLO) { document.body.classList.add('solo'); document.title = 'VSPEED Race Control · Map'; $('mapPane').classList.remove('small'); }
+$('diagSave').onclick = async () => {
+  toast('Saving diagnostics…');
+  const r = await post('/api/diagnostics', {});
+  if (!r.ok) return toast(r.error || 'Couldn\'t save diagnostics');
+  const a = document.createElement('a'); a.href = '/diagnostics/' + encodeURIComponent(r.name); a.download = r.name;
+  document.body.appendChild(a); a.click(); a.remove();
+  toast('Saved ' + r.name + ' (a copy is in data\\steward\\diagnostics). Send it to Claude with what went wrong.');
+};
 $('mapPop').onclick = () => window.open('/racecontrol?solo=map', 'rcmap', 'width=1280,height=760');
 RCMap.mount($('mapPane'), {
   onCar: idx => post('/api/camera', { carIdx: idx }),

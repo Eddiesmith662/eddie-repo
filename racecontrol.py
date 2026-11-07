@@ -27,6 +27,7 @@ import os
 import shutil
 import threading
 import time
+import zipfile
 
 import datafiles
 import incidents
@@ -520,6 +521,24 @@ def apply_site(key, decisions, pc):
             except OSError:
                 pass
 
+
+DIAG_RACES = 10          # the newest race files that go into a diagnostics zip
+DIAG_SKIP = {"signin.json"}   # the league site sign-in token never leaves this PC
+
+
+def add_to_diagnostics(zip_path):
+    """Put race control's own files into a diagnostics zip (Save diagnostics on the Race Control page): the newest
+    race files, each with its incident queue and every call (who made it, why, what was sent to iRacing), so a
+    problem like "this incident never showed up" can be traced. The sign-in token stays out. Returns how many went in."""
+    try:
+        names = [f for f in os.listdir(DIR) if f.endswith(".json") and f not in DIAG_SKIP]
+    except OSError:
+        return 0
+    names.sort(key=lambda f: os.path.getmtime(os.path.join(DIR, f)), reverse=True)
+    with zipfile.ZipFile(zip_path, "a", zipfile.ZIP_DEFLATED) as z:
+        for f in names[:DIAG_RACES]:
+            z.write(os.path.join(DIR, f), "race-control/" + f)
+    return min(len(names), DIAG_RACES)
 
 def version():
     return _st["ver"]

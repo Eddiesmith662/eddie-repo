@@ -453,5 +453,34 @@ class WhereTheRaceIsSaved(unittest.TestCase):
         self.assertEqual(rc._where(None), "")
 
 
+class Diagnostics(unittest.TestCase):
+    """Save diagnostics on the Race Control page: race control's race files go in the zip, the sign-in token doesn't."""
+
+    def test_the_race_files_go_in_and_the_sign_in_stays_out(self):
+        import zipfile
+        import diag
+        wipe_file()
+        fresh()
+        race = Race()
+        race.step(3)
+        race.set(1, inc=4)
+        race.step()
+        signin = os.path.join(rc.DIR, "signin.json")
+        datafiles.write_json(signin, {"pc": "ab12cd34", "token": "secret-token", "user": {"id": "1", "name": "Steward"}})
+        try:
+            zp = diag.save_zip({})
+            self.assertGreaterEqual(rc.add_to_diagnostics(zp), 1)
+            with zipfile.ZipFile(zp) as z:
+                names = z.namelist()
+                self.assertIn("race-control/%s.json" % SUB, names)
+                self.assertNotIn("race-control/signin.json", names)
+                self.assertFalse(any(b"secret-token" in z.read(n) for n in names))
+                race_file = json.loads(z.read("race-control/%s.json" % SUB))
+                self.assertTrue(race_file["queue"])
+        finally:
+            os.remove(signin)
+            wipe_file()
+
+
 if __name__ == "__main__":
     unittest.main()

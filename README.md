@@ -266,6 +266,9 @@ control from before v1.5.38 kept its calls in `data\race-control`; they're copie
   load from iRacing's public map server each time (nothing is stored), so the PC needs to be online. A track that
   isn't in `static\trackmaps.json` says "No map for this track yet": add one line with its iRacing track id and map
   folder.
+- **Save diagnostics** (top right): a zip to send when something goes wrong, like the overlay's: the last 7 days of
+  logs, the black box, the settings, and race control's newest race files (each race's incident queue and calls). The
+  league site sign-in stays out. It downloads, and a copy stays in `data\steward\diagnostics` (the last 10).
 - **Making a call** (middle): pick the car, the call (warning, drive-through, stop-and-go, time penalty, end of line,
   positions, points, disqualified or no action), the number of seconds / positions / points where it needs one, and
   the reason, then **Make the call**. The incident moves to **Decided** (or **No action**). For something that isn't

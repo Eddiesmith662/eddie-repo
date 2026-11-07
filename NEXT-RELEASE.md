@@ -12,3 +12,5 @@ How it works (CLAUDE.md, "Three chats, one repo"):
   VERSION bump).
 
 ## Notes
+
+Race control: a Save diagnostics button at the top right of the Race Control page, like the overlay's. It saves a zip with the logs, the black box and race control's race files (the incident queue and calls) to send when something goes wrong; the league site sign-in is never in it.
