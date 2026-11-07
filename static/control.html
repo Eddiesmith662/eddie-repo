@@ -842,12 +842,15 @@ let APP = {}, PEN = { list: [], reasons: [] }, S = null, L = null, SD = null, fi
 const TILES = [
   ['logo', 'VSPEED logo', 'top left'], ['league', 'League + live tag', 'top right'],
   ['tower', 'Ticker', 'timing tower'], ['lowerthird', 'Driver info', 'camera car'],
-  ['board', 'Results', 'live order'], ['movers', 'Biggest movers', 'top 5 gained'], ['recap', 'Race recap', 'cautions, lead changes'], ['@grid', 'Grid', 'row by row'],
+  ['board', 'Results', 'live order'], ['movers', 'Biggest movers', 'top 5 gained'], ['recap', 'Race recap', 'cautions, lead changes'], ['conditions', 'Track conditions', 'sky, track & air temp'],
+  ['@grid', 'Grid', 'row by row'],
   ['@standings', 'Standings', 'points / bracket'], ['@info', 'Race info', 'analysis box'], ['@team', 'Broadcast team', 'lower third'], ['@track', 'Track graphic', 'from Drive'],
   ['nextrace', 'Next broadcast', 'text on Prerace tab'],
 ];
 // "Show base package" turns these on / off; "Hide all" turns every one of them off
-const BASE = { logo: true, league: true, tower: true, lowerthird: true, flags: true, board: false, movers: false, pitrace: false, nextrace: false, livepoints: false, recap: false };
+const BASE = { logo: true, league: true, tower: true, lowerthird: true, flags: true, board: false, movers: false, pitrace: false, nextrace: false, livepoints: false, recap: false, conditions: false };
+// graphics that share one spot on screen: switching one on switches the other off (the bars under the VSPEED logo)
+const SAME_SPOT = { recap: 'conditions', conditions: 'recap' };
 const A_EXAMPLE = { title: 'RACE ANALYSIS', lines: ['RACE LENGTH: 100 LAPS', 'PITROAD SPEED: 50MPH', 'TIRE SETS AVAILABLE: 4', '2 GWC ATTEMPTS', '100% FUEL | PREMIER SETUP'] };
 const T_EXAMPLE = { title: 'BROADCASTING TEAM', people: [['Sam Rivera', 'Lead Commentary'], ['Jordan Lee', 'Co-Commentary'], ['Casey Hart', 'Producer']] };
 
@@ -930,7 +933,8 @@ $('tiles').onclick = e => {
   if (k === '@team') return std(st.team && st.team.visible ? 'teamHide' : 'teamShow');
   if (k === '@track') return trackToggle();
   if (k === '@grid') return S.gridw && S.gridw.visible ? set({ gridw: { visible: false } }) : set({ gridw: { visible: true, t: Date.now() } });
-  set({ show: { [k]: !S.show[k] } });
+  const on = !S.show[k];
+  set({ show: Object.assign({ [k]: on }, on && SAME_SPOT[k] ? { [SAME_SPOT[k]]: false } : {}) });
 };
 $('hideAll').onclick = () => { set({ show: Object.fromEntries(Object.keys(BASE).map(k => [k, false])) }); std('hideAll'); };
 $('showBase').onclick = () => set({ show: BASE });

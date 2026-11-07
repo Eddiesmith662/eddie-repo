@@ -71,6 +71,7 @@ DEFAULT_SETTINGS = {
         "nextrace": False,     # next broadcast box (Prerace tab)
         "livepoints": False,   # live points: the championship if the race ended now, over the ticker (Race tab)
         "recap": False,        # race recap: cautions and lead changes so far, slides out from under the VSPEED logo (Race tab)
+        "conditions": False,   # track conditions: sky, track and air temperature, the same bar as the race recap (Race tab)
     },
     # live points: points per finishing place (P1 first), bonuses, cutoff line position and rows on the graphic
     "livePoints": copy.deepcopy(livepoints.DEFAULTS),
