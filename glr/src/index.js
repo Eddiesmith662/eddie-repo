@@ -50,7 +50,7 @@ import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, i
   logChange, listChanges, whoName, mergeDrivers, separateDriver, aliasesOf, findDrivers,
   seriesEvents, allSeriesEvents, listRoster, addRoster, removeRoster, listSchedule, upcoming, addSchedule, addScheduleLines, deleteSchedule,
   scheduleEntry, linkScheduleTo, getSetting, setSetting, editSchedule,
-  linkDriver, unlinkDriver, setLink, linkedAccount, listAccounts, listClaims, decideClaim, getTeams, saveTeams, driversForMatching, directorOf, listDirectors, setDirector, accountRoles, searchDrivers, normName, decisionsFor, fileProtest, listProtests, getProtest, setProtestStatus, listDecisions, addDecision, deleteDecision,
+  linkDriver, unlinkDriver, setLink, linkedAccount, listAccounts, listClaims, decideClaim, getTeams, saveTeams, setSeriesTeams, driversForMatching, directorOf, listDirectors, setDirector, accountRoles, searchDrivers, normName, decisionsFor, fileProtest, listProtests, getProtest, setProtestStatus, listDecisions, addDecision, deleteDecision,
   saveRaceCalls, raceCalls } from "./db.js";
 import { KINDS, AMOUNT, CHANGES_ORDER, decisionText } from "./stewards.js";
 import { resultsPost, standingsPost, penaltyPost, fixPost, decisionPost, enqueue, processQueue, queueFor, retryQueued, discardQueued, isRecent } from "./discord.js";
@@ -203,6 +203,7 @@ function seriesEditPage(sr, user, err = "", queue = [], note = "", { officialRol
     <form method="post"><label for="sn">Short name (shown on the site)</label><input type="text" id="sn" name="short_name" value="${esc(sr.short_name)}" maxlength="40" required>
     <label for="sl">Address: glrhub.app/…</label><input type="text" id="sl" name="slug" value="${esc(sr.slug)}" maxlength="40">
     <p class="tag">Changing the address breaks old links to this series. Race and driver links aren't affected.</p>
+    ${user && user.admin ? `<input type="hidden" name="teams_form" value="1"><label class="chk"><input type="checkbox" name="teams"${sr.teams ? " checked" : ""}> Team points (the Warrior points system): a Teams tab with team standings</label>` : ""}
     ${user && user.admin && officialRole ? `<p class="stw"><b>Series directors:</b> ${directors.length ? directors.map(d => esc(d.name || d.discord_id)).join(", ") : "none yet"}. <a href="${BASE}/accounts">Assign on the Accounts page</a>.</p>
     <p class="tag">Directors need the Series official role in Discord too. They change only their series: its rules, penalties, results uploads and this page.</p>` : ""}
     ${user && user.admin && !officialRole ? `<p class="tag">Being replaced: once the Series official role is saved on <a href="${BASE}/settings">Settings</a>, admins assign each series' directors on the Accounts page, and this role stops working.</p><label for="rl">Discord role for this series' officials (role ID; leave empty for admins only)</label>
@@ -523,7 +524,7 @@ function seriesTabs(sr, on, seasons, seasonId, user) {
     `<option value="${se.id}"${se.id === seasonId ? " selected" : ""}>${esc(se.name)}</option>`).join("")}</select></form>` : "";
   const logo = ASSETS[`series-${sr.id}.png`] ? `<img class="shlogo" src="${BASE}/theme/series-${sr.id}.png" alt="${esc(sr.short_name)} logo">` : "";
   return `<p class="crumb"><a href="${BASE}/">GLR</a></p><div class="shead">${logo}<div><h1>${esc(sr.short_name)}</h1><p class="sub">${esc(sr.name)}${canEdit(user, sr) ? ` · <a href="${BASE}/${esc(sr.slug)}/edit">Edit series</a> · <a href="${BASE}/${esc(sr.slug)}/embed">Embed on a website</a>` : ""}</p></div></div>
-    <nav class="tabs">${t("results", "Results", "")}${t("schedule", "Schedule", "/schedule")}${t("standings", "Standings", "/standings")}${t("stats", "Stats", "/stats")}${t("drivers", "Drivers", "/drivers")}${sr.team_count || canEdit(user, sr) ? t("teams", "Teams", "/teams") : ""}${t("rules", "Rules", "/rules")}${t("penalties", "Penalties", "/penalties")}${pick}</nav>`;
+    <nav class="tabs">${t("results", "Results", "")}${t("schedule", "Schedule", "/schedule")}${t("standings", "Standings", "/standings")}${t("stats", "Stats", "/stats")}${t("drivers", "Drivers", "/drivers")}${sr.teams ? t("teams", "Teams", "/teams") : ""}${t("rules", "Rules", "/rules")}${t("penalties", "Penalties", "/penalties")}${pick}</nav>`;
 }
 
 // a table whose columns sort when their heading is clicked (numbers from data-v)
@@ -1826,6 +1827,7 @@ const site = {
         if (request.method === "POST" && (!season || !canEdit(user, sr) || !sameOrigin(request, url))) return notFound("You can't change this series.", user);
         if (m[2] === "standings") return standingsPage(sr, seasons, season, season && await seasonStandings(db, sr, season), user);
         if (m[2] === "teams") {
+          if (!sr.teams) return notFound("This series doesn't have team points.", user);
           if (!season) return teamsPage(sr, seasons, null, user);
           let text = "", problems = [], msg = "";
           if (request.method === "POST") {
@@ -1837,7 +1839,6 @@ const site = {
               const n = r.teams.reduce((a, t) => a + t.custs.length, 0);
               await logChange(db, { by: `discord:${user.id}:${user.name}`, seriesId: sr.id, kind: "series", summary: r.teams.length ? `Teams for ${season.name} saved: ${r.teams.length} teams, ${n} drivers` : `Teams for ${season.name} removed` });
               msg = r.teams.length ? `Saved: ${r.teams.length} teams, ${n} drivers.` : "Saved: this season has no teams now.";
-              sr.team_count = r.teams.length;
             }
           }
           const teams = await getTeams(db, sr.id, season.id);
@@ -1938,6 +1939,10 @@ const site = {
             if (user.admin && f.has("role_id") && String(f.get("role_id")).trim() !== (sr.role_id || "")) {
               await setSeriesRole(db, sr.id, f.get("role_id"));
               await logChange(db, { by: who, seriesId: sr.id, kind: "series", summary: String(f.get("role_id")).trim() ? `Officials' Discord role set (${String(f.get("role_id")).trim()})` : "Officials' Discord role removed" });
+            }
+            if (user.admin && f.has("teams_form") && f.has("teams") !== !!sr.teams) {
+              await setSeriesTeams(db, sr.id, f.has("teams"));
+              await logChange(db, { by: who, seriesId: sr.id, kind: "series", summary: f.has("teams") ? "Team points turned on (Teams tab)" : "Team points turned off" });
             }
             const r = await updateSeries(db, sr.id, { shortName: f.get("short_name"), slug: f.get("slug") });
             if (r.shortName !== sr.short_name || r.slug !== sr.slug)

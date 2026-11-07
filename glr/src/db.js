@@ -104,6 +104,7 @@ const SCHEMA = [
 const ADDED = [
   ["series", "short_name", "TEXT NOT NULL DEFAULT ''"], ["series", "slug", "TEXT NOT NULL DEFAULT ''"], ["series", "role_id", "TEXT NOT NULL DEFAULT ''"],
   ["series", "hook_results", "TEXT NOT NULL DEFAULT ''"], ["series", "hook_standings", "TEXT NOT NULL DEFAULT ''"], ["series", "hook_penalties", "TEXT NOT NULL DEFAULT ''"],
+  ["series", "teams", "INTEGER NOT NULL DEFAULT 0"],   // team points (the Warrior series only): an admin turns it on, on Edit series
   ["results", "orig_cust_id", "INTEGER"],
   ["overlay_keys", "kind", "TEXT NOT NULL DEFAULT 'overlay'"],
   ["schedule", "layout", "TEXT NOT NULL DEFAULT ''"], ["schedule", "length", "TEXT NOT NULL DEFAULT ''"],
@@ -276,7 +277,6 @@ export async function getSeries(db, key) {
   await ensureSchema(db);
   const sr = await db.prepare(`SELECT * FROM series WHERE slug = ? OR CAST(id AS TEXT) = ?`).bind(key, key).first();
   if (!sr) return null;
-  sr.team_count = (await db.prepare(`SELECT COUNT(*) AS n FROM teams WHERE series_id = ?`).bind(sr.id).first()).n;   // the Teams tab shows when there are some
   const events = await listEvents(db, { series: sr.id });
   const seasons = new Map();
   for (const e of events) {
@@ -374,6 +374,12 @@ export async function deleteAdjustment(db, seasonId, id) {
   await ensureSchema(db);
   await db.prepare(`DELETE FROM adjustments WHERE id = ? AND subsession_id IN (SELECT subsession_id FROM events WHERE season_id = ?)`).bind(id, seasonId).run();
   await db.prepare(`DELETE FROM decisions WHERE adj_id = ? AND adj_id NOT IN (SELECT id FROM adjustments)`).bind(id).run();
+}
+
+// team points on or off for a series (only the Warrior series has them)
+export async function setSeriesTeams(db, id, on) {
+  await ensureSchema(db);
+  await db.prepare(`UPDATE series SET teams = ? WHERE id = ?`).bind(on ? 1 : 0, id).run();
 }
 
 export async function updateSeries(db, id, { shortName, slug }) {

@@ -42,11 +42,25 @@ test("pasting teams: a spreadsheet grid or one team per line, matched by name, a
   assert.match(r.problems[0].why, /already on Red Team/);
 });
 
+test("only a series with team points turned on has a Teams tab", async () => {
+  const s = makeSite();
+  await s.signIn({ id: "1", roles: [ADMIN_ROLE], nick: "Test Admin" });
+  await s.addRace({ sub: 9001, date: week(0) });
+  assert.doesNotMatch((await s.page("/test-cup/standings")).html, /\/test-cup\/teams/);   // not even for an admin
+  assert.equal((await s.page("/test-cup/teams")).status, 404);
+  await s.post("/test-cup/edit", { short_name: "Test Cup", slug: "test-cup", teams_form: "1", teams: "on" });
+  assert.match((await s.page("/test-cup/standings")).html, /href="\/test-cup\/teams"/);
+  assert.match(text((await s.page("/history")).html), /Team points turned on/);
+  await s.post("/test-cup/edit", { short_name: "Test Cup", slug: "test-cup", teams_form: "1" });
+  assert.equal((await s.page("/test-cup/teams")).status, 404);
+});
+
 test("the Teams tab: directors set the teams, everyone sees the team standings", async () => {
   const s = makeSite();
   await s.signIn({ id: "1", roles: [ADMIN_ROLE], nick: "Test Admin" });
   await s.addRace({ sub: 9001, date: week(0), order: [0, 1, 2, 3, 4] });     // A 40, B 39, C 38, D 37, E 36
   await s.addRace({ sub: 9002, date: week(1), order: [3, 2, 0] });           // D 40, C 39, A 38
+  await s.post("/test-cup/edit", { short_name: "Test Cup", slug: "test-cup", teams_form: "1", teams: "on" });
   let p = await s.page("/test-cup/teams");
   assert.match(text(p.html), /No teams for this season yet/);
   const r = await s.post("/test-cup/teams", { teams: "Red Team\tBlue Team\nRacer A\tRacer C\nRacer B\tRacer D\nRacer Z\t" });
