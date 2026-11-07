@@ -24,13 +24,14 @@ export const THEMES = {
     label: "Goat Locker Racing",
     note: "Matches goatlockerracing.org: white pages, the black goat logo, Roboto headings, Poppins text and the site's monospace menu.",
     vars: "--bg:#ffffff;--card:#ffffff;--line:#e2e2e2;--text:#171717;--dim:#6f6f6f;--accent:#d7141a;--link:#b5121b",
-    fonts: "https://fonts.googleapis.com/css2?family=Roboto:wght@500;600;700;800&family=Poppins:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap",
+    fonts: "https://fonts.googleapis.com/css2?family=Roboto:ital,wght@0,500;0,600;0,700;0,800;1,900&family=Poppins:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap",
     css: `
 :root{color-scheme:light}
 body{font-family:Poppins,system-ui,Segoe UI,Arial,sans-serif;background:#f6f6f6}
 header{background:#fff;border-bottom:1px solid var(--line);box-shadow:0 2px 10px rgba(0,0,0,.06);padding:8px 20px}
 header .brand{display:flex;align-items:center;gap:12px}header .brand img{height:56px;width:auto;display:block}
-header .brand b{font:800 24px/1 Roboto,sans-serif;letter-spacing:-.01em;color:var(--text);white-space:nowrap}
+header .brand b{font:italic 900 27px/1 Roboto,sans-serif;text-transform:uppercase;letter-spacing:.03em;color:var(--text);white-space:nowrap;padding-right:4px}
+header .brand b span{color:var(--accent)}
 header .me{column-gap:0}
 header .me a,header .me .tag,button.link{font:600 13px "JetBrains Mono",monospace;text-transform:uppercase;letter-spacing:-.04em;color:#33373d}
 header .me > a,header .me > span,header .me > form{padding:0 9px;border-left:1px solid #d5d5d5}header .me > :first-child{border-left:0}
@@ -56,7 +57,7 @@ header .me{order:1}.mode{order:2;margin-left:16px;flex:none;position:relative;wi
 .mode .knob{position:absolute;top:3px;left:3px;width:20px;height:20px;border-radius:50%;background:#fff;color:#d7141a;box-shadow:0 1px 3px rgba(0,0,0,.25);display:grid;place-items:center;transition:transform .2s}
 .mode svg{width:13px;height:13px;fill:currentColor;stroke:currentColor;stroke-width:2;stroke-linecap:round}.mode svg:last-child{display:none;stroke:none}
 .mode:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
-@media (max-width:640px){.mode{order:0;margin-left:auto}header .me{width:100%}main{margin:0;border:0;border-radius:0;padding:18px 16px 40px}header .brand img{height:44px}header .brand b{font-size:20px}header .me > a,header .me > span,header .me > form{padding:0 6px}}`,
+@media (max-width:640px){.mode{order:0;margin-left:auto}header .me{width:100%}main{margin:0;border:0;border-radius:0;padding:18px 16px 40px}header .brand img{height:44px}header .brand b{font-size:22px}header .me > a,header .me > span,header .me > form{padding:0 6px}}`,
     // dark mode: only when the visitor turns it on with the switch in the header (remembered in a cookie)
     dark: `
 html.dark{color-scheme:dark;--bg:#121214;--card:#1b1b1e;--line:#2e2e33;--text:#ececec;--dim:#a2a2a9;--accent:#e5262c;--link:#ff7a7f}
@@ -77,9 +78,9 @@ html.dark .st{color:#e3a54a}html.dark .st.good{color:#4cc36a}html.dark .st.bad{c
 header .brand img.on-dark,html.dark header .brand img.on-light{display:none}html.dark header .brand img.on-dark{display:block}
 html.dark .mode{background:#3a3a40}html.dark .mode .knob{transform:translateX(22px);background:#121214;color:#ffd76a}
 html.dark .mode svg:first-child{display:none}html.dark .mode svg:last-child{display:block}`,
-    brand: () => `<img class="on-light" src="${BASE}/theme/glr-logo.png" alt="Goat Locker Racing" width="93" height="56"><img class="on-dark" src="${BASE}/theme/glr-logo-dark.png" alt="Goat Locker Racing" width="93" height="56"><b>Goat Hub</b>`,
-    // the site's name: in the header, and after each page's title in the browser tab ("ARCA standings · Goat Hub")
-    name: "Goat Hub",
+    brand: () => `<img class="on-light" src="${BASE}/theme/glr-logo.png" alt="Goat Locker Racing" width="93" height="56"><img class="on-dark" src="${BASE}/theme/glr-logo-dark.png" alt="Goat Locker Racing" width="93" height="56"><b class="hub">GLR <span>HUB</span></b>`,
+    // the site's name: in the header, and after each page's title in the browser tab ("ARCA standings · GLR HUB")
+    name: "GLR HUB",
   },
 };
 
