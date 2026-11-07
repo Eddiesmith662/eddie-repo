@@ -104,7 +104,7 @@ const SCHEMA = [
 const ADDED = [
   ["series", "short_name", "TEXT NOT NULL DEFAULT ''"], ["series", "slug", "TEXT NOT NULL DEFAULT ''"], ["series", "role_id", "TEXT NOT NULL DEFAULT ''"],
   ["series", "hook_results", "TEXT NOT NULL DEFAULT ''"], ["series", "hook_standings", "TEXT NOT NULL DEFAULT ''"], ["series", "hook_penalties", "TEXT NOT NULL DEFAULT ''"],
-  ["series", "teams", "INTEGER NOT NULL DEFAULT 0"],   // team points (the Warrior series only): an admin turns it on, on Edit series
+  ["series", "teams", "INTEGER NOT NULL DEFAULT 0"], ["series", "hook_teams", "TEXT NOT NULL DEFAULT ''"],   // team points (the Warrior series only): an admin turns it on, on Edit series
   ["results", "orig_cust_id", "INTEGER"],
   ["overlay_keys", "kind", "TEXT NOT NULL DEFAULT 'overlay'"],
   ["schedule", "layout", "TEXT NOT NULL DEFAULT ''"], ["schedule", "length", "TEXT NOT NULL DEFAULT ''"],
@@ -559,7 +559,7 @@ export async function markOfficial(db, sub, by) {
 
 // a webhook link: only Discord's own; stored like a password, never shown back in full
 export const HOOK_RE = /^https:\/\/(?:(?:canary|ptb)\.)?discord(?:app)?\.com\/api\/webhooks\/(\d{5,25})\/([\w-]{20,200})$/;
-export const HOOKS = ["results", "standings", "penalties"];
+export const HOOKS = ["results", "standings", "teams", "penalties"];   // teams: only a series with team points
 export async function setHook(db, id, kind, url) {
   if (!HOOKS.includes(kind)) throw new Error("Unknown post type.");
   const u = String(url || "").trim();

@@ -2,7 +2,7 @@
 // many of them raced; the season is every race added up. Teams, drivers and series here are all made up.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { makeSite, week, text, ADMIN_ROLE } from "./helpers.mjs";
+import { makeSite, week, text, raceExport, ADMIN_ROLE } from "./helpers.mjs";
 import { teamStandings, parseTeams } from "../src/teams.js";
 
 // Racer A..J are cust 100..109; default points 40, 39, 38 ... by finishing place
@@ -93,4 +93,31 @@ test("points by the size of the field (the Warrior way): 1st = cars that did a l
   assert.deepEqual(Object.fromEntries(Object.entries(st.groups[0].races[0].points).map(([id, x]) => [id, x.base])), { 100: 4, 101: 3, 102: 2, 103: 1, 104: 0 });
   const ts = teamStandings([{ id: 1, name: "Red Team", members: [{ cust_id: 103, name: "D" }, { cust_id: 104, name: "E" }] }], st);
   assert.deepEqual(ts.teams[0].races[0], { sum: 1, raced: 1, of: 2, score: 1 });   // 1 point / 1 driver: the 0-lap car isn't counted
+});
+
+test("team standings: a website widget and a Discord post after each official race, only with team points on", async () => {
+  const s = makeSite();
+  await s.signIn({ id: "1", roles: [ADMIN_ROLE], nick: "Test Admin" });
+  await s.addRace({ sub: 9001, date: week(0), order: [0, 1, 2, 3] });
+  assert.equal((await s.go("/test-cup/widget/teams")).status, 404);
+  assert.doesNotMatch((await s.page("/test-cup/embed")).html, /Team standings/);
+  assert.doesNotMatch((await s.page("/test-cup/edit")).html, /Team standings \(after each official race\)/);
+
+  await s.post("/test-cup/edit", { short_name: "Test Cup", slug: "test-cup", teams_form: "1", teams: "on" });
+  await s.post("/test-cup/teams", [["file", new File(["Team,Driver\nRed Team,Racer A\nRed Team,Racer B\nBlue Team,Racer C\nBlue Team,Racer D"], "t.csv")]]);
+  assert.match((await s.page("/test-cup/embed")).html, /<option value="teams">Team standings<\/option>/);
+  const w = await s.page("/test-cup/widget/teams");
+  assert.match(text(w.html), /Test Cup team standings .*1 Red Team 39\.5 2 Blue Team 37\.5 -2/);
+
+  assert.match((await s.page("/test-cup/edit")).html, /Team standings \(after each official race\)/);
+  await s.post("/test-cup/edit", { action: "hook", kind: "teams", url: "https://discord.com/api/webhooks/123456/abcdefghijklmnopqrstuvwxyz" });
+  s.sent.length = 0;
+  const up = await s.upload(raceExport({ sub: 9002, date: new Date(Date.now() - 3 * 3600e3).toISOString(), order: [3, 2, 1, 0] }));
+  assert.equal(up.status, 200);
+  const posts = s.sent.filter(x => x.url.includes("/webhooks/123456/")).map(x => JSON.parse(x.body));
+  const team = posts.find(p => /Team standings/.test(p.embeds[0].title));
+  assert.ok(team, "a team standings post went to the teams webhook");
+  assert.match(team.embeds[0].title, /Test Cup · Team standings · 2 races/);
+  // race 1: Red (40+39)/2 = 39.5, Blue (38+37)/2 = 37.5; race 2 reversed: Red 37.5, Blue 39.5 -> both 77, sharing 1st
+  assert.equal(team.embeds[0].description, "1. Blue Team: **77**\n1. Red Team: **77**");
 });

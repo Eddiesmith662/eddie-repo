@@ -22,7 +22,7 @@
  *         /health
  *         /upload             officials upload iRacing result files (JSON or CSV)
  *         /keys               admins: overlay keys, for producers' overlays to send their race results
- *         /<series>/widget/standings|schedule|results   small pages to embed on a website or use in OBS/vMix
+ *         /<series>/widget/standings|teams|schedule|results   small pages (teams: a series with team points) to embed on a website or use in OBS/vMix
  *                                 (?rows=10&bg=transparent|page&theme=glr|vspeed&class=GT3&refresh=60)
  *         /<series>/embed     the widgets with options, a preview and the code to paste
  *         /settings           admins: the site's theme, the league's short name and the race control role
@@ -53,7 +53,7 @@ import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, i
   linkDriver, unlinkDriver, setLink, linkedAccount, listAccounts, listClaims, decideClaim, getTeams, saveTeams, setSeriesTeams, driversForMatching, directorOf, listDirectors, setDirector, accountRoles, searchDrivers, normName, decisionsFor, fileProtest, listProtests, getProtest, setProtestStatus, listDecisions, addDecision, deleteDecision,
   saveRaceCalls, raceCalls } from "./db.js";
 import { KINDS, AMOUNT, CHANGES_ORDER, decisionText } from "./stewards.js";
-import { resultsPost, standingsPost, penaltyPost, fixPost, decisionPost, enqueue, processQueue, queueFor, retryQueued, discardQueued, isRecent } from "./discord.js";
+import { resultsPost, standingsPost, teamStandingsPost, penaltyPost, fixPost, decisionPost, enqueue, processQueue, queueFor, retryQueued, discardQueued, isRecent } from "./discord.js";
 import { computeStandings, cleanRules, DEFAULT_RULES, GLR_PLAYOFFS } from "./standings.js";
 import { computeStats, leaders, COLUMNS } from "./stats.js";
 import { THEMES, themeOf } from "./themes.js";
@@ -179,12 +179,12 @@ function seriesPage(sr, user) {
   return page(`${sr.short_name} results`, body, { user });
 }
 
-const HOOK_LABEL = { results: "Results (when a race is official: podium, class winners, top 10)", standings: "Standings (after each official race)", penalties: "Penalties and result fixes (when an official adds one)" };
+const HOOK_LABEL = { results: "Results (when a race is official: podium, class winners, top 10)", standings: "Standings (after each official race)", teams: "Team standings (after each official race)", penalties: "Penalties and result fixes (when an official adds one)" };
 function hooksHtml(sr, queue, note) {
   const masked = u => { const m = /\/webhooks\/(\d+)\/([\w-]+)$/.exec(u || ""); return m ? `Saved (…${esc(m[2].slice(-4))})` : ""; };
   return `<h2 id="discord">Discord posts</h2>${note ? `<div class="msg ${/^(Saved|Removed|Test sent)/.test(note) ? "ok" : "bad"}">${esc(note)}</div>` : ""}
   <p class="tag">Paste a webhook link for each channel to post to (in Discord: the channel's settings › Integrations › Webhooks › New Webhook › Copy Webhook URL). The same link can go in more than one box. Anyone with the link can post in that channel, so it's kept like a password and never shown again. Only races from the last 7 days post, so uploading an old season stays quiet.</p>
-  ${HOOKS.map(k => `<form method="post" action="#discord" class="hook"><input type="hidden" name="action" value="hook"><input type="hidden" name="kind" value="${k}">
+  ${HOOKS.filter(k => k !== "teams" || sr.teams).map(k => `<form method="post" action="#discord" class="hook"><input type="hidden" name="action" value="hook"><input type="hidden" name="kind" value="${k}">
     <label for="h_${k}">${HOOK_LABEL[k]}${sr[`hook_${k}`] ? ` · <b>${masked(sr[`hook_${k}`])}</b>` : ""}</label>
     <div class="row2"><input type="text" id="h_${k}" name="url" placeholder="${sr[`hook_${k}`] ? "Paste a new link to replace it" : "https://discord.com/api/webhooks/…"}" autocomplete="off" spellcheck="false">
     <button class="btn">Save</button>${sr[`hook_${k}`] ? `<button class="btn ghost" name="test" value="1">Send test</button><button class="btn ghost" name="clear" value="1" onclick="return confirm('Stop posting these?')">Remove</button>` : ""}</div></form>`).join("")}
@@ -701,6 +701,13 @@ async function postOfficial(db, sub, origin) {
     const season = { id: ev.season_id, name: ev.season_name || "" };
     await enqueue(db, sr.id, "standings", "standings", sub, standingsPost(sr, season, await seasonStandings(db, sr, season), ev, origin)); n++;
   }
+  if (sr.teams && sr.hook_teams && ev.season_id) {        // team points (the Warrior series)
+    const teams = await getTeams(db, sr.id, ev.season_id);
+    if (teams.length) {
+      const season = { id: ev.season_id, name: ev.season_name || "" };
+      await enqueue(db, sr.id, "teams", "teams", sub, teamStandingsPost(sr, season, teamStandings(teams, await seasonStandings(db, sr, season)), ev, origin)); n++;
+    }
+  }
   return n;
 }
 
@@ -1133,6 +1140,17 @@ function standingsWidget(sr, season, st, rows, cls) {
   return body + wLink(`${BASE}/${sr.slug}/standings`, "Full standings ›").replace("<a ", '<a class="more" ');
 }
 
+// team standings (a series with team points, the Warrior series)
+function teamsWidget(sr, season, ts, rows) {
+  let body = `<div class="wt"><b>${esc(sr.short_name)} team standings</b><span>${season ? esc(season.name) : ""}</span></div>`;
+  if (!ts || !ts.teams.length) return body + `<div class="box empty">No teams yet this season.</div>`;
+  const top = ts.teams[0].total;
+  body += `<div class="box"><table><tr><th class="n">Pos</th><th>Team</th><th class="n">Pts</th><th class="n">Behind</th></tr>` +
+    ts.teams.slice(0, rows).map(t => `<tr><td class="n">${t.pos}</td><td class="nm">${esc(t.name)}</td><td class="n"><b>${teamNum(t.total)}</b></td>
+      <td class="n">${t.total < top ? "-" + teamNum(Math.round((top - t.total) * 1000) / 1000) : ""}</td></tr>`).join("") + `</table></div>`;
+  return body + wLink(`${BASE}/${sr.slug}/teams`, "Full team standings ›").replace("<a ", '<a class="more" ');
+}
+
 function scheduleWidget(sr, rows, n) {
   const up = rows.filter(r => !r.subsession_id && Date.parse(r.starts_at) >= Date.now() - 4 * 3600e3).slice(0, n);
   let body = `<div class="wt"><b>${esc(sr.short_name)} schedule</b><span>Upcoming races</span></div>`;
@@ -1158,7 +1176,7 @@ function resultsWidget(sr, ev, n) {
 }
 
 function embedPage(sr, user, classes) {
-  const W = [["standings", "Standings", 10], ["schedule", "Schedule", 5], ["results", "Latest results", 10]];
+  const W = [["standings", "Standings", 10], ...(sr.teams ? [["teams", "Team standings", 12]] : []), ["schedule", "Schedule", 5], ["results", "Latest results", 10]];
   let body = seriesTabs(sr, "embed", [], null, user).replace(/<nav class="tabs">[\s\S]*<\/nav>/, "");
   body += `<h2>Embed on a website</h2><p class="hint">Pick a widget, set it up, then copy the code. On a WordPress/Elementor page: Edit with Elementor › drag an <b>HTML</b> element onto the page › paste the code › Update.
     The widget keeps itself up to date and sizes itself to fit. The same link (without the code around it) works as a browser source in OBS or vMix.</p>
@@ -1768,7 +1786,7 @@ const site = {
         const w = new Map((await listEvents(db, { series: sr.id })).map(e => [e.subsession_id, e.winners]));
         return schedulePage(sr, rows, w, user, msg);
       }
-      if ((m = path.match(/^\/([a-z0-9-]+)\/widget\/(standings|schedule|results)$/))) {
+      if ((m = path.match(/^\/([a-z0-9-]+)\/widget\/(standings|teams|schedule|results)$/))) {
         const sr = await getSeries(db, m[1]);
         if (!sr) return new Response("No such series", { status: 404 });
         const rows = Math.max(1, Math.min(60, Number(url.searchParams.get("rows")) || 10));
@@ -1777,6 +1795,11 @@ const site = {
         if (m[2] === "standings") {
           const seasons = await seasonsOf(db, sr.id), season = pickSeason(seasons, url);
           return widgetPage(`${sr.short_name} standings`, standingsWidget(sr, season, season && await seasonStandings(db, sr, season), rows, url.searchParams.get("class") || ""), opts);
+        }
+        if (m[2] === "teams") {
+          if (!sr.teams) return new Response("This series doesn't have team points", { status: 404 });
+          const seasons = await seasonsOf(db, sr.id), season = pickSeason(seasons, url), teams = season ? await getTeams(db, sr.id, season.id) : [];
+          return widgetPage(`${sr.short_name} team standings`, teamsWidget(sr, season, teams.length ? teamStandings(teams, await seasonStandings(db, sr, season)) : null, rows), opts);
         }
         if (m[2] === "schedule") return widgetPage(`${sr.short_name} schedule`, scheduleWidget(sr, await listSchedule(db, sr.id), rows), opts);
         const last = (await listEvents(db, { series: sr.id, limit: 1 }))[0];
@@ -1933,7 +1956,7 @@ const site = {
                 await logChange(db, { by: `discord:${user.id}:${user.name}`, seriesId: sr.id, kind: "webhook", summary: `Discord ${kind} posts switched off` }); }
               else if (f.get("test")) {
                 await enqueue(db, sr.id, kind, "test", null, { embeds: [{ title: `${sr.short_name}: test post`, color: 0xFF0D40,
-                  description: `This channel will get the ${sr.short_name} ${kind} posts from the VSPEED GLR site.`, url: `${url.origin}${BASE}/${sr.slug}` }] });
+                  description: `This channel will get the ${sr.short_name} ${kind === "teams" ? "team standings" : kind} posts from the VSPEED GLR site.`, url: `${url.origin}${BASE}/${sr.slug}` }] });
                 const out = await processQueue(db);
                 note = out.includes("sent") ? "Test sent. Check the channel." : "The test didn't go through; see Waiting to post below.";
               } else {

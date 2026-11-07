@@ -74,6 +74,16 @@ export function standingsPost(sr, season, st, ev, origin) {
   return { embeds };
 }
 
+// team standings after a race (a series with team points, the Warrior series): ts from teams.js teamStandings
+export function teamStandingsPost(sr, season, ts, ev, origin) {
+  const pts = n => Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/0$/, "");
+  const top = ts.teams[0] ? ts.teams[0].total : 0;
+  const lines = ts.teams.slice(0, 20).map(t => `${t.pos}. ${md(t.name)}: **${pts(t.total)}**${t.total < top ? ` (−${pts(Math.round((top - t.total) * 1000) / 1000)})` : ""}`);
+  if (ts.teams.length > 20) lines.push(`…and ${ts.teams.length - 20} more`);
+  return { embeds: [{ title: `${sr.short_name} · Team standings · ${ts.races.length} race${ts.races.length === 1 ? "" : "s"}`, url: `${origin}/${sr.slug}/teams`, color: COLOR,
+    description: lines.join("\n").slice(0, 4000), footer: { text: `${season.name} · after ${ev.track}` } }] };
+}
+
 export function penaltyPost(sr, ev, a, origin) {
   return { embeds: [{ title: `${sr.short_name}: ${a.points < 0 ? "penalty" : "points adjustment"}`, url: `${origin}/${sr.slug}/penalties`, color: COLOR,
     description: `${a.car_number ? `#${md(a.car_number)} ` : ""}**${md(a.name)}**: ${a.points > 0 ? "+" : "−"}${Math.abs(a.points)} points\n${md(ev.track)}, ${day(ev.start_time)}\n\n${md(a.reason)}`,
@@ -146,7 +156,7 @@ export async function processQueue(db, limit = 15) {
   const due = (await db.prepare(`SELECT * FROM discord_queue WHERE sent_at IS NULL AND next_try <= ? ORDER BY id LIMIT ?`).bind(Date.now(), limit).all()).results;
   const out = [];
   for (const q of due) {
-    const sr = await db.prepare(`SELECT hook_results, hook_standings, hook_penalties FROM series WHERE id = ?`).bind(q.series_id).first();
+    const sr = await db.prepare(`SELECT hook_results, hook_standings, hook_teams, hook_penalties FROM series WHERE id = ?`).bind(q.series_id).first();
     const url = sr && sr[`hook_${q.hook}`];
     if (!url) { out.push(await fail(db, q, "No webhook set for this post", true)); continue; }
     out.push(await sendOne(db, q, url));
