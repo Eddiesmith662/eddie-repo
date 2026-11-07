@@ -259,13 +259,13 @@ control from before v1.5.38 kept its calls in `data\race-control`; they're copie
   before it the replay starts). Replaying marks it **Reviewing**.
 - **Logged**: iRacing's own penalties (black flag, warning, disqualified), cautions and retirements. They're recorded
   for the stewards, not decisions, and nothing is done with them.
-- **Map** (a tab beside the running order): iRacing's own map of the track, with every car on it (the camera car
-  ringed, cars in the pits dimmed, black-flagged cars marked, cars in an incident in the last 30 s flashing) and a
-  warning mark where each open incident happened. Click a car to put the camera on it; click a mark to open that
-  incident. **Pop out map** opens it in a window of its own for a second screen (clicking a mark there replays it).
-  The maps load from iRacing's public map server each time (nothing is stored), so the PC needs to be online. A track
-  that isn't in `static\trackmaps.json` says "No map for this track yet": add one line with its iRacing track id and
-  map folder.
+- **Map** (bottom right): iRacing's own map of the track, with every car on it (the camera car in red, cars in the
+  pits in blue, black-flagged cars in black, cars in an incident in the last 30 s flashing) and a warning mark where
+  each open incident happened. Click a car to put the camera on it; click a mark to open that incident. **Pop out
+  map** opens a bigger one in a window of its own for a second screen (clicking a mark there replays it). The maps
+  load from iRacing's public map server each time (nothing is stored), so the PC needs to be online. A track that
+  isn't in `static\trackmaps.json` says "No map for this track yet": add one line with its iRacing track id and map
+  folder.
 - **Making a call** (middle): pick the car, the call (warning, drive-through, stop-and-go, time penalty, end of line,
   positions, points, disqualified or no action), the number of seconds / positions / points where it needs one, and
   the reason, then **Make the call**. The incident moves to **Decided** (or **No action**). For something that isn't

@@ -50,7 +50,7 @@
   .banner button { padding: 4px 12px; }
   .wrap { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(340px, 1fr) minmax(380px, 1.15fr) minmax(330px, .95fr); grid-template-rows: 1fr minmax(150px, 30%); gap: 12px; padding: 12px; }
   section { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-  section.log { grid-column: 1 / -1; }
+  section.log { grid-column: 1 / 3; grid-row: 2; } section.map { grid-column: 3; grid-row: 2; }
   h2 { margin: 0 0 10px; font-size: 13px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--dim); display: flex; align-items: center; gap: 8px; }
   h2 .n { background: rgba(0,0,0,.35); color: var(--text); padding: 1px 8px; border-radius: 10px; letter-spacing: 0; font-size: 12px; }
   .scroll { overflow-y: auto; flex: 1; min-height: 0; }
@@ -142,11 +142,9 @@
   .toast { position: fixed; bottom: 18px; left: 50%; transform: translateX(-50%); background: #111; border: 1px solid var(--red); padding: 10px 16px; border-radius: 6px; z-index: 99; display: none; }
   section.det { overflow-y: auto; }
   /* narrower screens: the page scrolls instead of fitting the window */
-  /* Map tab (static/rcmap.js): iRacing's official map, toned for this dark page */
-  .tabs { display: flex; align-items: center; gap: 6px; margin: 0 0 8px; }
-  .tabs .tab { padding: 5px 12px; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; background: transparent; color: var(--dim); border-color: transparent; }
-  .tabs .tab.on { color: var(--text); border-color: #4a4a4b; background: #2c2c2d; }
-  .tabs > button:not(.tab) { padding: 3px 10px; font-size: 12px; }
+  /* buttons in a panel's heading (Clear all penalties, Pop out map) */
+  h2 button { padding: 3px 10px; font-size: 12px; letter-spacing: 0; text-transform: none; color: var(--text); }
+  /* the map (static/rcmap.js): iRacing's official map, toned for this dark page; small in the corner, big popped out */
   .rcmap { flex: 1; min-height: 0; position: relative; background: #121213; border-radius: 5px; overflow: hidden; }
   .rcmap[hidden] { display: none; }
   .rcmap-svg { width: 100%; height: 100%; display: block; }
@@ -169,13 +167,16 @@
   .rcmap .mark { cursor: pointer; } .rcmap .mark path { fill: var(--amber); stroke: #111; stroke-width: 3; }
   .rcmap .mark.new path { fill: var(--red); } .rcmap .mark text { fill: #111; font: 800 20px Arial, sans-serif; pointer-events: none; }
   .rcmap .mark.new text { fill: #fff; }
+  /* in the small corner map the track is drawn at about a quarter size, so cars and marks are drawn bigger to stay readable */
+  .rcmap.small .car circle { r: 46px; stroke-width: 6; } .rcmap.small .car text { font-size: 46px; transform: translateY(10px); }
+  .rcmap.small .mark path, .rcmap.small .mark text { transform: scale(2.4); }
   /* the map on its own (Pop out, /racecontrol?solo=map) */
   body.solo .wrap { grid-template-columns: 1fr; grid-template-rows: 1fr; }
-  body.solo .wrap > section:not(.ro), body.solo .ro > h2:first-child, body.solo .rp, body.solo .tabs, body.solo #orderPane, body.solo .ro .hint, body.solo .steward, body.solo #site, body.solo .hbar a { display: none !important; }
-  body.solo #mapPane { display: block !important; }
+  body.solo .wrap > section:not(.map), body.solo section.map > h2, body.solo .steward, body.solo #site, body.solo .hbar a { display: none !important; }
+  body.solo section.map { grid-column: 1 / -1; }
   @media (max-width: 1250px) { html, body { height: auto; } .wrap { flex: none; grid-template-columns: 1fr 1fr; grid-template-rows: auto; }
-    section { min-height: 420px; max-height: 80vh; } section.det { max-height: none; } section.ro { grid-column: 1 / -1; } }
-  @media (max-width: 760px) { .wrap { grid-template-columns: 1fr; } }
+    section { min-height: 420px; max-height: 80vh; } section.det { max-height: none; } section.ro, section.log, section.map { grid-column: 1 / -1; grid-row: auto; } section.map { min-height: 360px; } }
+  @media (max-width: 760px) { .wrap { grid-template-columns: 1fr; } section.log, section.map { grid-column: 1; } }
 </style>
 </head>
 <body>
@@ -224,14 +225,18 @@
       <button data-r="speed" data-v="0.5">½ speed</button><button data-r="ff">▶▶</button><button data-r="prevlap">◀ Lap</button><button data-r="nextlap">Lap ▶</button>
       <button data-r="live" class="live" style="grid-column: 1 / -1">LIVE</button>
     </div>
-    <div class="tabs"><button class="tab on" data-tab="order">Running order</button><button class="tab" data-tab="map">Map</button><span class="grow"></span>
-      <button id="mapPop" title="The map on its own, in a window you can put on another screen">Pop out map</button>
-      <button id="clearAll" title="Sends !clearall: removes every driver's penalties in iRacing">Clear all penalties</button></div>
+    <h2>Running order<span class="grow"></span>
+      <button id="clearAll" title="Sends !clearall: removes every driver's penalties in iRacing">Clear all penalties</button></h2>
     <div class="scroll" id="orderPane">
       <table><thead><tr><th>P</th><th>#</th><th>Driver</th><th class="r">Laps</th><th class="r">Gap</th><th class="r">Inc</th><th class="r">Pits</th><th></th></tr></thead><tbody id="order"></tbody></table>
     </div>
-    <div class="rcmap" id="mapPane" hidden></div>
     <p class="hint" id="roHint">Click a driver to put the camera on them. Double-click for a call that isn't from an incident.</p>
+  </section>
+
+  <section class="map">
+    <h2>Map<span class="grow"></span>
+      <button id="mapPop" title="The map on its own, in a window you can put on another screen">Pop out map</button></h2>
+    <div class="rcmap small" id="mapPane" title="Click a car to put the camera on it. Click a ! to open that incident."></div>
   </section>
 
   <section class="log">
@@ -605,28 +610,18 @@ function renderCalls() {
 }
 $('calls').onclick = e => { const wd = e.target.closest('[data-wd]'); if (wd) return withdraw(wd.dataset.wd); const sd = e.target.closest('[data-send]'); if (sd) sendSim(sd.dataset.send); };
 
-/* ---------- map tab and pop-out ---------- */
+/* ---------- the map (small, bottom right) and its pop-out window ---------- */
 const SOLO = new URLSearchParams(location.search).get('solo') === 'map';
-let tab = SOLO ? 'map' : load('rcTab', 'order');
-if (SOLO) { document.body.classList.add('solo'); document.title = 'VSPEED Race Control · Map'; }
-function setTab(t) {
-  tab = t; if (!SOLO) store('rcTab', t);
-  document.querySelectorAll('.tabs .tab').forEach(b => b.classList.toggle('on', b.dataset.tab === t));
-  $('orderPane').hidden = t !== 'order'; $('mapPane').hidden = t !== 'map';
-  $('roHint').textContent = t === 'map' ? 'Click a car to put the camera on it. Click a ! to open that incident.'
-    : 'Click a driver to put the camera on them. Double-click for a call that isn\'t from an incident.';
-  renderMap();
-}
-document.querySelector('.tabs').onclick = e => { const b = e.target.closest('.tab'); if (b) setTab(b.dataset.tab); };
+if (SOLO) { document.body.classList.add('solo'); document.title = 'VSPEED Race Control · Map'; $('mapPane').classList.remove('small'); }
 $('mapPop').onclick = () => window.open('/racecontrol?solo=map', 'rcmap', 'width=1280,height=760');
 RCMap.mount($('mapPane'), {
   onCar: idx => post('/api/camera', { carIdx: idx }),
   onIncident: id => { if (SOLO) { replay(id); toast('Replaying it in the sim'); } else { openIncident(id); } },
 });
-function renderMap() { if (tab === 'map' || SOLO) RCMap.update(L, RC); }
+function renderMap() { RCMap.update(L, RC); }
 
 function render() { renderTypes(); renderQueue(); renderDet(); renderCalls(); renderMap(); }
-setTab(tab);
+renderMap();
 connect(); rcFetch(); setInterval(rcFetch, 5000);
 </script>
 </body>

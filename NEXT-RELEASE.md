@@ -12,3 +12,5 @@ How it works (CLAUDE.md, "Three chats, one repo"):
   VERSION bump).
 
 ## Notes
+
+Race control: the track map is now always on the Race Control page, small in the bottom right corner (the Map tab is gone, so the running order always shows). Pop out map is in the map's corner and still opens a big one in its own window for a second screen.
