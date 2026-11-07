@@ -287,8 +287,15 @@ const STATUS = { open: ["Open", ""], decided: ["Decided", "good"], withdrawn: ["
 const statusTag = p => `<span class="st ${STATUS[p.status]?.[1] || ""}">${STATUS[p.status]?.[0] || esc(p.status)}</span>`;
 const who = p => `${carName(p.filer_number, p.filer_name)}${p.against_cust ? ` <span class="tag">protests</span> ${carName(p.against_number, p.against_name)}` : ""}`;
 
-function decisionForm(ev, race, { protest = null } = {}) {
+// a steward never decides about their own car or a protest they're in: the one who filed it, or the one it's against
+// (as far as the site knows who they are: the driver they linked to their Discord account). Nov 7, 2026.
+const involvedIn = (user, p) => !!(user && user.cust && p && (p.filer_cust === user.cust || p.against_cust === user.cust));
+const OWN_PROTEST = "You're involved in this protest, so another steward decides it.";
+const OWN_CAR = "That's your own car: another steward makes decisions about you.";
+
+function decisionForm(ev, race, { protest = null, self = null } = {}) {
   const pre = protest && protest.against_cust;
+  race = race.filter(r => r.cust_id !== self);           // never offered a decision about themselves
   return `<form method="post" action="#p${protest ? protest.id : "new"}" class="dec"><input type="hidden" name="action" value="decide">${protest ? `<input type="hidden" name="protest" value="${protest.id}">` : ""}
     <div class="grid"><label>Driver<br><select name="cust">${race.map(r => `<option value="${r.cust_id}"${r.cust_id === pre ? " selected" : ""}>P${r.finish_pos} ${carName(r.car_number, r.name)}</option>`).join("")}</select></label>
     <label>Decision<br><select name="kind">${Object.entries(KINDS).map(([k, t]) => `<option value="${k}">${t}</option>`).join("")}</select></label>
@@ -309,7 +316,7 @@ function stewardsPage(ev, user, { protests = [], steward = false, msg = "" } = {
       return `<tr${off ? ' class="wd"' : ""}><td>${driverLink(d.cust_id, `${d.car_number ? "#" + d.car_number + " " : ""}${d.name || d.cust_id}`)}</td>
       <td><b>${esc(decisionText(d))}</b>${servedText(d)}${rc ? ` <span class="tag">race control${info.lap != null ? `, lap ${esc(info.lap)}` : ""}</span>` : ""}</td>
       <td style="white-space:normal">${esc(d.reason)}${d.protest_id ? ` <span class="tag">(protest ${d.protest_id})</span>` : ""}${off ? `<br><span class="tag">Withdrawn${d.withdrawn_reason ? ": " + esc(d.withdrawn_reason) : ""}</span>` : ""}</td><td>${day(d.made_at)}</td>
-      ${steward ? `<td>${off ? "" : rc ? `<form method="post" action="#top" onsubmit="return confirm('Withdraw this race control call? It stays on the report, crossed out, and anything it changed goes back. Race control can\\'t bring it back.')"><input type="hidden" name="action" value="undo"><input type="hidden" name="id" value="${d.id}"><button class="link">Withdraw</button></form>`
+      ${steward ? `<td>${off || d.cust_id === (user && user.cust) || involvedIn(user, protests.find(p => p.id === d.protest_id)) ? "" : rc ? `<form method="post" action="#top" onsubmit="return confirm('Withdraw this race control call? It stays on the report, crossed out, and anything it changed goes back. Race control can\\'t bring it back.')"><input type="hidden" name="action" value="undo"><input type="hidden" name="id" value="${d.id}"><button class="link">Withdraw</button></form>`
         : `<form method="post" action="#top" onsubmit="return confirm('Take this decision back? Any points or places it changed go back too.')"><input type="hidden" name="action" value="undo"><input type="hidden" name="id" value="${d.id}"><button class="link">Take back</button></form>`}</td>` : ""}</tr>`; }).join("") + `</table></div>`
     : `<p class="hint">No decisions for this race.</p>`);
   // the protests: who protested whom, and where it stands. What was written is for the stewards and the driver who filed it.
@@ -321,9 +328,10 @@ function stewardsPage(ev, user, { protests = [], steward = false, msg = "" } = {
     body += `<div class="protest" id="p${p.id}"><p><b>Protest ${p.id}</b> · ${who(p)}${p.lap ? ` · ${esc(p.lap)}` : ""} · ${statusTag(p)}${pd.length ? ` · ${pd.map(d => esc(`${d.name || ""}: ${decisionText(d)}`)).join("; ")}` : ""}</p>`;
     if (steward || mine) body += `<blockquote>${esc(p.what).replace(/\n/g, "<br>")}${p.video ? `<br><a href="${esc(p.video)}" target="_blank" rel="noopener noreferrer">Video</a>` : ""}</blockquote><p class="tag">Filed ${day(p.created_at)}${steward ? ` by ${esc(whoName(p.filed_by))}` : ""}</p>`;
     if (mine && p.status === "open") body += `<form method="post" action="#p${p.id}" onsubmit="return confirm('Withdraw your protest?')"><input type="hidden" name="action" value="withdraw"><input type="hidden" name="id" value="${p.id}"><button class="link">Withdraw</button></form>`;
-    if (steward && p.status === "open") body += `<details><summary>Decide this protest</summary>${decisionForm(ev, race, { protest: p })}
+    if (steward && involvedIn(user, p)) body += `<p class="tag">${OWN_PROTEST}</p>`;
+    else if (steward && p.status === "open") body += `<details><summary>Decide this protest</summary>${decisionForm(ev, race, { protest: p, self: user.cust })}
       <form method="post" action="#p${p.id}"><input type="hidden" name="action" value="close"><input type="hidden" name="id" value="${p.id}"><p class="tag">Or close it without a decision (filed by mistake, a duplicate): <button class="link">Close</button></p></form></details>`;
-    if (steward && p.status !== "open") body += `<form method="post" action="#p${p.id}"><input type="hidden" name="action" value="reopen"><input type="hidden" name="id" value="${p.id}"><button class="link">Reopen</button></form>`;
+    if (steward && p.status !== "open" && !involvedIn(user, p)) body += `<form method="post" action="#p${p.id}"><input type="hidden" name="action" value="reopen"><input type="hidden" name="id" value="${p.id}"><button class="link">Reopen</button></form>`;
     body += `</div>`;
   }
   // filing a protest
@@ -342,7 +350,7 @@ function stewardsPage(ev, user, { protests = [], steward = false, msg = "" } = {
     <label for="vid">Video link (optional: YouTube, Twitch clip, Streamable...)</label><input type="text" id="vid" name="video" maxlength="500" placeholder="https://">
     <p class="tag">The stewards see what you write. The report shows who protested whom and the decision.</p>
     <p><button class="btn">File protest</button></p></form>`;
-  if (steward) body += `<h2 id="pnew">Stewards' decision</h2><p class="tag">A decision without a protest (something the stewards saw themselves). It shows on the report, changes the results for places and disqualifications, and goes on the series' penalties for points.</p>` + decisionForm(ev, race);
+  if (steward) body += `<h2 id="pnew">Stewards' decision</h2><p class="tag">A decision without a protest (something the stewards saw themselves). It shows on the report, changes the results for places and disqualifications, and goes on the series' penalties for points.</p>` + decisionForm(ev, race, { self: user.cust });
   return page(`Stewards: ${ev.track}`, body, { user });
 }
 
@@ -1341,6 +1349,9 @@ const site = {
             } else if (!steward) {
               return notFound("Only stewards can do that.", user);
             } else if (a === "decide") {
+              const forP = Number(f.get("protest")) ? await getProtest(db, Number(f.get("protest"))) : null;
+              if (involvedIn(user, forP)) throw new Error(OWN_PROTEST);
+              if (user.cust && Number(f.get("cust")) === user.cust) throw new Error(OWN_CAR);
               const r = await addDecision(db, { sub, protestId: Number(f.get("protest")) || null, cust: Number(f.get("cust")), kind: String(f.get("kind")), amount: f.get("amount"), reason: f.get("reason") }, by);
               ev = await getEvent(db, sub);
               const d = ev.decisions.find(x => x.id === r.id);
@@ -1352,6 +1363,9 @@ const site = {
               }
               msg = `Decision saved: ${d.name}: ${r.text}.`;
             } else if (a === "undo") {
+              const was = ev.decisions.find(x => x.id === Number(f.get("id")));
+              if (was && user.cust && was.cust_id === user.cust) throw new Error(OWN_CAR);
+              if (was && was.protest_id && involvedIn(user, await getProtest(db, was.protest_id))) throw new Error(OWN_PROTEST);
               const d = await deleteDecision(db, sub, Number(f.get("id")), by, "Withdrawn on the site");
               if (d) {
                 await logChange(db, { by, seriesId: ev.series_id, sub, kind: "decision", summary: `Stewards ${d.withdrawn ? "withdrew a race control call" : "took back a decision"}: ${decisionText(d)} (${d.reason})` });
@@ -1360,6 +1374,7 @@ const site = {
               }
               msg = d && d.withdrawn ? "Withdrawn." : "Removed.";
             } else if ((a === "close" || a === "reopen") && p && p.subsession_id === sub) {
+              if (involvedIn(user, p)) throw new Error(OWN_PROTEST);
               await setProtestStatus(db, pid, a === "close" ? "withdrawn" : "open", by);
               await logChange(db, { by, seriesId: ev.series_id, sub, kind: "protest", summary: `Protest ${pid} ${a === "close" ? "closed without a decision" : "reopened"}: ${ev.track}` });
               msg = a === "close" ? "Closed." : "Reopened.";

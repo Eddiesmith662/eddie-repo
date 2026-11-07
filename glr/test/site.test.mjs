@@ -270,3 +270,37 @@ test("the old address: pages forward to glrhub.app, programs are still answered 
   assert.match(link.url, /^https:\/\/glrhub\.app\/rc\/link\?code=/);
   assert.equal((await old("/somewhere-else")).status, 404);                 // the rest of that domain isn't ours
 });
+
+test("a steward never decides a protest they're in, or about their own car; another steward can", async () => {
+  const s = await seeded(2);
+  await s.signIn();
+  await s.post("/settings", { theme: "glr", short: "GLR", steward_role: "333333" });
+  // a steward who also races (Racer C) files a protest against Racer B
+  const racingSteward = { id: "90", roles: ["333333"], nick: "Steward Who Races" };
+  await s.signIn(racingSteward);
+  await s.post("/results/1001/stewards", { action: "link", cust: "102" });
+  let r = await s.post("/results/1001/stewards", { action: "protest", against: "101", lap: "lap 5", what: "Turned me in turn 3 without a lift." });
+  const pid = Number(text(r.html).match(/number (\d+)/)[1]);
+  // their own protest: no decision form, and the site refuses it anyway
+  r = await s.page("/results/1001/stewards");
+  assert.match(text(r.html), /You're involved in this protest, so another steward decides it/);
+  assert.ok(!r.html.includes(`name="protest" value="${pid}"`));
+  r = await s.post("/results/1001/stewards", { action: "decide", protest: String(pid), cust: "101", kind: "positions", amount: "3", reason: "x" });
+  assert.match(text(r.html), /another steward decides it/);
+  r = await s.post("/results/1001/stewards", { action: "close", id: String(pid) });
+  assert.match(text(r.html), /another steward decides it/);
+  // nor about their own car, with or without a protest; their car isn't even in the list
+  r = await s.post("/results/1001/stewards", { action: "decide", cust: "102", kind: "warning", reason: "x" });
+  assert.match(text(r.html), /your own car: another steward makes decisions about you/);
+  assert.ok(!/<option value="102"/.test((await s.page("/results/1001/stewards")).html));
+  assert.equal(s.DB.raw.prepare("SELECT COUNT(*) AS n FROM decisions").get().n, 0);
+  // another steward decides it, and the racing steward can't take that back
+  await s.signIn({ id: "91", roles: ["333333"], nick: "Other Steward" });
+  r = await s.post("/results/1001/stewards", { action: "decide", protest: String(pid), cust: "101", kind: "positions", amount: "3", reason: "Avoidable contact" });
+  assert.match(text(r.html), /Decision saved/);
+  await s.signIn(racingSteward);
+  const did = s.DB.raw.prepare("SELECT id FROM decisions").get().id;
+  r = await s.post("/results/1001/stewards", { action: "undo", id: String(did) });
+  assert.match(text(r.html), /another steward decides it/);
+  assert.equal(s.DB.raw.prepare("SELECT COUNT(*) AS n FROM decisions").get().n, 1);
+});
