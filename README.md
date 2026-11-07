@@ -85,6 +85,7 @@ package** brings back the logos, ticker and driver info.
 | **Driver info** | Bottom | The car the iRacing camera is on: last and best lap, gap; in qualifying, the gap to pole |
 | **Results board** | Center | Full running order with gaps |
 | **Biggest movers** | Bottom right | Top 5 positions gained since the start |
+| **Race recap** | Top left, slides out from under the VSPEED logo | Cautions and lead changes so far (iRacing's count, or the overlay's own if that's higher). Steps aside while the penalty box is up |
 | **Race off pit road** | Over the ticker | The order cars came off pit road under caution, spots gained or lost, stop times |
 | **Live points** | Over the ticker | The championship if the race ended now, with the playoff cutline ([guide](GUIDE-standings-live-points-playoffs.md)) |
 | **Penalty box** | Top center | A black-flagged driver with a reason, shown from the live timing window |

@@ -50,6 +50,22 @@
   #logo.straight .plate, #logo.straight .plate img, #logo.straight .accent { transform: none; }
   #logo .accent { height: 5px; width: 292px; transform: skewX(-14deg); transform-origin: left top; position: relative; }
   #logo .accent::after { content: ""; position: absolute; left: 0; top: 0; height: 100%; width: 38%; background: var(--red); }
+  /* Race recap (Nov 7 2026): cautions and lead changes so far. A black bar 630 px wide, level with the logo plate, that
+     slides out to the right from under it (Race tab, RACE RECAP). Its left end starts under the plate's slanted edge, so
+     the title starts just clear of the plate. Part of the logo, so the Layout tab moves both. */
+  #logo .plate, #logo .accent { z-index: 2; }
+  #logo .recap { position: absolute; left: 273px; top: 0; width: 630px; height: 72px; z-index: 1; pointer-events: none; }
+  #logo .recap.on { visibility: visible; }               /* shows even when the VSPEED logo itself is switched off */
+  #logo .recap .clip { position: absolute; inset: 0; overflow: hidden; }
+  #logo .recap .bar { position: absolute; inset: 0; background: #000; display: flex; align-items: center; gap: 34px; padding-left: 60px;
+                      transform: translateX(-101%); transition: transform .45s cubic-bezier(.6,0,.8,.3); }
+  #logo .recap.on .bar { transform: none; transition: transform .6s cubic-bezier(.2,.8,.2,1) .05s; }
+  #logo .recap .ttl { display: flex; flex-direction: column; font-family: var(--semi); font-weight: 700; font-style: italic; font-size: 25px;
+                      line-height: 1.02; letter-spacing: .5px; text-transform: uppercase; color: #fff; }
+  #logo .recap .ttl span:last-child { color: var(--red); }
+  #logo .recap .st { display: flex; align-items: baseline; gap: 34px; white-space: nowrap; text-transform: uppercase; color: #fff;
+                     font-family: var(--light); font-weight: 300; font-size: 24px; letter-spacing: 1px; }
+  #logo .recap .st b { font-family: var(--semi); font-weight: 600; font-size: 34px; letter-spacing: 0; margin-right: 9px; }
 
   /* ---------- Top right league ---------- */
   #league { top: 30px; right: 40px; display: flex; flex-direction: column; align-items: center; }
@@ -400,7 +416,9 @@
 
 <div id="gfx" class="widget off"><img id="gfxImg" class="media none" alt=""><video id="gfxVid" class="media none" muted playsinline preload="auto"></video><div id="gfxShineBox"></div></div>
 
-<div id="logo" class="widget"><div class="plate"><img src="/static/assets/vspeed_logo.png" alt=""></div><div class="accent"></div></div>
+<div id="logo" class="widget"><div class="plate"><img src="/static/assets/vspeed_logo.png" alt=""></div><div class="accent"></div>
+  <div class="recap" id="recap"><div class="clip"><div class="bar"><div class="ttl"><span>Race</span><span>Recap</span></div><div class="st" id="rcText"></div></div></div></div>
+</div>
 
 <div id="league" class="widget"><img id="leagueImg" alt=""><div class="tag" id="liveTag">LIVE</div></div>
 
@@ -1091,7 +1109,7 @@ function renderPenalty() {
   }
   show('penalty', !!ev);
 }
-setInterval(() => { if (S && L) renderPenalty(); }, 250);
+setInterval(() => { if (S && L) { renderPenalty(); renderRecap(); } }, 250);   // the recap steps aside for the penalty box and flag banner
 
 /* ---------- podium: winner / 2nd / 3rd one at a time, with started, laps led and fastest lap ---------- */
 const POD = { shown: 0 };
@@ -1353,9 +1371,24 @@ function renderSponsor() {
 /* ---------- static-ish widgets ---------- */
 let leagueSrc = null;
 function logoSkew() { return $('logo').classList.contains('straight') ? 0 : 14; }
+/* Race recap: slides out from under the VSPEED logo while it's switched on (Race tab), in races only */
+function renderRecap() {
+  const r = L.recap || (LAYOUT_MODE ? { cautions: 2, leadChanges: 3 } : null);
+  // the flag banner and the penalty box come up over its right end: it slides back under the logo while either is on
+  // screen and comes out again after (the way graphics step aside for the standings)
+  const covered = !LAYOUT_MODE && ((VIS.flag && VIS.flag.on) || (VIS.penalty && VIS.penalty.on));
+  const on = !!S.show.recap && !!r && !covered && (LAYOUT_MODE || (L.connected && L.isRace));
+  $('recap').classList.toggle('on', on);
+  if (!r) return;
+  const part = (n, one, many) => `<span><b>${n}</b>${n === 1 ? one : many}</span>`;
+  const html = part(r.cautions, 'Caution', 'Cautions') + part(r.leadChanges, 'Lead change', 'Lead changes');
+  if ($('rcText')._html !== html) $('rcText').innerHTML = $('rcText')._html = html;
+}
+
 function renderChrome() {
   $('logo').classList.toggle('straight', S.logoStyle === 'straight');
   show('logo', S.show.logo);
+  renderRecap();
   show('league', S.show.league);
   const src = '/logos/' + (S.leagueLogo || 'league_logo.png');
   if (src !== leagueSrc) {
@@ -1770,6 +1803,7 @@ function render() {
   const base = RAW.show, vis = Object.assign({}, base);
   if (LAYOUT_MODE) {
     Object.values(SHOW_KEY).forEach(k => vis[k] = true);
+    vis.recap = true;        // the race recap too, with sample numbers, so it can be seen while placing the logo
   } else {
     const up = onScreen().map(rectOf);
     for (const id in SHOW_KEY) {
@@ -1779,7 +1813,7 @@ function render() {
   if (sponsorLive(RAW)) vis.lowerthird = false;   // driver info steps aside while a sponsor graphic is up
   const pod = podiumWant();
   if (pod) {   // the podium artwork covers the screen: the other graphics step aside, except the VSPEED logo, which stays
-    ['tower', 'lowerthird', 'movers', 'board', 'pitrace', 'livepoints'].forEach(k => vis[k] = false);
+    ['tower', 'lowerthird', 'movers', 'board', 'pitrace', 'livepoints', 'recap'].forEach(k => vis[k] = false);
     vis.logo = true;   // the overlay's own logo (the artwork no longer has one baked in), in its usual spot
   }
   WIDGETS.logo.holder.style.zIndex = pod ? '30' : '';   // above the podium artwork while it's up

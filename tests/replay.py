@@ -23,6 +23,7 @@ import support  # noqa: E402,F401  (first: throwaway data folder)
 
 import incidents  # noqa: E402
 import pitrace  # noqa: E402
+import recap  # noqa: E402
 import server  # noqa: E402
 
 # the recordings in tests/fixtures, with what the black box doesn't record about the race itself
@@ -105,6 +106,7 @@ def _fresh():
         pitrace.STATE.clear()
         pitrace.STATE.update(status="idle", ver=0)
     server.PEN.update(seq=0, list=[], prev={}, init=False, hide=0)
+    recap._st = recap._new(None)    # both Talladega recordings are the same session: start each replay's count over
     server.STATE.settings["paintDir"] = os.path.join(support.DATA, "no-paint")   # never look in the real Documents folder
 
 
@@ -135,6 +137,7 @@ def summary(live):
         "stops": {c["num"]: c["stops"] for c in cars if c.get("stops")},
         "pr": pitrace.snapshot().get("status"),
         "inc": len(incidents.snapshot()["list"]),
+        "recap": live.get("recap"),
     }
 
 

@@ -34,6 +34,7 @@ import standings
 import update
 import diag
 import incidents
+import recap      # race recap: cautions and lead changes so far
 import pitrace
 import livepoints
 import profiles
@@ -69,6 +70,7 @@ DEFAULT_SETTINGS = {
         "pitrace": False,      # race off pit road (shown from its section on the Race tab)
         "nextrace": False,     # next broadcast box (Prerace tab)
         "livepoints": False,   # live points: the championship if the race ended now, over the ticker (Race tab)
+        "recap": False,        # race recap: cautions and lead changes so far, slides out from under the VSPEED logo (Race tab)
     },
     # live points: points per finishing place (P1 first), bonuses, cutoff line position and rows on the graphic
     "livePoints": copy.deepcopy(livepoints.DEFAULTS),
@@ -766,6 +768,8 @@ class IRacingSource:
                 "otAttempts": rf["otAttempts"], "otLimit": rf["otLimit"],
                 "timeRemain": fmt_clock(ir["SessionTimeRemain"]),
                 "weather": read_weather(ir),
+                # iRacing's own count of cautions and lead changes for the session (race recap, recap.py)
+                "irRecap": {"cautions": sess.get("ResultsNumCautionFlags"), "leadChanges": sess.get("ResultsNumLeadChanges")},
                 "sessTime": round(now_s, 2), "sessNum": sess_num, "trackM": self.info.get("trackM", 0),
                 # iRacing only sets the green bit around the start; while racing with no other flag it's green.
                 # White and checkered are worked out from the leader's lap (see race_flags)
@@ -1854,6 +1858,10 @@ def process_reading(live):
                                                 standings.bracket_snapshot(), standings.excluded_keys())
     except Exception as e:      # live points must never stop the overlay
         diag.error("Live points error: %r" % (e,), e)
+    try:
+        recap.update(live)
+    except Exception as e:      # the race recap must never stop the overlay
+        diag.error("Race recap error: %r" % (e,), e)
     STATE.set_live(live)
 
 
