@@ -43,6 +43,7 @@ import leagueupload
 import racecontrol
 import rcsite
 import rcfeed     # race control's calls for the penalty box, read from the league site
+import instance   # only one copy of the overlay at a time
 import simchat
 
 ROOT = datafiles.ROOT
@@ -2926,8 +2927,17 @@ def list_assets():
 
 class QuietServer(ThreadingHTTPServer):
     """Broadcasting software and browsers drop idle connections all the time (closing a tab, reloading an input).
-    That's normal, so don't print a traceback for it."""
+    That's normal, so don't print a traceback for it.
+
+    On Windows the port is taken exclusively: with the usual "reuse address" setting Windows lets a second copy listen
+    on the same port, and requests go to either copy at random (Richmond, Nov 6 2026; see instance.py)."""
     daemon_threads = True
+    allow_reuse_address = os.name != "nt"
+
+    def server_bind(self):
+        if os.name == "nt" and hasattr(socket, "SO_EXCLUSIVEADDRUSE"):
+            self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+        super().server_bind()
 
     def handle_error(self, request, client_address):
         import sys
@@ -2978,6 +2988,10 @@ def main():
     args = ap.parse_args()
     RC["on"] = args.race_control
     diag.setup(APP["version"], (("DEMO QUALIFYING" if args.qual else "DEMO") if args.demo else "iRacing") + (" RACE CONTROL" if RC["on"] else ""))
+    if instance.running(args.port):       # a copy is already running: two copies share the port and split the buttons
+        diag.log("Not starting: the overlay is already running on port %d (another window)" % args.port)
+        print(instance.MESSAGE % args.port)
+        return 1
 
     standings.init()
     standings.startup_note()       # standings are pulled only when Pull standings now is pressed
@@ -3022,4 +3036,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())

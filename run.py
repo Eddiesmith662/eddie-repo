@@ -18,6 +18,16 @@ def main():
         diag.setup(_u.local_version(), "launcher")
     except Exception:
         pass
+    import instance
+    port = instance.port_from(args)
+    if instance.running(port):      # already running in another window: don't update files under it or start a second copy
+        try:
+            import diag
+            diag.log("Not starting: the overlay is already running on port %d (another window)" % port)
+        except Exception:
+            pass
+        print(instance.MESSAGE % port)
+        return 1
     if "--no-update" in args:
         args.remove("--no-update")
     else:
