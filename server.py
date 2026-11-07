@@ -2984,9 +2984,11 @@ def main():
     ap.add_argument("--multiclass", action="store_true", help="demo race with GTP and GT3 classes")
     ap.add_argument("--qual", action="store_true", help="demo qualifying session instead of a race")
     ap.add_argument("--race-control", action="store_true", help="race control mode, for a steward: incident queue and calls, no graphics")
-    ap.add_argument("--port", type=int, default=8765)
+    ap.add_argument("--port", type=int, default=None, help="default 8765, race control 8766")
     args = ap.parse_args()
     RC["on"] = args.race_control
+    if args.port is None:          # race control has its own port, so it can run beside the overlay (instance.py)
+        args.port = instance.RACE_CONTROL_PORT if RC["on"] else instance.PORT
     diag.setup(APP["version"], (("DEMO QUALIFYING" if args.qual else "DEMO") if args.demo else "iRacing") + (" RACE CONTROL" if RC["on"] else ""))
     if instance.running(args.port):       # a copy is already running: two copies share the port and split the buttons
         diag.log("Not starting: the overlay is already running on port %d (another window)" % args.port)
@@ -3015,7 +3017,7 @@ def main():
         print("=" * 60)
         print(" VSPEED Race Control v%s  (%s mode)" % (APP["version"], "DEMO" if args.demo else "iRacing"))
         print("  Race control :  http://localhost:%d/racecontrol" % args.port)
-        print("  League upload:  set up on the Setup tab of http://localhost:%d/control" % args.port)
+        print("  Its own files:  %s" % datafiles.DATA)
         print("=" * 60)
         try:
             server.serve_forever()

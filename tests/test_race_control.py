@@ -368,5 +368,63 @@ class ServerCommands(unittest.TestCase):
         self.assertFalse(server.race_control_command({"cmd": "clearall"})["ok"])
 
 
+class OwnPortAndFolder(unittest.TestCase):
+    """Race control runs beside the overlay on one PC (Nov 6 2026): its own port (8766) and its own data folder
+    (data\\steward), so the two never share buttons or save over each other's settings and results."""
+
+    def test_race_control_has_its_own_port(self):
+        import instance
+        self.assertEqual(instance.port_from([]), 8765)
+        self.assertEqual(instance.port_from(["--race-control"]), 8766)
+        self.assertEqual(instance.port_from(["--race-control", "--demo"]), 8766)
+        self.assertEqual(instance.port_from(["--race-control", "--port", "9000"]), 9000)
+
+    def run_datafiles(self, *args):
+        """datafiles in a copy of the program, started the way the launchers start it."""
+        import shutil
+        import subprocess
+        import sys
+        import tempfile
+        root = tempfile.mkdtemp(prefix="vspeed-rc-")
+        shutil.copy(os.path.join(datafiles.ROOT, "datafiles.py"), root)
+        os.makedirs(os.path.join(root, "static", "assets"))
+        with open(os.path.join(root, "static", "assets", "league-logo.png"), "wb") as f:
+            f.write(b"png")
+        with open(os.path.join(root, "show.py"), "w") as f:
+            f.write("import os, sys\nsys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))\n"
+                    "import datafiles\nprint(datafiles.DATA)\n")
+        env = {k: v for k, v in os.environ.items() if k != "VSPEED_DATA"}
+        out = subprocess.run([sys.executable, "-I", os.path.join(root, "show.py")] + list(args), cwd=root, env=env,
+                             capture_output=True, text=True, timeout=30)
+        self.addCleanup(shutil.rmtree, root, True)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        return root, out.stdout.strip().splitlines()[-1]
+
+    def test_race_control_keeps_its_files_in_data_steward(self):
+        root, data = self.run_datafiles("--race-control")
+        self.assertEqual(os.path.normcase(data), os.path.normcase(os.path.join(root, "data", "steward")))
+        # the install's own files stay where the overlay keeps them: race control never moves them into its folder
+        self.assertTrue(os.path.exists(os.path.join(root, "static", "assets", "league-logo.png")))
+
+    def test_the_overlay_still_uses_data(self):
+        root, data = self.run_datafiles()
+        self.assertEqual(os.path.normcase(data), os.path.normcase(os.path.join(root, "data")))
+
+    def test_updates_never_touch_race_controls_folder(self):
+        import update
+        self.assertTrue("data/steward/race-control/123.json".startswith(update.PROTECTED))
+
+    def test_old_race_files_are_copied_across_once(self):
+        import tempfile
+        old, new = tempfile.mkdtemp(), os.path.join(tempfile.mkdtemp(), "race-control")
+        for n in ("4242001.json", "signin.json"):
+            datafiles.write_json(os.path.join(old, n), {"n": n})
+        self.assertEqual(rc.copy_old_files(old, new), 2)
+        self.assertEqual(datafiles.load_json(os.path.join(new, "signin.json")), {"n": "signin.json"})
+        self.assertTrue(os.path.exists(os.path.join(old, "4242001.json")))    # the old folder is left as it was
+        datafiles.write_json(os.path.join(old, "later.json"), {})
+        self.assertEqual(rc.copy_old_files(old, new), 0)                      # only the first time
+
+
 if __name__ == "__main__":
     unittest.main()

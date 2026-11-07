@@ -10,12 +10,18 @@ automatically the first time this version runs.
 import json
 import os
 import shutil
+import sys
 import threading
 import time
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
+# Race control (start-race-control.bat) keeps all its own files in data\steward: its settings, logs, results and
+# calls. It can run beside the overlay on the same PC (each on its own port), and the two must never save over each
+# other's settings or results (Nov 6 2026). Inside data\, so updates and git leave it alone like the rest of data.
+RACE_CONTROL = "--race-control" in sys.argv[1:]
+STEWARD_DATA = os.path.join(ROOT, "data", "steward")
 # VSPEED_DATA points the program at another data folder (the tests use a throwaway one, never the real data)
-DATA = os.environ.get("VSPEED_DATA") or os.path.join(ROOT, "data")
+DATA = os.environ.get("VSPEED_DATA") or (STEWARD_DATA if RACE_CONTROL else os.path.join(ROOT, "data"))
 SETTINGS_FILE = os.path.join(DATA, "settings.json")
 STANDINGS_DIR = os.path.join(DATA, "standings")
 SPONSOR_DIR = os.path.join(DATA, "sponsors")
@@ -162,5 +168,9 @@ def _undo_podium_move(assets):
             print("Could not move %s back: %s" % (n, e))
 
 
-if not os.environ.get("VSPEED_DATA"):     # another data folder (tests): never move this install's own files
+if os.environ.get("VSPEED_DATA"):         # another data folder (tests): never move this install's own files
+    pass
+elif RACE_CONTROL:                         # race control's own folder: the install's files stay where the overlay has them
+    os.makedirs(DATA, exist_ok=True)
+else:
     migrate()

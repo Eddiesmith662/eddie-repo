@@ -231,8 +231,13 @@ The relay itself runs on Cloudflare and is looked after by VSPEED.
 
 For a league steward: the same program, started with **`start-race-control.bat`** instead of `start.bat`. No
 graphics, vMix or OBS: just iRacing and this. The steward needs to be a session admin in the league session, so that
-iRacing shares every driver's incident points. Open **http://localhost:8765/racecontrol** in a browser (best on a
+iRacing shares every driver's incident points. Open **http://localhost:8766/racecontrol** in a browser (best on a
 second screen). It works the same whether or not the race is being broadcast.
+
+Race control has its own port (**8766**; the overlay is 8765) and keeps all its own files (settings, logs, results,
+calls) in `data\steward`, so it can run beside the overlay on the same PC, from the same folder, without the two
+sharing buttons or saving over each other's settings and results. Only one copy of each can run at a time. Race
+control from before v1.5.38 kept its calls in `data\race-control`; they're copied into `data\steward` the first time.
 
 - **Steward** (top right): type your name first. Every call is saved with who made it.
 - **Incidents** (left): spins, contact, stopped and slow cars, meatballs and more, as they happen. **To review** shows
@@ -284,10 +289,10 @@ second screen). It works the same whether or not the race is being broadcast.
   The **League site** pill shows how it's going. If the site can't be reached, the calls wait on this PC and go when it
   can, even after a restart. A race the site turns down (not a GLR series, or no steward role for it) stays on this PC
   with the site's reason. **Sign out** ends the sign-in, and so does taking the Discord role away or turning it off on
-  the site's Keys page. The sign-in is kept only in `data\race-control\signin.json`, never in the diagnostics zip. The
+  the site's Keys page. The sign-in is kept only in `data\steward\race-control\signin.json`, never in the diagnostics zip. The
   demo race never goes to the site.
 
-Calls are saved after every change in `data\race-control\<race>.json` (one file per iRacing session), so closing the
+Calls are saved after every change in `data\steward\race-control\<race>.json` (one file per iRacing session), so closing the
 program mid-race loses nothing. `start-race-control.bat --demo` runs it on a pretend race.
 
 ---
@@ -342,13 +347,14 @@ data\                      YOUR files, never touched by updates:
   standings\                 the current series' standings, bracket, logo, race info and team
   results\                   race results, one folder per series
   league-upload\             races waiting to go to the league site (only if the upload is on)
-  race-control\              race control: each race's incident queue and calls, the league site sign-in
-                             (signin.json) and races waiting to go to the site (outbox.json)
+  steward\                   race control's own data folder (start-race-control.bat): its settings, logs and
+                             results, and in race-control\ each race's incident queue and calls, the league site
+                             sign-in (signin.json) and races waiting to go to the site (outbox.json)
   logos\  sponsors\          league logos; sponsor and Pole Award images
   demo-field.csv             optional: your own drivers for the demo (car number,name per line)
   logs\  diagnostics\        logs, the black box and saved diagnostics
   backup\                    the last few versions, for restore-previous.bat
-server.py                  reads iRacing and serves every page (port 8765)
+server.py                  reads iRacing and serves every page (port 8765; race control 8766)
 standings.py  livepoints.py  profiles.py  pitrace.py  incidents.py  raceresults.py  announcer.py  leagueupload.py
 racecontrol.py  simchat.py  rcsite.py
 update.py  run.py  net.py  datafiles.py  diag.py

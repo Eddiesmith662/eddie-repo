@@ -29,8 +29,14 @@ def running(port):
         return False
 
 
-def port_from(args, default=8765):
-    """The --port the program was started with (start.bat passes none: 8765)."""
+PORT = 8765                 # the overlay
+RACE_CONTROL_PORT = 8766    # race control, so it can run beside the overlay on the same PC (Nov 6 2026)
+
+
+def port_from(args, default=None):
+    """The --port the program was started with (start.bat passes none: 8765; start-race-control.bat none: 8766)."""
+    if default is None:
+        default = RACE_CONTROL_PORT if "--race-control" in args else PORT
     for i, a in enumerate(args):
         if a == "--port" and i + 1 < len(args):
             try:

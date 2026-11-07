@@ -24,6 +24,7 @@ Calls stay on this PC for now; sending them to the league site comes later (phas
 """
 import datetime
 import os
+import shutil
 import threading
 import time
 
@@ -653,7 +654,34 @@ def command(data, live, steward=""):
         return False, "Unknown command", None
 
 
+def copy_old_files(old, new):
+    r"""Race control used to keep its calls in data\race-control, beside the overlay's files; from v1.5.38 everything of
+    race control's is in data\steward. The first time, the old race files and sign-in are copied across (the old
+    folder is left as it was). -> how many files were copied"""
+    if not os.path.isdir(old) or os.path.normcase(os.path.abspath(old)) == os.path.normcase(os.path.abspath(new)):
+        return 0
+    if os.path.isdir(new) and any(n.endswith(".json") for n in os.listdir(new)):
+        return 0                                   # already has its own files
+    os.makedirs(new, exist_ok=True)
+    n = 0
+    for name in os.listdir(old):
+        src = os.path.join(old, name)
+        if os.path.isfile(src) and not os.path.exists(os.path.join(new, name)):
+            shutil.copy2(src, os.path.join(new, name))
+            n += 1
+    return n
+
+
 def start(log=print):
     global _log
     _log = log
+    if datafiles.RACE_CONTROL and not os.environ.get("VSPEED_DATA"):
+        old = os.path.join(datafiles.ROOT, "data", "race-control")
+        try:
+            n = copy_old_files(old, DIR)
+            if n:
+                _log("Race control: copied %d file%s from data\\race-control into %s (race control's own folder now)"
+                     % (n, "" if n == 1 else "s", os.path.relpath(DIR, datafiles.ROOT)))
+        except OSError as e:
+            _log("Race control: couldn't copy the old race control files across (%s); they're still in data\\race-control" % e)
     os.makedirs(DIR, exist_ok=True)
