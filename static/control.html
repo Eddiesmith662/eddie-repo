@@ -842,13 +842,13 @@ let APP = {}, PEN = { list: [], reasons: [] }, S = null, L = null, SD = null, fi
 const TILES = [
   ['logo', 'VSPEED logo', 'top left'], ['league', 'League + live tag', 'top right'],
   ['tower', 'Ticker', 'timing tower'], ['lowerthird', 'Driver info', 'camera car'],
-  ['board', 'Results', 'live order'], ['movers', 'Biggest movers', 'top 5 gained'], ['recap', 'Race recap', 'cautions, lead changes'], ['conditions', 'Track conditions', 'sky, track & air temp'],
+  ['board', 'Results', 'live order'], ['movers', 'Biggest movers', 'top 5 gained'], ['recap', 'Race recap', 'cautions, lead changes'], ['conditions', 'Track conditions', 'sky, track & air temp'], ['telemetry', 'Telemetry', 'gear, rpm, speed, gap'],
   ['@grid', 'Grid', 'row by row'],
   ['@standings', 'Standings', 'points / bracket'], ['@info', 'Race info', 'analysis box'], ['@team', 'Broadcast team', 'lower third'], ['@track', 'Track graphic', 'from Drive'],
   ['nextrace', 'Next broadcast', 'text on Prerace tab'],
 ];
 // "Show base package" turns these on / off; "Hide all" turns every one of them off
-const BASE = { logo: true, league: true, tower: true, lowerthird: true, flags: true, board: false, movers: false, pitrace: false, nextrace: false, livepoints: false, recap: false, conditions: false };
+const BASE = { logo: true, league: true, tower: true, lowerthird: true, flags: true, board: false, movers: false, pitrace: false, nextrace: false, livepoints: false, recap: false, conditions: false, telemetry: false };
 // graphics that share one spot on screen: switching one on switches the other off (the bars under the VSPEED logo)
 const SAME_SPOT = { recap: 'conditions', conditions: 'recap' };
 const A_EXAMPLE = { title: 'RACE ANALYSIS', lines: ['RACE LENGTH: 100 LAPS', 'PITROAD SPEED: 50MPH', 'TIRE SETS AVAILABLE: 4', '2 GWC ATTEMPTS', '100% FUEL | PREMIER SETUP'] };

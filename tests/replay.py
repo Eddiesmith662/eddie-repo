@@ -72,11 +72,14 @@ class FakeIR:
         arr = lambda default: [default] * n
         lap, lapc, pct, pit, surf, pos, flags = arr(-1), arr(-1), arr(-1.0), arr(False), arr(-1), arr(0), arr(0)
         f2, est, last, best = arr(-1.0), arr(0.0), arr(-1.0), arr(-1.0)
+        gear, rpm = arr(None), arr(None)       # in black boxes from Nov 2026 on (older ones: not recorded)
         for c in r["cars"]:
             i = c[0]
             lap[i], pct[i], pit[i], surf[i], pos[i], flags[i] = c[2], c[3], bool(c[4]), c[5], c[6] or 0, c[7] or 0
             lapc[i] = c[2] - 1 if (c[2] or 0) >= 1 else -1
             f2[i], est[i], last[i], best[i] = c[8], c[9], c[10], c[11]
+            if len(c) >= 14:
+                gear[i], rpm[i] = c[12], c[13]
         self.vals = dict(self.static, **{
             "SessionNum": r["sess"], "SessionState": r["state"], "SessionFlags": r["flags"], "SessionTime": r["sessTime"],
             "SessionTimeRemain": None, "IsReplayPlaying": bool(r.get("replay")), "ReplayFrameNumEnd": 1000,
@@ -85,6 +88,8 @@ class FakeIR:
             "CarIdxOnPitRoad": pit, "CarIdxTrackSurface": surf, "CarIdxPosition": pos, "CarIdxClassPosition": arr(0),
             "CarIdxSessionFlags": flags, "CarIdxF2Time": f2, "CarIdxEstTime": est, "CarIdxLastLapTime": last,
             "CarIdxBestLapTime": best,
+            "CarIdxGear": gear if any(v is not None for v in gear) else None,
+            "CarIdxRPM": rpm if any(v is not None for v in rpm) else None,
         })
 
     def __getitem__(self, key):

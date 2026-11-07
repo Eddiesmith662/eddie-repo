@@ -17,6 +17,8 @@ Race recap: a new RACE RECAP tile on the Race tab's Graphics. Press it and a bla
 
 Track conditions: a TRACK CONDITIONS tile next to it shows the sky, track temperature and air temperature (°F) in the same bar, for example PARTLY CLOUDY  TRACK 101°F  AIR 76°F. The two share the spot, so showing one slides the other away.
 
+Telemetry: a TELEMETRY tile. Press it and a panel rises up from the bottom of the ticker for the car on camera: position, number and car, name, then gear, RPM and MPH on a dial, and the gap to the leader. Press it again to fold it back down.
+
 Narrower ticker: the ticker and the VSPEED logo box above it are now 292 px wide (were 330), and Race off pit road and Live points, which slide up over the ticker, narrow with them. A name too long for its space is squeezed slightly narrower (up to 15%) instead of being cut off with "…".
 
 Driver info now shows where the driver started, next to the gap and lap times: STARTED P12 (STARTS P12 during the pace laps). In a multi-class race it's their starting place in their class, like the class place shown beside it. Races only.

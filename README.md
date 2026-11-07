@@ -87,6 +87,7 @@ package** brings back the logos, ticker and driver info.
 | **Biggest movers** | Bottom right | Top 5 positions gained since the start |
 | **Race recap** | Top left, slides out from under the VSPEED logo | Cautions and lead changes so far (iRacing's count, or the overlay's own if that's higher). Steps aside while the penalty box is up |
 | **Track conditions** | Same place and slide as the race recap, a wider bar | Sky, track and air temperature (°F) from iRacing. One of the two bars at a time: showing one slides the other away |
+| **Telemetry** | Rises up from the bottom of the ticker, over its lower rows | The car on camera: position, number, car picture (iRacing's render, as on the Grid), name, gear, RPM, MPH and the gap to the leader |
 | **Race off pit road** | Over the ticker | The order cars came off pit road under caution, spots gained or lost, stop times |
 | **Live points** | Over the ticker | The championship if the race ended now, with the playoff cutline ([guide](GUIDE-standings-live-points-playoffs.md)) |
 | **Penalty box** | Top center | A black-flagged driver with a reason, shown from the live timing window |

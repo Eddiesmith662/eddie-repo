@@ -72,6 +72,7 @@ DEFAULT_SETTINGS = {
         "livepoints": False,   # live points: the championship if the race ended now, over the ticker (Race tab)
         "recap": False,        # race recap: cautions and lead changes so far, slides out from under the VSPEED logo (Race tab)
         "conditions": False,   # track conditions: sky, track and air temperature, the same bar as the race recap (Race tab)
+        "telemetry": False,    # telemetry: the camera car's gear, RPM, speed and gap, rising over the bottom of the ticker (Race tab)
     },
     # live points: points per finishing place (P1 first), bonuses, cutoff line position and rows on the graphic
     "livePoints": copy.deepcopy(livepoints.DEFAULTS),
@@ -662,15 +663,21 @@ class IRacingSource:
                 est_t = ir["CarIdxEstTime"] or []
             except Exception:
                 est_t = []
+            # each car's gear and engine RPM (the Telemetry widget). In iRacing's data for every car; if a session ever
+            # doesn't send them they're simply missing ([]) and the widget shows a dash
+            gear_a = _try(ir, "CarIdxGear") or []
+            rpm_a = _try(ir, "CarIdxRPM") or []
             r3 = lambda v: round(v, 3) if isinstance(v, (int, float)) else v
             bb = {
                 "sessTime": round(now_s, 2), "sess": sess_num, "state": state, "flags": ir["SessionFlags"] or 0,
                 "lapsRemain": _try(ir, "SessionLapsRemainEx"), "lapsTotal": _try(ir, "SessionLapsTotal"),
                 "replay": replaying, "cam": ir["CamCarIdx"],
                 # [idx, car number, lap, lap %, on pit road, track surface, position, per-car flags,
-                #  F2Time (time behind leader), EstTime (reference time to this spot), last lap, best lap]
+                #  F2Time (time behind leader), EstTime (reference time to this spot), last lap, best lap, gear, RPM]
+                # (gear and RPM added Nov 2026, so a diagnostics zip shows whether iRacing sends them while spectating)
                 "cars": [[i, self.drivers[i].get("num"), g(lap, i), round(g(pct, i, -1) or 0, 4), int(bool(g(pit, i))),
-                          g(surf, i), g(pos, i), g(cflags, i, 0), r3(g(f2, i)), r3(g(est_t, i)), r3(g(last, i)), r3(g(best, i))] for i in ids],
+                          g(surf, i), g(pos, i), g(cflags, i, 0), r3(g(f2, i)), r3(g(est_t, i)), r3(g(last, i)), r3(g(best, i)),
+                          g(gear_a, i), (lambda v: round(v) if isinstance(v, (int, float)) else v)(g(rpm_a, i))] for i in ids],
                 "carFlags": [g(cflags, i, 0) for i in ids],
                 # iRacing's incident points per car (same order as cars), to check whether they're shared while spectating
                 "inc": [(results.get(i) or {}).get("Incidents") for i in ids],
@@ -707,6 +714,9 @@ class IRacingSource:
                     "warning": bool(idx < len(cflags) and (cflags[idx] or 0) & FURLED_FLAG),
                     "dq": bool(idx < len(cflags) and (cflags[idx] or 0) & DQ_FLAG),
                     "surf": surf[idx] if idx < len(surf) else None,   # -1 not in world, 0 off track, 1 pit stall, 2 pit lane, 3 on track
+                    # gear (-1 reverse, 0 neutral) and engine RPM, for the Telemetry widget; None when iRacing doesn't say
+                    "gear": gear_a[idx] if idx < len(gear_a) and isinstance(gear_a[idx], int) else None,
+                    "rpm": round(rpm_a[idx]) if idx < len(rpm_a) and isinstance(rpm_a[idx], (int, float)) and rpm_a[idx] >= 0 else None,
                     "inc": (results.get(idx) or {}).get("Incidents"),  # incident points from iRacing's results (may be hidden)
                     "outReason": (results.get(idx) or {}).get("ReasonOutStr") or "",
                     "resultLaps": (results.get(idx) or {}).get("LapsComplete"),
@@ -1180,6 +1190,30 @@ DEMO_NAMES = [
 ]
 
 
+DEMO_GEARS = [(28, 1), (52, 2), (80, 3), (10 ** 6, 4)]   # demo: top of each gear in mph (a 4-speed stock car)
+DEMO_REV = 9000                                          # demo: RPM at the top of each gear
+
+
+def demo_drivetrain(cars):
+    """The demo races' pretend gear and RPM, from each car's speed (iRacing sends the real ones), for the Telemetry widget."""
+    for c in cars:
+        mph = c.get("mph")
+        if mph is None:
+            c["gear"] = c["rpm"] = None
+            continue
+        if mph < 3:
+            c["gear"], c["rpm"] = 0, 1100                # stopped: neutral, idling
+            continue
+        bottom = 0
+        for top, gear in DEMO_GEARS:
+            if mph < top:
+                break
+            bottom = top
+        top = top if top < 10 ** 6 else 190
+        c["gear"] = gear
+        c["rpm"] = int(min(DEMO_REV, 2200 + (mph - bottom) / max(1, top - bottom) * (DEMO_REV - 2200)))
+
+
 DEMO_FIELD_FILE = os.path.join(datafiles.DATA, "demo-field.csv")
 
 
@@ -1379,6 +1413,7 @@ class DemoSource:
         finalize_positions(cars)
         add_extras(cars, True, [c["idx"] for c in self.cars], store,
                    self.__dict__.setdefault("speed_store", {}), now, 2414.0)   # demo track: 1.5 mile oval
+        demo_drivetrain(cars)
         if self.cam not in {c["idx"] for c in cars}:
             self.cam = cars[0]["idx"]
         return {
@@ -1530,6 +1565,7 @@ class DemoQualSource(DemoSource):
         compute_class_gaps(cars, False, True)
         finalize_positions(cars)
         add_extras(cars, False, [], {}, self.__dict__.setdefault("speed_store", {}), now, 2414.0)
+        demo_drivetrain(cars)
         left = max(0, self.length - (now - self.t0))
         return {
             "connected": True, "source": "demo", "track": "Demo Speedway",

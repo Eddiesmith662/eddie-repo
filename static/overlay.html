@@ -294,6 +294,33 @@
   /* ---------- Live points: same place and style as Race off pit road (rises up over the ticker) ---------- */
   #tower #livepts { position: absolute; left: 0; right: 0; bottom: 0; z-index: 7; box-shadow: 0 -8px 24px rgba(0,0,0,.45); }
   #tower #livepts:not(.off) { visibility: visible; }   /* shows even when the ticker itself is switched off */
+  /* ---------- Telemetry (Nov 7 2026, Eddie's template): the camera car's position, number and car, name, then gear /
+     MPH / RPM on a dial and the gap to the leader. 292 x 392, the ticker's width, rising up from the ticker's bottom edge
+     over its lower rows (Race tab, TELEMETRY); it folds back down into the edge when hidden. Under Live points and Race
+     off pit road if those come up too. ---------- */
+  #tower #telem { position: absolute; left: 0; right: 0; bottom: 0; height: 392px; z-index: 5; background: #161616; overflow: hidden;
+                  box-shadow: 0 -8px 24px rgba(0,0,0,.45); visibility: hidden; clip-path: inset(100% 0 0 0);
+                  transition: clip-path .4s cubic-bezier(.6,0,.8,.3), visibility 0s linear .4s; }
+  #tower #telem.on { visibility: visible; clip-path: inset(0 0 0 0); transition: clip-path .55s cubic-bezier(.2,.8,.2,1), visibility 0s; }
+  #telem .car { position: relative; height: 152px; background: linear-gradient(#232323, #181818); }
+  #telem .tp { position: absolute; left: 16px; top: 16px; font-family: var(--light); font-weight: 300; font-size: 27px; letter-spacing: .5px; }
+  #telem .tn { position: absolute; right: 14px; top: 2px; font-family: var(--semi); font-weight: 700; font-style: italic; font-size: 62px; line-height: 1; }
+  #telem .car img { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%); max-width: 214px; max-height: 92px; object-fit: contain; }
+  #telem .car img.none { display: none; }
+  #telem .sep { height: 2px; background: linear-gradient(90deg, transparent, #c4c4c4 50%, transparent); }
+  #telem .nm { height: 53px; background: #000; display: flex; align-items: center; justify-content: center; font-family: var(--light); font-weight: 300;
+               font-size: 30px; letter-spacing: .5px; text-transform: uppercase; white-space: nowrap; overflow: hidden; padding: 0 10px; }
+  #telem .dial { position: relative; height: 183px; }
+  #telem .dial svg { position: absolute; left: 0; top: 1px; }
+  #telem .v { position: absolute; top: 12px; display: flex; flex-direction: column; align-items: center; min-width: 52px; }
+  #telem .v.gear { left: 10px; }
+  #telem .v.rpm { right: 8px; }
+  #telem .v b { font-family: var(--semi); font-weight: 600; font-size: 26px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+  #telem .v span, #telem .mph span { font-family: var(--light); font-weight: 300; font-size: 15px; letter-spacing: .5px; text-transform: uppercase; color: #e8e8e8; }
+  #telem .mph { position: absolute; left: 0; right: 0; top: 46px; display: flex; flex-direction: column; align-items: center; }
+  #telem .mph b { font-family: var(--semi); font-weight: 600; font-size: 50px; line-height: 1.05; font-variant-numeric: tabular-nums; }
+  #telem .gp { position: absolute; left: 61px; right: 61px; bottom: 6px; text-align: center; font-family: var(--light); font-weight: 300;
+               font-size: 20px; font-variant-numeric: tabular-nums; }
   #livepts .h { background: var(--grey); font-size: 19px; padding: 8px 14px 9px; position: relative; overflow: hidden; text-transform: uppercase; letter-spacing: .5px; white-space: nowrap; }
   #livepts .h::after { content: ""; position: absolute; left: 0; bottom: 0; height: 4px; width: 55%; background: var(--red); transform-origin: left; }
   #livepts .h small { float: right; font-family: var(--light); font-weight: 300; font-size: 14px; margin-top: 4px; letter-spacing: 1px; }
@@ -442,6 +469,21 @@
   <div class="pits" id="tPits"></div>
   <div id="pitrace" class="widget off"><div class="h"><span>Race off pit road</span><small id="prSub"></small></div><div id="prBody"></div></div>
   <div id="livepts" class="widget off"><div class="h"><span id="lpTitle">Live points</span><small id="lpSub"></small></div><div id="lpBody"></div></div>
+  <div id="telem">
+    <div class="car"><span class="tp" id="tmPos"></span><span class="tn" id="tmNum"></span><img id="tmImg" alt=""></div>
+    <div class="sep"></div><div class="nm" id="tmName"></div><div class="sep"></div>
+    <div class="dial">
+      <svg viewBox="0 0 292 182" width="292" height="182" aria-hidden="true">
+        <defs><linearGradient id="tmRing" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#a8a8a8"/><stop offset="1" stop-color="#3c3c3c"/></linearGradient></defs>
+        <circle cx="146" cy="149" r="122" fill="#000" stroke="url(#tmRing)" stroke-width="7"/>
+        <polygon points="104,136 189,136 231,182 61,182" fill="#000" stroke="#7a7a7a" stroke-width="2"/>
+      </svg>
+      <div class="v gear"><b id="tmGear"></b><span>Gear</span></div>
+      <div class="v rpm"><b id="tmRpm"></b><span>RPM</span></div>
+      <div class="mph"><span>MPH</span><b id="tmMph"></b></div>
+      <div class="gp" id="tmGap"></div>
+    </div>
+  </div>
 </div>
 
 <div id="lower" class="widget off">
@@ -1545,6 +1587,33 @@ function renderGfx() {
 /* ---------- Grid: the starting grid, one row (two cars) at a time ---------- */
 const GR = { on: false, t: null, row: 0, at: 0, step: null, shownRow: -1 };
 const ordinal = n => n + (n % 100 >= 11 && n % 100 <= 13 ? 'TH' : ({ 1: 'ST', 2: 'ND', 3: 'RD' }[n % 10] || 'TH'));
+
+/* Telemetry: the camera car's gear, RPM, speed and gap, rising up from the bottom of the ticker (Race tab, TELEMETRY) */
+function renderTelem() {
+  const car = L.connected ? (L.cars || []).find(c => c.idx === L.camCarIdx) : null;
+  $('telem').classList.toggle('on', !!S.show.telemetry && !!car);
+  if (!car) return;
+  const set = (id, v) => { v = String(v); if ($(id).textContent !== v) $(id).textContent = v; };
+  // the Layout tab's sample cars have no telemetry: made-up values so the widget can be seen while placing it
+  const sample = LAYOUT_MODE && car.gear === undefined ? { gear: 4, rpm: 7480, mph: 178 } : {};
+  const gear = sample.gear ?? car.gear, rpm = sample.rpm ?? car.rpm, mph = sample.mph ?? car.mph;
+  set('tmPos', car.pos ? ordinal(car.pos) : '');
+  set('tmNum', car.num || '');
+  set('tmName', lastName(car.name));
+  set('tmGear', gear == null ? '–' : gear < 0 ? 'R' : gear === 0 ? 'N' : gear);
+  set('tmRpm', rpm == null ? '–' : rpm);
+  set('tmMph', mph == null ? '–' : mph);
+  set('tmGap', car.gap === 'LEADER' ? 'LEADER' : (car.gap || ''));
+  // the car in its paint: iRacing's render, the same picture the Grid uses (none when renders aren't set up)
+  const g = (L.grid || []).find(x => x.idx === car.idx), src = g && g.img ? g.img : '';
+  const img = $('tmImg');
+  if (img.dataset.src !== src) {
+    img.dataset.src = src;
+    img.classList.add('none');
+    if (src) { img.onload = () => img.classList.remove('none'); img.onerror = () => img.classList.add('none'); img.src = src; }
+    else img.removeAttribute('src');
+  }
+}
 function gridFill(side, c) {
   const el = q('grid', '.gside.' + side);
   el.classList.toggle('empty', !c);
@@ -1840,6 +1909,7 @@ function render() {
   if (LAYOUT_MODE) {
     Object.values(SHOW_KEY).forEach(k => vis[k] = true);
     vis.recap = true;        // the race recap too, with sample numbers, so it can be seen while placing the logo
+    vis.telemetry = true;    // and the telemetry widget, with sample values
   } else {
     const up = onScreen().map(rectOf);
     for (const id in SHOW_KEY) {
@@ -1849,14 +1919,14 @@ function render() {
   if (sponsorLive(RAW)) vis.lowerthird = false;   // driver info steps aside while a sponsor graphic is up
   const pod = podiumWant();
   if (pod) {   // the podium artwork covers the screen: the other graphics step aside, except the VSPEED logo, which stays
-    ['tower', 'lowerthird', 'movers', 'board', 'pitrace', 'livepoints', 'recap', 'conditions'].forEach(k => vis[k] = false);
+    ['tower', 'lowerthird', 'movers', 'board', 'pitrace', 'livepoints', 'recap', 'conditions', 'telemetry'].forEach(k => vis[k] = false);
     vis.logo = true;   // the overlay's own logo (the artwork no longer has one baked in), in its usual spot
   }
   WIDGETS.logo.holder.style.zIndex = pod ? '30' : '';   // above the podium artwork while it's up
   S = Object.assign({}, RAW, { show: vis }, LAYOUT_MODE ? { lowerThirdMode: 'always' } : {});
   const realL = L;
   if (LAYOUT_MODE && !(L.connected && L.cars && L.cars.length)) L = sampleLive();
-  renderChrome(); renderTower(); renderLower(); renderBoard(); renderMovers(); renderNext(); renderPitrace(); renderLivePoints(); renderPodium(); renderGfx(); renderGrid(); gridAward(); renderSponsor(); renderPenalty(); fsPreload();
+  renderChrome(); renderTower(); renderLower(); renderTelem(); renderBoard(); renderMovers(); renderNext(); renderPitrace(); renderLivePoints(); renderPodium(); renderGfx(); renderGrid(); gridAward(); renderSponsor(); renderPenalty(); fsPreload();
   if (LAYOUT_MODE && FLAG_BANNERS) { const fl = $('flag'); Object.keys(FLAG_TEXT).forEach(k => fl.classList.toggle(k, k === 'green')); $('flagText').textContent = 'GREEN FLAG'; show('flag', true); } else renderFlag();
   L = realL;
 }
