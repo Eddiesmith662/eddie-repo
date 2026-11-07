@@ -440,5 +440,18 @@ class OpensItsPage(unittest.TestCase):
         self.assertFalse(server.open_race_control_page(8766, opener=broken))
 
 
+class WhereTheRaceIsSaved(unittest.TestCase):
+    """The line under Calls (Nov 7, 2026: it said data/race-control/..., without the steward folder)."""
+
+    def test_inside_the_program_folder_it_says_the_whole_way_from_there(self):
+        path = os.path.join(datafiles.ROOT, "data", "steward", "race-control", "12345.json")
+        self.assertEqual(rc._where(path), os.path.join("data", "steward", "race-control", "12345.json"))
+
+    def test_a_data_folder_elsewhere_is_shown_in_full(self):
+        path = os.path.join(os.path.dirname(datafiles.ROOT), "somewhere-else", "race-control", "12345.json")
+        self.assertEqual(rc._where(path), path)
+        self.assertEqual(rc._where(None), "")
+
+
 if __name__ == "__main__":
     unittest.main()

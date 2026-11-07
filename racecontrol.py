@@ -4,8 +4,8 @@ Runs only in race control mode, on a steward's PC (a session admin in the iRacin
 incident log detects (incidents.py, the same detection the live timing window uses) into a queue the steward works
 through, and keeps every decision the steward makes, with who made it and why.
 
-  data/race-control/<race>.json     one file per race (iRacing subsession), saved after every change, so a restart
-                                    mid-race picks the queue and the calls back up
+  data/steward/race-control/<race>.json   one file per race (iRacing subsession), saved after every change, so a
+                                          restart mid-race picks the queue and the calls back up
 
 Queue status: new -> reviewing -> decided / no action. iRacing's own automatic penalties (black flag, warning,
 disqualified) are recorded in the queue as "logged": they are not steward decisions, and nothing is sent anywhere.
@@ -158,7 +158,7 @@ def _car(live, idx):
 
 
 def _lap_pos(car):
-    """Where on the lap a car is, 0 to 1 from the start/finish line (for the Map tab), or None."""
+    """Where on the lap a car is, 0 to 1 from the start/finish line (for the map), or None."""
     p = (car or {}).get("progress")
     return round(p % 1.0, 4) if isinstance(p, (int, float)) else None
 
@@ -525,6 +525,15 @@ def version():
     return _st["ver"]
 
 
+def _where(path):
+    """Where this race's file is, for the line under Calls: from the program folder (data\\steward\\race-control\\...),
+    or in full when the data folder is somewhere else. It used to say data/race-control/..., missing the steward
+    folder race control has kept its files in since v1.5.38 (noticed Nov 7, 2026)."""
+    if not path:
+        return ""
+    rel = os.path.relpath(path, datafiles.ROOT) if os.path.splitdrive(path)[0] == os.path.splitdrive(datafiles.ROOT)[0] else ""
+    return path if not rel or rel.startswith("..") else rel
+
 def snapshot():
     with LOCK:
         d = _st["data"] or {"queue": [], "calls": [], "race": None, "track": "", "subId": None}
@@ -533,7 +542,7 @@ def snapshot():
                 "siteCalls": list(d.get("siteCalls") or []),
                 "kinds": [{"key": k, "label": lbl, "unit": u, "sim": k in SIM_KINDS} for k, lbl, u in KINDS], "types": incidents.TYPES,
                 "holdAdd": HOLD_ADD,
-                "file": os.path.relpath(_st["path"], datafiles.DATA) if _st["path"] else ""}
+                "file": _where(_st["path"])}
 
 
 def find(qid):

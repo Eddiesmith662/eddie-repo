@@ -604,7 +604,7 @@ function renderCalls() {
     ...(RC.siteCalls || []).map(x => ({ at: x.madeAt || '', h: otherRow(x) }))]
     .sort((a, b) => a.at < b.at ? 1 : a.at > b.at ? -1 : 0);
   $('cCount').textContent = RC.calls.filter(c => c.status === 'active').length;
-  $('file').textContent = RC.file ? 'Saved in data/' + RC.file : '';
+  $('file').textContent = RC.file ? 'Saved in ' + RC.file : '';
   const html = list.length ? list.map(x => x.h).join('') : '<div class="empty">No calls yet</div>';
   if ($('calls')._h !== html) { $('calls')._h = html; $('calls').innerHTML = html; }
 }
