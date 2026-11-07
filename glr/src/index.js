@@ -1089,7 +1089,7 @@ async function applyTheme(res, db, url, request) {
 
 /* ---------- widgets: small pages for other websites (in an iframe) and OBS/vMix ---------- */
 
-const ORIGIN = "https://vspeedlivetiming.app";
+const ORIGIN = SITE;     // widget links and the embed code: the site's own address (glrhub.app since Nov 7 2026)
 const widgetPage = (title, body, { bg = "transparent", refresh = 0 } = {}) => new Response(`<!doctype html><html lang="en"><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(title)}</title>__THEME_FONTS__<style>
 :root{__THEME_VARS__}*{box-sizing:border-box}body{margin:0;color:var(--text);font:14px/1.45 system-ui,Segoe UI,Arial,sans-serif}

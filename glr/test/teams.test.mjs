@@ -121,3 +121,17 @@ test("team standings: a website widget and a Discord post after each official ra
   // race 1: Red (40+39)/2 = 39.5, Blue (38+37)/2 = 37.5; race 2 reversed: Red 37.5, Blue 39.5 -> both 77, sharing 1st
   assert.equal(team.embeds[0].description, "1. Blue Team: **77**\n1. Red Team: **77**");
 });
+
+test("embed codes and widget links use glrhub.app, not the old address", async () => {
+  const s = makeSite();
+  await s.signIn({ id: "1", roles: [ADMIN_ROLE], nick: "Test Admin" });
+  await s.addRace({ sub: 9001, date: week(0) });
+  const e = (await s.page("/test-cup/embed")).html;
+  assert.match(e, /const O="https:\/\/glrhub\.app"/);
+  for (const w of ["standings", "schedule", "results"]) {
+    const h = (await s.page(`/test-cup/widget/${w}`)).html;
+    assert.doesNotMatch(h, /vspeedlivetiming/, w);
+    assert.match(h, /href="https:\/\/glrhub\.app\//, w);
+  }
+  assert.doesNotMatch(e, /vspeedlivetiming/);
+});
