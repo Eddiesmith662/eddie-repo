@@ -426,5 +426,19 @@ class OwnPortAndFolder(unittest.TestCase):
         self.assertEqual(rc.copy_old_files(old, new), 0)                      # only the first time
 
 
+class OpensItsPage(unittest.TestCase):
+    """Race control opens the Race Control page in the browser when it starts (Nov 7 2026)."""
+
+    def test_opens_the_race_control_page_on_its_port(self):
+        asked = []
+        self.assertTrue(server.open_race_control_page(8766, opener=lambda url, new: asked.append((url, new)) or True))
+        self.assertEqual(asked, [("http://localhost:8766/racecontrol", 2)])
+
+    def test_no_browser_never_stops_race_control(self):
+        def broken(url, new):
+            raise OSError("no browser on this PC")
+        self.assertFalse(server.open_race_control_page(8766, opener=broken))
+
+
 if __name__ == "__main__":
     unittest.main()

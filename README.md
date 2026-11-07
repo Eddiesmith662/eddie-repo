@@ -240,8 +240,8 @@ The relay itself runs on Cloudflare and is looked after by VSPEED.
 
 For a league steward: the same program, started with **`start-race-control.bat`** instead of `start.bat`. No
 graphics, vMix or OBS: just iRacing and this. The steward needs to be a session admin in the league session, so that
-iRacing shares every driver's incident points. Open **http://localhost:8766/racecontrol** in a browser (best on a
-second screen). It works the same whether or not the race is being broadcast.
+iRacing shares every driver's incident points. The Race Control page opens in your browser by itself (best on a
+second screen); if it doesn't, open **http://localhost:8766/racecontrol**. `--no-browser` turns that off. It works the same whether or not the race is being broadcast.
 
 Race control has its own port (**8766**; the overlay is 8765) and keeps all its own files (settings, logs, results,
 calls) in `data\steward`, so it can run beside the overlay on the same PC, from the same folder, without the two

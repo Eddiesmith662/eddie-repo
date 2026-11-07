@@ -1763,6 +1763,20 @@ def announcer_command(d):
     return False, "Unknown command"
 
 
+def open_race_control_page(port, opener=None):
+    """Race control opens its page in the default browser when it starts (Nov 7 2026): stewards may be less used to
+    typing localhost addresses than producers. A restart opens it again in a new tab. -> True if a browser was asked."""
+    url = "http://localhost:%d/racecontrol" % port
+    try:
+        if opener is None:
+            import webbrowser
+            opener = webbrowser.open
+        return bool(opener(url, new=2))
+    except Exception as e:
+        diag.log("Race control: couldn't open %s in the browser (%r); open it by hand" % (url, e))
+        return False
+
+
 def race_control_command(d):
     """From the Race Control page: steward name, replay jump, and the queue and calls (racecontrol.py)."""
     if not RC["on"]:
@@ -3054,6 +3068,7 @@ def main():
     ap.add_argument("--multiclass", action="store_true", help="demo race with GTP and GT3 classes")
     ap.add_argument("--qual", action="store_true", help="demo qualifying session instead of a race")
     ap.add_argument("--race-control", action="store_true", help="race control mode, for a steward: incident queue and calls, no graphics")
+    ap.add_argument("--no-browser", action="store_true", help="race control: don't open the Race Control page on start")
     ap.add_argument("--port", type=int, default=None, help="default 8765, race control 8766")
     args = ap.parse_args()
     RC["on"] = args.race_control
@@ -3094,6 +3109,9 @@ def main():
         print("  Race control :  http://localhost:%d/racecontrol" % args.port)
         print("  Its own files:  %s" % datafiles.DATA)
         print("=" * 60)
+        if not args.no_browser:     # the page opens by itself, so a steward never types the address
+            print("Opening the Race Control page in your browser...")
+            threading.Timer(1.0, open_race_control_page, args=(args.port,)).start()
         try:
             server.serve_forever()
         except KeyboardInterrupt:
