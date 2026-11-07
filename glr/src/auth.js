@@ -55,7 +55,8 @@ async function schema(db) {
   return ready;
 }
 
-// the roles that matter here: the admin role, any series' role, the race control role and the producer role
+// the roles that matter here: the admin role, the Series official role (and each series' old role, until that's set),
+// the race control role and the producer role
 async function relevant(env, roles) {
   const series = await seriesRoles(env.DB), rc = await getSetting(env.DB, "steward_role"), pr = await getSetting(env.DB, "producer_role"), so = await getSetting(env.DB, "official_role");
   return roles.filter(r => r === env.DISCORD_ROLE_ID || (rc && r === rc) || (pr && r === pr) || (so && r === so) || series.some(s => s.role_id === r));

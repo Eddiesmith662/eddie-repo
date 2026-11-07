@@ -156,3 +156,14 @@ test("series directors: one Discord role, and an admin assigns each director the
   await s.signIn(ADMIN);
   assert.match(text((await s.page("/history")).html), /Admin removed Cup Director as a director of Test Cup/);
 });
+
+test("the race control Allow page explains the roles in today's words, and says it isn't the overlay", async () => {
+  const s = await site();
+  const code = (await (await s.go("/api/rc/link", { method: "POST", body: "{}", headers: { "content-type": "application/json", authorization: "x" } })).json()).code;
+  await signInTo(s, member("80", "No Roles"));
+  assert.match(text((await s.page("/rc/link?code=" + code)).html), /Race control needs the race control role, or the Series official role with a series assigned to you\. Ask an admin\./);
+  await s.signIn(ADMIN);
+  const t = text((await s.page("/rc/link?code=" + code)).html);
+  assert.match(t, /Race control \(stewarding, not the broadcast overlay\)/);
+  assert.match(t, /keeps working while you have the race control role in the league.s Discord, or the Series official role there with a series an admin has assigned you\./);
+});

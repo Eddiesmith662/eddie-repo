@@ -948,7 +948,7 @@ async function upload(request, env, user) {
     const want = await seriesById(env.DB, sched.series_id);
     return json({ ok: false, error: `That file is ${sr ? `a ${sr.short_name} race` : `from iRacing league ${ev.league.id}`}, not ${want ? want.short_name : "this series"}. Nothing was uploaded.` }, 400);
   }
-  if (!user.admin && !canEdit(user, sr)) return json({ ok: false, error: sr ? `You can't upload ${sr.short_name} results. Ask an admin for that series' role.` : "Only admins can upload the first race of a new series." }, 403);
+  if (!user.admin && !canEdit(user, sr)) return json({ ok: false, error: sr ? `You can't upload ${sr.short_name} results. Ask an admin to assign you that series.` : "Only admins can upload the first race of a new series." }, 403);
   const had = await getEvent(env.DB, ev.subsessionId || 0);
   try {
     const r = await importEvent(env.DB, ev, `discord:${user.id}:${user.name}`);
@@ -1163,10 +1163,10 @@ function keysPage(keys, user, { newKey = "", newKind = "overlay", msg = "", rc =
 
 // the page a person opens from race control or the broadcast overlay to let it act as them
 const LINK_TEXT = {
-  rc: { title: "Race control sign-in", what: "<b>Race control</b> (stewarding) on a PC is asking to send calls to this site as you",
-    keep: "a steward role", where: "race control" },
+  rc: { title: "Race control sign-in", what: "<b>Race control</b> (stewarding, not the broadcast overlay) on a PC is asking to send calls to this site as you",
+    keep: "the race control role in the league's Discord, or the Series official role there with a series an admin has assigned you", where: "race control" },
   ov: { title: "Broadcast overlay sign-in", what: "The <b>broadcast overlay</b> (the graphics program a producer runs, not race control) on a PC is asking to send race results to this site and read race control's calls, as you",
-    keep: "the Producer role", where: "the overlay" },
+    keep: "the Producer role in the league's Discord", where: "the overlay" },
 };
 function linkPage(kind, code, user, { done = false, msg = "" } = {}) {   // msg: a problem, so no Allow button
   const t = LINK_TEXT[kind];
@@ -1177,7 +1177,7 @@ function linkPage(kind, code, user, { done = false, msg = "" } = {}) {   // msg:
   body += `<p class="sub">${t.what}, <b>${esc(user.name)}</b>.</p>
     <p>Check this code matches the one ${t.where} shows:</p><p style="font:700 28px/1.2 'JetBrains Mono',monospace;letter-spacing:.08em">${esc(code)}</p>
     <form method="post"><input type="hidden" name="code" value="${esc(code)}"><p><button class="btn">Allow</button> <a href="${BASE}/">Cancel</a></p></form>
-    <p class="tag">It keeps working while you have ${t.keep} in the league's Discord. Sign it out in ${t.where}, or on the Keys page.</p>`;
+    <p class="tag">It keeps working while you have ${t.keep}. Sign it out in ${t.where}, or on the Keys page.</p>`;
   return page(t.title, body, { user });
 }
 
@@ -1311,7 +1311,7 @@ const site = {
         const allowed = kind === "ov" ? user.producer : (await listSeries(db)).some(x => canSteward(user, x));
         if (!allowed) return linkPage(kind, code, user, { msg: kind === "ov"
           ? "The overlay needs the Producer role in the league's Discord. Ask an admin."
-          : "Race control needs the race control role (or a series' role) in the league's Discord. Ask an admin." });
+          : "Race control needs the race control role, or the Series official role with a series assigned to you. Ask an admin." });
         if (request.method === "POST" && sameOrigin(request, url)) {
           const f = await request.formData();
           if (!await linkAllow(request, env, String(f.get("code") || ""), user)) return linkPage(kind, code, user, { msg: `That code has expired. Press Sign in in ${t.where} again.` });
@@ -1326,7 +1326,7 @@ const site = {
         if (!rcu) return json({ ok: false, error: "Race control isn't signed in to the site (or the sign-in was turned off). Sign in again from race control." }, 401);
         const all = await listSeries(db), mine = all.filter(x => canSteward(rcu, x));
         if (path === `${BASE}/api/rc/check`) {
-          if (!mine.length) return json({ ok: false, error: "You don't have a steward role in the league's Discord any more." }, 403);
+          if (!mine.length) return json({ ok: false, error: "You can't steward any series now: no race control role, and no series assigned to you with the Series official role. Ask an admin." }, 403);
           return json({ ok: true, user: { id: rcu.id, name: rcu.name }, series: rcu.steward ? "all" : mine.map(x => x.id) });
         }
         if ((m = path.match(/^\/api\/rc\/races\/(\d+)$/))) {
