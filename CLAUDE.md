@@ -30,6 +30,12 @@ Three Claude chats work on this repo at once, all on `main`. Each owns one piece
 - **Releases come only from the overlay chat.** Race control ships inside overlay releases: the race control chat says
   when a change is ready, and the overlay chat checks it (tests, demo, live where it matters), writes the release notes,
   and bumps VERSION after the user publishes. The GLR site needs no release: a push to `main` deploys it.
+- **Release notes go in `NEXT-RELEASE.md`.** A change producers or stewards will notice adds its short paragraph there
+  in the same commit (how: the top of that file). The overlay chat tidies them for the release and empties the file
+  after publishing.
+- **Testing never touches the producer's running overlay.** The real overlay may be running on 8765 (race control on
+  8766) at any time. Test copies use other ports (e.g. 8821), with their own data folder, and check first that nothing
+  answers there. Never send requests to 8765 or 8766. (Nov 6: a test request on 8765 changed the live ticker.)
 - **Shared memory is in the repo and the plan doc, not in a chat.** Decisions and what's built go in the plan doc;
   working rules go here; a handoff note for the next session is committed as `HANDOFF-<date>.md`.
 
