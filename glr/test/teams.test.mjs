@@ -148,7 +148,10 @@ test("Send latest posts the real results, standings or team standings for the la
     s.sent.length = 0;
     const r = await s.post("/test-cup/edit", { action: "hook", kind, url: "", latest: "1" });
     assert.match(text(r.html), /Sent: .* for Test Oval/);
-    assert.match(JSON.parse(s.sent.find(x => x.url.startsWith(hook)).body).embeds[0].title, title);
+    const post = JSON.parse(s.sent.find(x => x.url.startsWith(hook)).body);
+    assert.match(post.embeds[0].title, title);
+    assert.equal(post.username, "GLR HUB");                                         // the name the post comes from
+    assert.doesNotMatch(JSON.stringify(post), /VSPEED GLR/);
   }
   assert.match(text((await s.page("/history")).html), /Standings for Test Oval posted to Discord by hand/);
 });

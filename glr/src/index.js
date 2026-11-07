@@ -1980,7 +1980,7 @@ const site = {
               }
               else if (f.get("test")) {
                 await enqueue(db, sr.id, kind, "test", null, { embeds: [{ title: `${sr.short_name}: test post`, color: 0xFF0D40,
-                  description: `This channel will get the ${sr.short_name} ${kind === "teams" ? "team standings" : kind} posts from the VSPEED GLR site.`, url: `${url.origin}${BASE}/${sr.slug}` }] });
+                  description: `This channel will get the ${sr.short_name} ${kind === "teams" ? "team standings" : kind} posts from GLR HUB.`, url: `${url.origin}${BASE}/${sr.slug}` }] });
                 const out = await processQueue(db);
                 note = out.includes("sent") ? "Test sent. Check the channel." : "The test didn't go through; see Waiting to post below.";
               } else {

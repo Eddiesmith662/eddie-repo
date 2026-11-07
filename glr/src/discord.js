@@ -39,7 +39,7 @@ export function resultsPost(ev, origin, fixes = []) {
   if (fast) fields.push({ name: "Fastest lap", value: `${car(fast)}${md(fast.name)} (${(fast.best_lap_ms / 1000).toFixed(3)})`, inline: true });
   if (fixes.length) fields.push({ name: "Corrected", value: fixes.map(f => `${md(f.name)}: ${md(f.reason)}`).join("\n").slice(0, 1024) });
   return { embeds: [{ title: `${ev.short_name || "Results"}: ${ev.track}`, url: `${origin}/results/${ev.subsession_id}`, color: COLOR,
-    description: (desc + facts).slice(0, 4000), fields, footer: { text: "Official results · VSPEED GLR" } }] };
+    description: (desc + facts).slice(0, 4000), fields, footer: { text: "Official results · GLR HUB" } }] };
 }
 
 // standings after a race: the current playoff round with its cut line, or the top of the regular season
@@ -87,19 +87,19 @@ export function teamStandingsPost(sr, season, ts, ev, origin) {
 export function penaltyPost(sr, ev, a, origin) {
   return { embeds: [{ title: `${sr.short_name}: ${a.points < 0 ? "penalty" : "points adjustment"}`, url: `${origin}/${sr.slug}/penalties`, color: COLOR,
     description: `${a.car_number ? `#${md(a.car_number)} ` : ""}**${md(a.name)}**: ${a.points > 0 ? "+" : "−"}${Math.abs(a.points)} points\n${md(ev.track)}, ${day(ev.start_time)}\n\n${md(a.reason)}`,
-    footer: { text: "VSPEED GLR" } }] };
+    footer: { text: "GLR HUB" } }] };
 }
 
 // a stewards' decision (warnings and penalties; "no action" isn't posted)
 export function decisionPost(sr, ev, d, origin) {
   return { embeds: [{ title: `${sr.short_name}: stewards' decision`, url: `${origin}/results/${ev.subsession_id}/stewards`, color: COLOR,
     description: `${d.car_number ? `#${md(d.car_number)} ` : ""}**${md(d.name)}**: ${md(d.text)}\n${md(ev.track)}, ${day(ev.start_time)}\n\n${md(d.reason)}`,
-    footer: { text: "VSPEED GLR stewards" } }] };
+    footer: { text: "GLR HUB stewards" } }] };
 }
 
 export function fixPost(sr, ev, name, change, reason, origin) {
   return { embeds: [{ title: `${sr.short_name}: result corrected`, url: `${origin}/results/${ev.subsession_id}`, color: COLOR,
-    description: `**${md(name)}** at ${md(ev.track)}, ${day(ev.start_time)}\n${md(change)}\n\n${md(reason)}`, footer: { text: "VSPEED GLR" } }] };
+    description: `**${md(name)}** at ${md(ev.track)}, ${day(ev.start_time)}\n${md(change)}\n\n${md(reason)}`, footer: { text: "GLR HUB" } }] };
 }
 
 export async function enqueue(db, seriesId, hook, kind, sub, body, editOf = null) {
@@ -109,7 +109,7 @@ export async function enqueue(db, seriesId, hook, kind, sub, body, editOf = null
 }
 
 async function sendOne(db, q, url) {
-  const body = JSON.stringify({ ...JSON.parse(q.body), allowed_mentions: { parse: [] }, username: "VSPEED GLR" });
+  const body = JSON.stringify({ ...JSON.parse(q.body), allowed_mentions: { parse: [] }, username: "GLR HUB" });
   const editing = !!q.edit_of;
   let res;
   try {
