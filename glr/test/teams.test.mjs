@@ -224,3 +224,10 @@ test("a race run outside the season (Other races) can be added to a season, and 
   assert.match(text((await s.page("/test-cup/standings")).html), /Racer A 71 /);              // uploading again keeps it there
   assert.equal((await s.post("/results/9002", { action: "season", season: "999" })).status, 200);
 });
+
+test("the header starts with a Series List link back to the series list", async () => {
+  const s = makeSite();
+  await s.addRace({ sub: 9001, date: week(0) });
+  for (const path of ["/", "/test-cup", "/drivers/100", "/results/9001"])
+    assert.match((await s.page(path)).html, /<div class="me"><a href="\/">Series List<\/a><a href="\/schedule">Schedule</, path);
+});
