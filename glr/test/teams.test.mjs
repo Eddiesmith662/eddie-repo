@@ -203,3 +203,24 @@ test("History for one series: the Director tab links to it; directors only get t
   assert.doesNotMatch(t, /Other Series Team points turned on/);
   assert.match(t, /Test Cup Series Team points turned on/);
 });
+
+test("a race run outside the season (Other races) can be added to a season, and counts from then on", async () => {
+  const s = makeSite();
+  await s.signIn({ id: "1", roles: [ADMIN_ROLE], nick: "Test Admin" });
+  await s.addRace({ sub: 9001, date: week(0) });
+  await s.addRace({ sub: 9002, date: week(1), season: null, seasonName: "", order: [9, 8, 7, 6, 5, 4, 3, 2, 1, 0] });   // no season in iRacing
+  let t = text((await s.page("/test-cup")).html);
+  assert.match(t, /Other races Run outside a season in iRacing/);
+  assert.match(text((await s.page("/test-cup/standings")).html), /Racer A 40 /);              // only the first race counts
+  const p = await s.page("/results/9002");
+  assert.match(p.html, /Add to a season/);
+  assert.doesNotMatch((await s.page("/results/9001")).html, /Add to a season/);              // already in one
+  const r = await s.post("/results/9002", { action: "season", season: "500" });
+  assert.match(text(r.html), /Added to Test Cup Season 1\. It counts in the standings now/);
+  assert.doesNotMatch(text((await s.page("/test-cup")).html), /Other races/);
+  assert.match(text((await s.page("/test-cup/standings")).html), /Racer A 71 /);              // 40 + 31 (10th of 10)
+  assert.match(text((await s.page("/history")).html), /Race added to Test Cup Season 1: Test Oval/);
+  await s.upload(raceExport({ sub: 9002, date: week(1), season: null, seasonName: "", order: [9, 8, 7, 6, 5, 4, 3, 2, 1, 0] }));
+  assert.match(text((await s.page("/test-cup/standings")).html), /Racer A 71 /);              // uploading again keeps it there
+  assert.equal((await s.post("/results/9002", { action: "season", season: "999" })).status, 200);
+});

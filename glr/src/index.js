@@ -50,7 +50,7 @@ import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, i
   logChange, listChanges, whoName, mergeDrivers, separateDriver, aliasesOf, findDrivers,
   seriesEvents, allSeriesEvents, listRoster, addRoster, removeRoster, listSchedule, upcoming, addSchedule, addScheduleLines, deleteSchedule,
   scheduleEntry, linkScheduleTo, getSetting, setSetting, editSchedule,
-  linkDriver, unlinkDriver, setLink, linkedAccount, listAccounts, listClaims, decideClaim, getTeams, saveTeams, setSeriesTeams, saveProfile, PROFILE_FIELDS, driversForMatching, directorOf, listDirectors, setDirector, accountRoles, searchDrivers, normName, decisionsFor, fileProtest, listProtests, getProtest, setProtestStatus, listDecisions, addDecision, deleteDecision,
+  linkDriver, unlinkDriver, setLink, linkedAccount, listAccounts, listClaims, decideClaim, getTeams, saveTeams, setSeriesTeams, setEventSeason, saveProfile, PROFILE_FIELDS, driversForMatching, directorOf, listDirectors, setDirector, accountRoles, searchDrivers, normName, decisionsFor, fileProtest, listProtests, getProtest, setProtestStatus, listDecisions, addDecision, deleteDecision,
   saveRaceCalls, raceCalls } from "./db.js";
 import { KINDS, AMOUNT, CHANGES_ORDER, decisionText } from "./stewards.js";
 import { resultsPost, standingsPost, teamStandingsPost, penaltyPost, fixPost, decisionPost, enqueue, processQueue, queueFor, retryQueued, discardQueued, isRecent } from "./discord.js";
@@ -175,7 +175,7 @@ function homePage(series, recent, user, next = new Map()) {
 function seriesPage(sr, user) {
   let body = seriesTabs(sr, "results", [], null, user);
   if (!sr.seasons.length) body += `<p class="hint">No races uploaded yet.</p>`;
-  for (const se of sr.seasons) body += `<h2>${esc(se.name)}</h2>` + raceTable(se.events);
+  for (const se of sr.seasons) body += `<h2>${esc(se.name)}</h2>` + (!se.id && canEdit(user, sr) ? `<p class="tag">Run outside a season in iRacing, so they don't count in the standings. Open a race and use <b>Add to a season</b> (Officials, at the bottom) to count it.</p>` : "") + raceTable(se.events);
   return page(`${sr.short_name} results`, body, { user });
 }
 
@@ -255,12 +255,16 @@ function fixesHtml(fixes) {
       <td style="white-space:normal">${esc(f.reason)}</td><td>${day(f.created_at)}</td></tr>`).join("") + `</table></div>`;
 }
 
-function officialsPanel(ev, msg) {
+function officialsPanel(ev, msg, seasons = []) {
   const race = (ev.sessions.race || []).slice().sort((a, b) => a.finish_pos - b.finish_pos);
   if (!race.length) return "";
   const D = race.map(r => ({ id: r.cust_id, t: `P${r.finish_pos} #${r.car_number} ${r.name}`, pos: r.finish_pos, laps: r.laps, led: r.laps_led, inc: r.incidents, st: r.reason_out, pts: r.league_points }));
   const n = (name, label, extra = "") => `<label>${label}<br><input type="number" name="${name}" id="fx_${name}" ${extra}></label>`;
-  return `<h2 id="fix">Officials</h2>${msg ? `<div class="msg ${/^(Fixed|Marked)/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>` : ""}
+  return `<h2 id="fix">Officials</h2>${msg ? `<div class="msg ${/^(Fixed|Marked|Added)/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>` : ""}
+  ${ev.series_id && !ev.season_id && seasons.length ? `<fieldset><legend>Add to a season</legend><form method="post" action="#fix"><input type="hidden" name="action" value="season">
+    <p class="tag">This race was run outside the series' season in iRacing, so it's listed under Other races and doesn't count in the standings. Add it to a season to count it like any other race. Uploading the results file again won't take it back out.</p>
+    <label for="se_id">Season</label><select id="se_id" name="season">${seasons.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select>
+    <p><button class="btn">Add to season</button></p></form></fieldset>` : ""}
   ${ev.status === "provisional" ? `<fieldset><legend>Official results</legend><form method="post" action="#fix"><input type="hidden" name="action" value="official">
     <p class="tag">These results came from the broadcast overlay. Check them (fix anything below first), then mark them official. That posts them to the series' Discord channels if they're set up. Uploading the iRacing results file also makes them official.</p>
     <p><button class="btn">Mark results official</button></p></form></fieldset>` : ""}
@@ -282,7 +286,7 @@ const fill=()=>{const d=D.find(x=>String(x.id)===S.value)||D[0];for(const [k,v] 
 S.onchange=fill;fill();</script>`;
 }
 
-function resultPage(ev, user, { fixes = [], edit = false, msg = "", score = null } = {}) {
+function resultPage(ev, user, { fixes = [], edit = false, msg = "", score = null, seasons = [] } = {}) {
   const facts = [ev.laps != null && `${ev.laps} laps`, ev.cautions != null && `${ev.cautions} caution${ev.cautions === 1 ? "" : "s"}${ev.caution_laps ? ` (${ev.caution_laps} laps)` : ""}`,
     ev.lead_changes != null && `${ev.lead_changes} lead changes`, ev.sof && `SOF ${ev.sof}`].filter(Boolean).join(" · ");
   let body = crumb(ev) + `<h1>${esc(ev.track)}${prov(ev)}</h1>${ev.status === "provisional" ? `<p class="hint" style="padding-left:14px">Provisional: sent by the broadcast overlay at the end of the race. It's replaced by the official iRacing results file when that's uploaded, which also adds league points, qualifying and practice.</p>` : ""}<p class="sub">${day(ev.start_time)}${ev.season_name ? " · " + esc(ev.season_name) : ""}${facts ? " · " + facts : ""}</p>`;
@@ -293,7 +297,7 @@ function resultPage(ev, user, { fixes = [], edit = false, msg = "", score = null
   const nd = (ev.decisions || []).length;
   body += `<p class="stw"><a href="${BASE}/results/${ev.subsession_id}/stewards">Stewards' report</a>${nd ? ` · ${nd} decision${nd === 1 ? "" : "s"}` : ""} · drivers in this race can file a protest there</p>`;
   body += `<p class="tag">iRacing session ${ev.subsession_id}</p>`;
-  if (edit) body += officialsPanel(ev, msg);
+  if (edit) body += officialsPanel(ev, msg, seasons);
   return page(`${ev.track} results`, body, { user });
 }
 
@@ -1724,6 +1728,15 @@ const site = {
             await deleteEvent(db, sub);
             return Response.redirect(`${url.origin}${BASE}/${ev.slug || ""}`, 303);
           }
+          if (f.get("action") === "season") {
+            try {
+              const name = await setEventSeason(db, sub, Number(f.get("season")));
+              await logChange(db, { by: who, seriesId: ev.series_id, sub, kind: "series", summary: `Race added to ${name}: ${ev.track}, ${day(ev.start_time)} (run outside the season in iRacing)` });
+              msg = `Added to ${name}. It counts in the standings now.`;
+            } catch (e) { msg = e.message; }
+            ev = await getEvent(db, sub);
+            return resultPage(ev, user, { fixes: await listFixes(db, sub), edit, msg, score: await raceScore(db, ev), seasons: edit && ev.series_id && !ev.season_id ? await seasonsOf(db, ev.series_id) : [] });
+          }
           if (f.get("action") === "official") {
             if (await markOfficial(db, sub, who)) {
               await logChange(db, { by: who, seriesId: ev.series_id, sub, kind: "official", summary: `Results marked official: ${ev.track}` });
@@ -1732,7 +1745,7 @@ const site = {
               kick();
             }
             ev = await getEvent(db, sub);
-            return resultPage(ev, user, { fixes: await listFixes(db, sub), edit, msg, score: await raceScore(db, ev) });
+            return resultPage(ev, user, { fixes: await listFixes(db, sub), edit, msg, score: await raceScore(db, ev), seasons: edit && ev.series_id && !ev.season_id ? await seasonsOf(db, ev.series_id) : [] });
           }
           try {
             const cust = Number(f.get("cust")), change = await fixResult(db, sub, cust, { finish_pos: f.get("finish_pos"), laps: f.get("laps"), laps_led: f.get("laps_led"),
@@ -1749,7 +1762,7 @@ const site = {
             }
           } catch (e) { msg = e.message; }
         }
-        return resultPage(ev, user, { fixes: await listFixes(db, sub), edit, msg, score: await raceScore(db, ev) });
+        return resultPage(ev, user, { fixes: await listFixes(db, sub), edit, msg, score: await raceScore(db, ev), seasons: edit && ev.series_id && !ev.season_id ? await seasonsOf(db, ev.series_id) : [] });
       }
       if ((m = path.match(/^\/theme\/([\w.-]+)$/))) {
         const a = ASSETS[m[1]];

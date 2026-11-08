@@ -310,6 +310,16 @@ export async function seriesById(db, id) {
 }
 
 // a series' seasons, newest first, with how many races each has
+// put a race in one of its series' seasons (a session run outside the season, Foundation, Richmond Nov 6 2026).
+// A later upload of the same race keeps it there: the file has no season, and an upload never clears one.
+export async function setEventSeason(db, sub, seasonId) {
+  await ensureSchema(db);
+  const ok = await db.prepare(`SELECT se.name FROM seasons se JOIN events e ON e.series_id = se.series_id WHERE e.subsession_id = ? AND se.id = ?`).bind(sub, seasonId).first();
+  if (!ok) throw new Error("Pick one of this series' seasons.");
+  await db.prepare(`UPDATE events SET season_id = ? WHERE subsession_id = ?`).bind(seasonId, sub).run();
+  return ok.name;
+}
+
 export async function seasonsOf(db, seriesId) {
   await ensureSchema(db);
   return (await db.prepare(`SELECT se.id, se.name, COUNT(e.subsession_id) AS races, MAX(e.start_time) AS last
