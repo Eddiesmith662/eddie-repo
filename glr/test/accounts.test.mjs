@@ -167,3 +167,32 @@ test("the race control Allow page explains the roles in today's words, and says 
   assert.match(t, /Race control \(stewarding, not the broadcast overlay\)/);
   assert.match(t, /keeps working while you have the race control role in the league.s Discord, or the Series official role there with a series an admin has assigned you\./);
 });
+
+test("driver info: the linked driver writes it, everyone sees it, the API has it, only allowed people can change it", async () => {
+  const s = await site();
+  await signInTo(s, member("90", "Racer C"));
+  await s.post("/me/driver", { cust: "102", back: "/" });
+  assert.match((await s.page("/drivers/102")).html, /Edit my info/);
+  assert.match((await s.page("/me")).html, /href="\/drivers\/102\/info">Edit my info/);
+  const r = await s.post("/drivers/102/info", { team: "Test Motorsports", sponsor: "Made-Up Parts Co", hometown: "Springfield, IL", bio: "Racing since 2019.\nLoves short tracks. <b>bold?</b>" });
+  assert.match(text(r.html), /Saved\. It.{1,6}s on the driver page now/);
+  s.cookie = "";                                                                   // the public
+  const p = await s.page("/drivers/102");
+  assert.match(text(p.html), /Team Test Motorsports · Sponsor Made-Up Parts Co · Hometown Springfield, IL/);
+  assert.match(p.html, /Loves short tracks\. &lt;b&gt;bold\?&lt;\/b&gt;/);          // shown as text, never as markup
+  assert.doesNotMatch(p.html, /Edit my info|Edit info/);
+  const api = await s.json("/api/drivers/102");
+  assert.deepEqual([api.driver.profile.team, api.driver.profile.hometown], ["Test Motorsports", "Springfield, IL"]);
+  assert.equal((await s.go("/drivers/102/info")).status, 302);                     // signed out: sign in first
+
+  await signInTo(s, member("91", "Racer D"));                                       // another driver can't
+  await s.post("/me/driver", { cust: "103", back: "/" });
+  assert.equal((await s.page("/drivers/102/info")).status, 404);
+  assert.equal((await s.post("/drivers/102/info", { team: "Hacked" })).status, 404);
+  await s.signIn(ADMIN);                                                            // an admin can, and it's in History
+  assert.match(text((await s.post("/drivers/102/info", { team: "", sponsor: "Made-Up Parts Co", hometown: "Springfield, IL", bio: "" })).html), /Saved/);
+  const h = text((await s.page("/history")).html);
+  assert.match(h, /Racer C updated their driver info \(team, sponsor, hometown, bio\)/);
+  assert.match(h, /Test Admin updated Racer C.{1,6}s driver info \(team, bio\)/);
+  assert.equal((await s.json("/api/drivers/102")).driver.profile.team, "");
+});

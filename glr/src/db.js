@@ -84,6 +84,10 @@ const SCHEMA = [
   // team points (the Warrior points system): each season's teams and their drivers
   `CREATE TABLE IF NOT EXISTS teams (id INTEGER PRIMARY KEY AUTOINCREMENT, series_id INTEGER NOT NULL, season_id INTEGER NOT NULL, name TEXT NOT NULL, sort INTEGER)`,
   `CREATE TABLE IF NOT EXISTS team_members (team_id INTEGER NOT NULL, cust_id INTEGER NOT NULL, PRIMARY KEY (team_id, cust_id))`,
+  // what a driver says about themselves (from GLR HUB, by the driver or an official): shown on their driver page and
+  // in /api/drivers/<id> for the overlay
+  `CREATE TABLE IF NOT EXISTS driver_profiles (cust_id INTEGER PRIMARY KEY, bio TEXT NOT NULL DEFAULT '', sponsor TEXT NOT NULL DEFAULT '',
+     team TEXT NOT NULL DEFAULT '', hometown TEXT NOT NULL DEFAULT '', updated_at TEXT, updated_by TEXT)`,
   `CREATE TABLE IF NOT EXISTS link_claims (
      id INTEGER PRIMARY KEY AUTOINCREMENT, discord_id TEXT NOT NULL, discord_name TEXT, cust_id INTEGER NOT NULL,
      created_at TEXT, status TEXT NOT NULL DEFAULT 'open', decided_by TEXT, decided_at TEXT)`,
@@ -431,6 +435,7 @@ export async function getDriver(db, cust) {
     const me = applyDecisions(all, acts).find(r => r.cust_id === x.cust_id);
     if (me) Object.assign(x, { finish_pos: me.finish_pos, class_pos: me.class_pos, league_points: me.league_points, reason_out: me.reason_out });
   }
+  d.profile = await getProfile(db, cust);
   return d;
 }
 
@@ -663,6 +668,9 @@ export async function mergeDrivers(db, keep, drop, by) {
     db.prepare(`UPDATE driver_aliases SET to_cust = ? WHERE to_cust = ?`).bind(keep, drop),
     db.prepare(`INSERT OR REPLACE INTO driver_aliases (from_cust, to_cust, merged_at, merged_by) VALUES (?, ?, ?, ?)`).bind(drop, keep, new Date().toISOString(), by),
     db.prepare(`DELETE FROM driver_names WHERE cust_id = ?`).bind(drop),
+    // their info follows them, unless the kept record already has some
+    db.prepare(`INSERT OR IGNORE INTO driver_profiles (cust_id, bio, sponsor, team, hometown, updated_at, updated_by) SELECT ?, bio, sponsor, team, hometown, updated_at, updated_by FROM driver_profiles WHERE cust_id = ?`).bind(keep, drop),
+    db.prepare(`DELETE FROM driver_profiles WHERE cust_id = ?`).bind(drop),
     db.prepare(`DELETE FROM drivers WHERE cust_id = ?`).bind(drop),
     // a Discord account linked to the merged record follows it, unless someone is already linked to the kept one
     db.prepare(`UPDATE driver_links SET cust_id = ?1 WHERE cust_id = ?2 AND NOT EXISTS (SELECT 1 FROM driver_links WHERE cust_id = ?1)`).bind(keep, drop),
@@ -1002,6 +1010,30 @@ export async function driversForMatching(db, seriesId) {
   const by = new Map(ds.map(d => [d.cust_id, { ...d, here: !!d.here, aliases: [] }]));
   for (const n of names) if (by.has(n.cust_id)) by.get(n.cust_id).aliases.push(n.name);
   return [...by.values()];
+}
+
+// a driver's own info (bio, sponsor, team, hometown), or null if they haven't written any
+export const PROFILE_FIELDS = { team: 80, sponsor: 120, hometown: 80, bio: 1000 };   // longest each may be
+export async function getProfile(db, cust) {
+  await ensureSchema(db);
+  const p = await db.prepare(`SELECT bio, sponsor, team, hometown, updated_at FROM driver_profiles WHERE cust_id = ?`).bind(cust).first();
+  return p && Object.keys(PROFILE_FIELDS).some(k => p[k]) ? p : null;
+}
+// save it (empty fields clear them). Returns the fields that changed.
+export async function saveProfile(db, cust, fields, by) {
+  await ensureSchema(db);
+  const old = await db.prepare(`SELECT * FROM driver_profiles WHERE cust_id = ?`).bind(cust).first() || {};
+  const v = {};
+  for (const [k, max] of Object.entries(PROFILE_FIELDS)) {
+    let x = String(fields[k] ?? "").replace(/\r/g, "").replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "").trim();
+    if (k !== "bio") x = x.replace(/\s+/g, " ");
+    v[k] = x.slice(0, max);
+  }
+  const changed = Object.keys(PROFILE_FIELDS).filter(k => (old[k] || "") !== v[k]);
+  if (changed.length) await db.prepare(`INSERT INTO driver_profiles (cust_id, bio, sponsor, team, hometown, updated_at, updated_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+      ON CONFLICT(cust_id) DO UPDATE SET bio = ?2, sponsor = ?3, team = ?4, hometown = ?5, updated_at = ?6, updated_by = ?7`)
+    .bind(cust, v.bio, v.sponsor, v.team, v.hometown, new Date().toISOString(), by).run();
+  return changed;
 }
 
 // the series an admin has assigned to this Discord account

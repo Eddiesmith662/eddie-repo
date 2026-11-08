@@ -50,7 +50,7 @@ import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, i
   logChange, listChanges, whoName, mergeDrivers, separateDriver, aliasesOf, findDrivers,
   seriesEvents, allSeriesEvents, listRoster, addRoster, removeRoster, listSchedule, upcoming, addSchedule, addScheduleLines, deleteSchedule,
   scheduleEntry, linkScheduleTo, getSetting, setSetting, editSchedule,
-  linkDriver, unlinkDriver, setLink, linkedAccount, listAccounts, listClaims, decideClaim, getTeams, saveTeams, setSeriesTeams, driversForMatching, directorOf, listDirectors, setDirector, accountRoles, searchDrivers, normName, decisionsFor, fileProtest, listProtests, getProtest, setProtestStatus, listDecisions, addDecision, deleteDecision,
+  linkDriver, unlinkDriver, setLink, linkedAccount, listAccounts, listClaims, decideClaim, getTeams, saveTeams, setSeriesTeams, saveProfile, PROFILE_FIELDS, driversForMatching, directorOf, listDirectors, setDirector, accountRoles, searchDrivers, normName, decisionsFor, fileProtest, listProtests, getProtest, setProtestStatus, listDecisions, addDecision, deleteDecision,
   saveRaceCalls, raceCalls } from "./db.js";
 import { KINDS, AMOUNT, CHANGES_ORDER, decisionText } from "./stewards.js";
 import { resultsPost, standingsPost, teamStandingsPost, penaltyPost, fixPost, decisionPost, enqueue, processQueue, queueFor, retryQueued, discardQueued, isRecent } from "./discord.js";
@@ -434,7 +434,7 @@ function whichDriverPage(user, { q = "", found = [], back = "/", first = false, 
 
 // a linked driver's own page: their races, protests by or about them, and the stewards' decisions about them
 function myRacesPage(user, d, { protests = [], decisions = [] } = {}) {
-  let body = `<h1>My races</h1><p class="sub">${driverLink(d.cust_id, d.name)} · iRacing ID ${d.cust_id} · <a href="${BASE}/me/driver?back=${BASE}/me">Not you?</a></p>`;
+  let body = `<h1>My races</h1><p class="sub">${driverLink(d.cust_id, d.name)} · iRacing ID ${d.cust_id} · <a href="${BASE}/drivers/${d.cust_id}/info">Edit my info</a> · <a href="${BASE}/me/driver?back=${BASE}/me">Not you?</a></p>`;
   const races = [...d.races].sort((a, b) => String(b.start_time).localeCompare(String(a.start_time)));
   body += `<h2>Races</h2>` + (races.length ? statCards(races) + `<div class="wrap"><table><tr><th>Date</th><th>Series</th><th>Track</th><th class="n">Start</th><th class="n">Finish</th><th class="n">Inc</th><th class="n">Pts</th><th></th></tr>` +
     races.slice(0, 40).map(x => `<tr><td><a href="${BASE}/results/${x.subsession_id}">${day(x.start_time)}</a></td><td>${x.slug ? `<a href="${BASE}/${esc(x.slug)}">${esc(x.short_name)}</a>` : esc(x.series_name || "")}</td><td>${esc(x.track)}</td>
@@ -511,11 +511,40 @@ function mergePanel(d, aliases, all, msg) {
   return h;
 }
 
+// who can change a driver's info: the driver (linked to them), an admin, or a director of a series they've raced in
+const canEditDriver = (user, d) => !!user && (user.cust === d.cust_id || user.admin || d.races.some(x => (user.directs || []).includes(x.series_id)));
+
+// what a driver says about themselves, at the top of their driver page
+function profileHtml(d, user) {
+  const p = d.profile, edit = canEditDriver(user, d) ? ` <a class="tag" href="${BASE}/drivers/${d.cust_id}/info">${user.cust === d.cust_id ? "Edit my info" : "Edit info"}</a>` : "";
+  if (!p) return user && user.cust === d.cust_id ? `<p class="hint">Add a bio, your team, sponsor and hometown: <a href="${BASE}/drivers/${d.cust_id}/info">Edit my info</a>.</p>` : edit ? `<p>${edit}</p>` : "";
+  const facts = [["Team", p.team], ["Sponsor", p.sponsor], ["Hometown", p.hometown]].filter(x => x[1]).map(([k, v]) => `<span><span class="tag">${k}</span> <b>${esc(v)}</b></span>`).join(" · ");
+  return `<div class="profile">${facts ? `<p>${facts}</p>` : ""}${p.bio ? `<p style="white-space:pre-line">${esc(p.bio)}</p>` : ""}${edit ? `<p>${edit}</p>` : ""}</div>`;
+}
+
+// a driver's info, for the driver (or an admin / that series' director) to fill in
+function profilePage(d, user, msg = "") {
+  const p = d.profile || {}, mine = user.cust === d.cust_id, M = PROFILE_FIELDS;
+  const field = (k, label, hint) => `<label for="${k}">${label}</label><input type="text" id="${k}" name="${k}" value="${esc(p[k] || "")}" maxlength="${M[k]}" autocomplete="off">${hint ? `<p class="tag">${hint}</p>` : ""}`;
+  const body = `<h1>${mine ? "My info" : `${esc(d.name)}: driver info`}</h1>
+    <p class="sub">${mine ? "What you write here" : "This"} shows on ${mine ? "your" : "their"} <a href="${BASE}/drivers/${d.cust_id}">driver page</a> for everyone, and broadcasts may use it. Leave anything blank to leave it out.</p>
+    ${msg ? `<div class="msg ${/^Saved/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>` : ""}
+    <form method="post" class="dec">
+    ${field("team", "Team", mine ? "The team you race for, if any." : "The team they race for, if any.")}
+    ${field("sponsor", "Sponsor", "")}
+    ${field("hometown", "Hometown", "For example: Springfield, IL")}
+    <label for="bio">Bio</label><textarea id="bio" name="bio" rows="6" maxlength="${M.bio}">${esc(p.bio || "")}</textarea>
+    <p class="tag">Up to ${M.bio} characters. Plain text.</p>
+    <p><button class="btn">Save</button> <a class="tag" style="margin-left:12px" href="${BASE}/drivers/${d.cust_id}">Back to the driver page</a></p></form>`;
+  return page(mine ? "My info" : `${d.name}: driver info`, body, { user });
+}
+
 function driverPage(d, user, { aliases = [], all = [], msg = "", discord = null } = {}) {
   const other = d.names.filter(x => x.name !== d.name).map(x => esc(x.name));
   const bySeries = new Map();
   for (const x of d.races) { const k = x.series_id || 0; if (!bySeries.has(k)) bySeries.set(k, []); bySeries.get(k).push(x); }
   let body = `<h1>${esc(d.name)}</h1><p class="sub">iRacing ID ${d.cust_id}${other.length ? " · also raced as " + other.join(", ") : ""}</p>`;
+  body += profileHtml(d, user);
   if (user && user.official) body += `<p class="tag">Discord: ${discord ? esc(discord.name || discord.discord_id) : "not linked"}${user.admin ? ` · <a href="${BASE}/accounts">Accounts</a>` : ""} <span class="tag">(only officials see this)</span></p>`;
   if (!d.races.length) body += `<p class="hint">Hasn't raced yet. Added to a series' driver list by its officials.</p>`;
   if (bySeries.size > 1) body += `<h2>Career</h2>` + statCards(d.races);
@@ -1731,6 +1760,21 @@ const site = {
         if (!user.official) return notFound("History is for series officials.", user);
         const mine = user.admin ? null : user.directs;
         return historyPage(await listChanges(db, { seriesIds: mine }), user);
+      }
+      if ((m = path.match(/^\/drivers\/(\d+)\/info$/))) {
+        const d = await getDriver(db, Number(m[1]));
+        if (!d) return notFound("No such driver.", user);
+        if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${encodeURIComponent(path)}`, 302);
+        if (!canEditDriver(user, d)) return notFound("Only the driver (signed in and linked to this driver), an admin or their series' director can change this.", user);
+        let msg = "";
+        if (request.method === "POST" && sameOrigin(request, url)) {
+          const f = await request.formData();
+          const changed = await saveProfile(db, d.cust_id, Object.fromEntries(Object.keys(PROFILE_FIELDS).map(k => [k, f.get(k)])), `discord:${user.id}:${user.name}`);
+          if (changed.length) await logChange(db, { by: `discord:${user.id}:${user.name}`, kind: "driver", summary: `${user.cust === d.cust_id ? `${d.name} updated their` : `${user.name} updated ${d.name}'s`} driver info (${changed.join(", ")})` });
+          msg = changed.length ? "Saved. It's on the driver page now." : "Saved. Nothing had changed.";
+          d.profile = (await getDriver(db, d.cust_id)).profile;
+        }
+        return profilePage(d, user, msg);
       }
       if ((m = path.match(/^\/drivers\/(\d+)$/))) {
         const cust = Number(m[1]);
