@@ -69,6 +69,15 @@
   .gfx { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
   .gfx .chip { background: var(--red); color: #fff; font-size: 12px; }
   .gfx .none { color: var(--faint); font-size: 13px; }
+  /* the driver on camera: their season in this series and their own info, from the league site */
+  .drv:empty { display: none; }
+  .drv { margin-top: 6px; font-size: 14px; line-height: 1.45; }
+  .drv .ch { display: inline-block; background: #3a1420; border: 1px solid #5a2433; border-radius: 4px; padding: 1px 8px; font-weight: 800; margin-right: 6px; }
+  .drv .ssn { color: var(--dim); }
+  .drv .facts { margin-top: 3px; } .drv .facts b { color: var(--dim); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
+  .drv .bio { margin-top: 4px; white-space: pre-line; color: var(--text, #ddd); }
+  .drv .bio.short { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .drv .more { background: none; border: 0; color: var(--red); font: inherit; font-size: 12px; font-weight: 700; padding: 0; cursor: pointer; }
 
   /* running order */
   .tbl { overflow-x: auto; }
@@ -141,6 +150,7 @@
 <div class="top">
   <section id="screen"><h2>On screen now</h2><div class="pad">
     <div class="cam"><span class="lbl">Camera</span><span id="cam">—</span></div>
+    <div class="drv" id="drv"></div>
     <div class="gfx" id="gfx"></div></div></section>
   <section id="notes"><h2>Producer notes <span class="r" id="notesAge"></span></h2><div class="txt" id="notesTxt"></div></section>
   <section id="weather"><h2>Weather <span class="r" id="wxWet"></span></h2><div class="pad wx" id="wx"><span class="ld">No weather data yet</span></div></section>
@@ -167,6 +177,42 @@
 
 <script>
 const $ = id => document.getElementById(id);
+// the driver on camera, from the league site (league races only): championship place and points, the season in this
+// series, team / sponsor / hometown and their bio (three lines; More opens the rest). Redrawn only when it changes,
+// so More stays open while the same driver is on camera.
+let drvKey = null, bioOpen = false;
+function drvBox(cam) {
+  const x = cam && cam.x, key = x ? cam.n + '|' + cam.d + '|' + JSON.stringify(x) : '';
+  if (key === drvKey) return;
+  if (!cam || !drvKey || drvKey.split('|').slice(0, 2).join('|') !== cam.n + '|' + cam.d) bioOpen = false;
+  drvKey = key;
+  if (!x) { $('drv').innerHTML = ''; return; }
+  const pl = (n, one, many) => n + ' ' + (n === 1 ? one : many);
+  let h = '';
+  const ch = x.ch, s = x.s;
+  if (ch && ch.out) h += '<span class="ch">Out in ' + esc(ch.out) + '</span>';
+  else if (ch && ch.pos) h += '<span class="ch">P' + esc(ch.pos) + (ch.round ? ' in ' + esc(ch.round) : ' in points') +
+    (ch.pts != null ? ' · ' + esc(ch.pts) + ' pts' : '') + (ch.behind ? ' (−' + esc(ch.behind) + ')' : ch.pos === 1 ? ' (leader)' : '') + '</span>';
+  if (s) {
+    const bits = [pl(s.st, 'start', 'starts'), pl(s.w, 'win', 'wins'), s.t5 + ' top 5', s.t10 + ' top 10'];
+    if (s.po) bits.push(pl(s.po, 'pole', 'poles'));
+    if (s.as != null) bits.push('avg start ' + s.as);
+    if (s.af != null) bits.push('avg finish ' + s.af);
+    if (s.led) bits.push(s.led + ' laps led');
+    if (s.dnf) bits.push(pl(s.dnf, 'DNF', 'DNFs'));
+    h += (x.season ? '<span class="ssn">' + esc(x.season) + ':</span> ' : '') + esc(bits.join(' · '));
+  }
+  const facts = [['Team', x.team], ['Sponsor', x.sp], ['From', x.home]].filter(f => f[1]);
+  if (facts.length) h += '<div class="facts">' + facts.map(f => '<b>' + f[0] + '</b> ' + esc(f[1])).join(' &nbsp; ') + '</div>';
+  if (x.bio) h += '<div class="bio' + (bioOpen ? '' : ' short') + '" id="bio">' + esc(x.bio) + '</div><button class="more" id="bioMore" hidden></button>';
+  $('drv').innerHTML = h;
+  const bio = $('bio'), more = $('bioMore');
+  if (bio && more) {
+    more.hidden = !bioOpen && bio.scrollHeight <= bio.clientHeight + 1;   // short bios need no More
+    more.textContent = bioOpen ? 'Less' : 'More';
+    more.onclick = () => { bioOpen = !bioOpen; bio.classList.toggle('short', !bioOpen); more.textContent = bioOpen ? 'Less' : 'More'; };
+  }
+}
 const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 let D = null, gotAt = 0, notesKey = null, es = null, retryT = null, state = 'connecting';
 let heardAt = 0;   // last time the stream said anything (an update or the relay's 25 s ping)
@@ -273,6 +319,7 @@ function render() {
   // on screen now
   const cam = d.cam;
   $('cam').innerHTML = cam ? '#' + esc(cam.n) + ' ' + esc(cam.d) + (cam.p ? ' <span class="ld">P' + esc(cam.p) + '</span>' : '') : '<span class="ld">—</span>';
+  drvBox(cam);
   const air = d.air || [];
   $('gfx').innerHTML = air.length ? air.map(a => '<span class="chip">' + esc(a) + '</span>').join('') : '<span class="none">No graphics up besides the ticker and logos</span>';
 

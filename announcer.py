@@ -5,6 +5,9 @@ Light on purpose: it runs in its own thread, sends only what the announcer page 
 changed (but still sends one every 10 s so the page knows the feed is alive), gives up on an update after a few
 seconds rather than wait, and backs off when the relay can't be reached. It never holds up the overlay.
 
+In a league race, the driver on camera also gets their season in that series (stats, championship place and points)
+and their own info (bio, team, sponsor, hometown) from the league site's public pages (SiteInfo, below).
+
 Setup (control panel, Setup tab): paste the producer code made on the relay's /admin page
 ("https://<relay>/k/<show>.<signature>") and switch it on. The announcer link is https://<relay>/a/<show>/<view code>;
 the view code is made here, and "New link" makes another one, which turns the old links off.
@@ -16,9 +19,12 @@ import secrets
 import ssl
 import threading
 import time
+import urllib.error
+import urllib.request
 from urllib.parse import urlparse
 
 import incidents
+import leagueupload
 import net
 import standings
 
@@ -58,8 +64,9 @@ def _col(header, *names):
     return next((low.index(n) for n in names if n in low), -1)
 
 
-def build(live, settings, on_air):
-    """The update for the announcer page: only what it shows, with short keys."""
+def build(live, settings, on_air, site=None):
+    """The update for the announcer page: only what it shows, with short keys. site: a SiteInfo, for the on-camera
+    driver's season and bio."""
     live = live or {}
     cars_in = live.get("cars") or []
     is_race = bool(live.get("isRace"))
@@ -120,6 +127,13 @@ def build(live, settings, on_air):
     except Exception:
         st = None
 
+    # the on-camera driver's season in this series and their own info, from the league site (nothing when it isn't known)
+    if cam and site is not None:
+        cam_car = next((c for c in cars_in if c.get("idx") == cam_idx), {})
+        info = site.get(live.get("leagueId"), cam_car.get("custId"))
+        if info:
+            cam["x"] = info
+
     a = settings.get("announcer") or {}
     return {
         "v": 1, "series": settings.get("raceName") or "", "track": live.get("track") or "",
@@ -135,10 +149,180 @@ def build(live, settings, on_air):
     }
 
 
+# ---------------------------------------------------------------- the on-camera driver, from the league site
+SITE = leagueupload.SITE      # the league site (GLR HUB); VSPEED_SITE points it at a test copy
+SEASON_EVERY = 600         # season stats and standings: looked up again every 10 minutes (they change once a race)
+DRIVER_EVERY = 1800        # a driver's own info (bio, team, sponsor, hometown): kept for 30 minutes
+SERIES_EVERY = 3600        # which iRacing league is which series on the site
+RETRY = 120                # after the site didn't answer: wait this long before asking again
+SITE_TIMEOUT = 10
+BIO_MAX = 1000             # the site's own limit
+
+
+def _num(v, nd=1):
+    return round(v, nd) if isinstance(v, (int, float)) else None
+
+
+def season_line(stats_row):
+    """The site's season stats for one driver -> the short form the page shows."""
+    r = stats_row or {}
+    return {"st": r.get("starts") or 0, "w": r.get("wins") or 0, "t5": r.get("top5") or 0, "t10": r.get("top10") or 0,
+            "po": r.get("poles") or 0, "as": _num(r.get("avgStart")), "af": _num(r.get("avgFinish")),
+            "led": r.get("lapsLed") or 0, "dnf": r.get("dnf") or 0}
+
+
+def championship(standings, cust):
+    """The site's standings -> {pos, pts, behind[, round]} for one driver, {out: round} once they're out of the
+    playoffs, or None when they aren't in them. In the playoffs, the place in the current round."""
+    for g in (standings or {}).get("groups") or []:
+        po = g.get("playoffs") or {}
+        if po.get("started"):
+            cur = po.get("current") or {}
+            rows = cur.get("rows") or []
+            for i, r in enumerate(rows):
+                if r.get("custId") == cust:
+                    lead = rows[0].get("points") if rows else None
+                    return {"pos": r.get("pos") or i + 1, "pts": r.get("points"), "round": cur.get("name") or "",
+                            "behind": (lead - r["points"]) if isinstance(lead, (int, float)) and isinstance(r.get("points"), (int, float)) else None}
+            for r in po.get("eliminated") or []:
+                if r.get("custId") == cust:
+                    return {"out": r.get("outIn") or "the playoffs"}
+            continue                 # not in the playoff field: no place to show
+        for i, r in enumerate(g.get("regular") or []):
+            if r.get("custId") == cust:
+                return {"pos": r.get("pos") or i + 1, "pts": r.get("points"), "behind": r.get("behind")}
+    return None
+
+
+def profile_line(profile):
+    p = profile or {}
+    out = {k: str(p.get(src) or "").strip() for k, src in (("team", "team"), ("sp", "sponsor"), ("home", "hometown"), ("bio", "bio"))}
+    out["bio"] = out["bio"][:BIO_MAX]
+    return {k: v for k, v in out.items() if v}
+
+
+class SiteInfo:
+    """The league site's season stats, standings and driver info, for the driver on camera. Looked up in its own
+    thread and kept for a while, so the feed never waits on the site: get() only reads what's already here and asks
+    for what's missing. A race that isn't a league race, a league that isn't a series on the site, a driver the site
+    doesn't know, or a site that doesn't answer: nothing extra on the page."""
+
+    def __init__(self, fetch=None, log=print):
+        self.fetch = fetch or self._fetch
+        self.log = log
+        self.lock = threading.Lock()
+        self.wake = threading.Event()
+        self.series = {}          # iRacing league id -> site slug ("" when the league isn't on the site)
+        self.series_at = 0.0
+        self.seasons = {}         # slug -> {"at", "name", "stats": {cust: row}, "standings": {...}}
+        self.drivers = {}         # cust -> {"at", "profile"}
+        self.failed = {}          # what -> time the site last didn't answer it
+        self.wanted = (None, None)
+        self.logged = set()
+
+    @staticmethod
+    def _fetch(path):
+        req = urllib.request.Request(SITE + path, headers={"User-Agent": "VSPEED-overlay"})
+        with net.urlopen(req, SITE_TIMEOUT) as r:
+            return json.loads(r.read().decode("utf-8") or "{}")
+
+    def get(self, league, cust):
+        """-> what the page shows for this driver, or None. Never waits."""
+        try:
+            league, cust = int(league or 0), int(cust or 0)
+        except (TypeError, ValueError):
+            return None
+        if not league or not cust:
+            return None
+        if self.wanted != (league, cust):
+            self.wanted = (league, cust)
+            self.wake.set()
+        with self.lock:
+            slug = self.series.get(league)
+            season = self.seasons.get(slug) if slug else None
+            drv = self.drivers.get(cust)
+        out = {}
+        if season:
+            row = season["stats"].get(cust)
+            if row:
+                out["season"] = season["name"]
+                out["s"] = season_line(row)
+            ch = championship(season["standings"], cust)
+            if ch:
+                out["ch"] = ch
+        if drv:
+            out.update(profile_line(drv["profile"]))
+        return out or None
+
+    def _due(self, what, at, every, now):
+        return now - at >= every and now - self.failed.get(what, 0) >= RETRY
+
+    def _try(self, what, fn):
+        try:
+            fn()
+            self.failed.pop(what, None)
+            self.logged.discard(what)
+        except Exception as e:
+            self.failed[what] = time.time()
+            if what not in self.logged:      # once until it works again, not every two minutes
+                self.logged.add(what)
+                self.log("Announcer page: couldn't get %s from the league site (%s)" % (what, type(e).__name__))
+
+    def refresh(self, now=None):
+        """Look up what the driver on camera needs and isn't here yet (or is old). Runs in the lookup thread."""
+        now = time.time() if now is None else now
+        league, cust = self.wanted
+        if not league or not cust:
+            return
+        if self._due("the series list", 0 if league not in self.series else self.series_at, SERIES_EVERY, now):
+            def series():
+                j = self.fetch("/api/series")
+                found = {int(s["id"]): str(s.get("slug") or "") for s in j.get("series") or [] if s.get("id")}
+                found.setdefault(league, "")      # not a series on the site: not asked again for an hour
+                with self.lock:
+                    self.series, self.series_at = found, time.time()
+            self._try("the series list", series)
+        with self.lock:
+            slug = self.series.get(league)
+            have = self.seasons.get(slug, {}).get("at", 0) if slug else 0
+            drv_at = self.drivers.get(cust, {}).get("at", 0)
+        if slug and self._due("the season for " + slug, have, SEASON_EVERY, now):
+            def season():
+                stats = self.fetch("/api/series/%s/stats" % slug)
+                standings = self.fetch("/api/standings/%s" % slug)
+                rows = {int(r["custId"]): r for r in stats.get("drivers") or [] if r.get("custId")}
+                with self.lock:
+                    self.seasons[slug] = {"at": time.time(), "name": ((stats.get("season") or {}).get("name") or ""),
+                                          "stats": rows, "standings": standings}
+            self._try("the season for " + slug, season)
+        if slug and self._due("driver %d" % cust, drv_at, DRIVER_EVERY, now):
+            def driver():
+                try:
+                    j = self.fetch("/api/drivers/%d" % cust)
+                    profile = (j.get("driver") or {}).get("profile")
+                except urllib.error.HTTPError as e:
+                    if e.code != 404:
+                        raise
+                    profile = None           # a driver the site has never seen
+                with self.lock:
+                    self.drivers[cust] = {"at": time.time(), "profile": profile}
+            self._try("driver %d" % cust, driver)
+
+    def run(self):
+        while True:
+            self.wake.wait(30)
+            self.wake.clear()
+            try:
+                self.refresh()
+            except Exception as e:           # never let the lookup take anything else down
+                self.log("Announcer page: league site lookup error %r" % (e,))
+
+
 # ---------------------------------------------------------------- sending
 class Sender:
     def __init__(self, state, on_air, log=print):
         self.state, self.on_air, self.log = state, on_air, log
+        self.site = SiteInfo(log=log)     # the on-camera driver's season and bio (its own thread, started by start())
         self.conn = None
         self.host = None
         self.last_text = None
@@ -207,7 +391,7 @@ class Sender:
         now = time.time()
         if now < self.backoff_until:
             return
-        data = build(live, settings, self.on_air)
+        data = build(live, settings, self.on_air, self.site)
         text = json.dumps(data, separators=(",", ":"), ensure_ascii=False)
         if text == self.last_text and now - self.last_sent < HEARTBEAT:
             return
@@ -249,7 +433,9 @@ class Sender:
 
 
 def start(state, on_air, log=print):
-    threading.Thread(target=Sender(state, on_air, log).run, daemon=True, name="announcer").start()
+    sender = Sender(state, on_air, log)
+    threading.Thread(target=sender.run, daemon=True, name="announcer").start()
+    threading.Thread(target=sender.site.run, daemon=True, name="announcer-site").start()
 
 
 def status():
