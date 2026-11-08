@@ -65,7 +65,10 @@
   h2 { margin: 0 0 12px; font-size: 14px; letter-spacing: 1.5px; text-transform: uppercase; color: #fff; display: flex; align-items: center; gap: 8px; }
   h2::before { content: ""; width: 4px; height: 16px; background: var(--red); display: inline-block; flex: 0 0 auto; }
   h2 span.t { flex: 1; }
-  .tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; }
+  .tiles { display: flex; flex-direction: column; gap: 12px; }   /* the groups, a little apart */
+  /* each group in a thin VSPEED-blue frame, so the groups stand out at a glance */
+  .tgroup { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px;
+            border: 1px solid var(--blue); border-radius: 6px; padding: 7px; }
   button { font: inherit; color: var(--text); background: #333334; border: 1px solid #4a4a4b; border-radius: 5px; padding: 10px 12px; cursor: pointer; transition: background .15s, border-color .15s; }
   button:hover { border-color: #777; }
   button:active { transform: translateY(1px); }
@@ -842,13 +845,15 @@
 <script>
 const $ = id => document.getElementById(id);
 let APP = {}, PEN = { list: [], reasons: [] }, S = null, L = null, SD = null, filled = false, sFilled = false, pullBusy = false;
-const TILES = [
-  ['logo', 'VSPEED logo', 'top left'], ['league', 'League + live tag', 'top right'],
-  ['tower', 'Ticker', 'timing tower'], ['lowerthird', 'Driver info', 'camera car'],
-  ['board', 'Results', 'live order'], ['movers', 'Biggest movers', 'top 5 gained'], ['recap', 'Race recap', 'cautions, lead changes'], ['conditions', 'Track conditions', 'sky, track & air temp'], ['telemetry', 'Telemetry', 'gear, rpm, speed, gap'],
-  ['@grid', 'Grid', 'row by row'],
-  ['@standings', 'Standings', 'points / bracket'], ['@info', 'Race info', 'analysis box'], ['@team', 'Broadcast team', 'lower third'], ['@track', 'Track graphic', 'from Drive'],
-  ['nextrace', 'Next broadcast', 'text on Prerace tab'],
+// the Graphics tiles, in groups by when in the show they're used (Nov 2026), with a small gap between groups:
+// always on; before the race; during the race; after the race
+const TILE_GROUPS = [
+  [['logo', 'VSPEED logo', 'top left'], ['league', 'League + live tag', 'top right']],
+  [['@team', 'Broadcast team', 'lower third'], ['@track', 'Track graphic', 'from Drive'], ['@standings', 'Standings', 'points / bracket'],
+   ['@grid', 'Grid', 'row by row'], ['@info', 'Race info', 'analysis box']],
+  [['tower', 'Ticker', 'timing tower'], ['lowerthird', 'Driver info', 'camera car'], ['telemetry', 'Telemetry', 'gear, rpm, speed, gap'],
+   ['conditions', 'Track conditions', 'sky, track & air temp'], ['recap', 'Race recap', 'cautions, lead changes'], ['movers', 'Biggest movers', 'top 5 gained']],
+  [['board', 'Results', 'live order'], ['nextrace', 'Next broadcast', 'text on Prerace tab']],
 ];
 // "Show base package" turns these on / off; "Hide all" turns every one of them off
 const BASE = { logo: true, league: true, tower: true, lowerthird: true, flags: true, board: false, movers: false, pitrace: false, nextrace: false, livepoints: false, recap: false, conditions: false, telemetry: false };
@@ -910,7 +915,8 @@ if (!document.querySelector(`nav button[data-tab="${startTab}"]`)) startTab = 'r
 showTab(SOLO ? 'race' : startTab);
 
 // ---------- race tab ----------
-$('tiles').innerHTML = TILES.map(([k, n, s]) => `<button class="tile" data-k="${k}">${n}<small>${s}</small></button>`).join('');
+$('tiles').innerHTML = TILE_GROUPS.map(g => '<div class="tgroup">' +
+  g.map(([k, n, s]) => `<button class="tile" data-k="${k}">${n}<small>${s}</small></button>`).join('') + '</div>').join('');
 // right-click (or press and hold) the VSPEED logo tile: slanted or straight logo box
 function openLogoMenu(x, y) {
   const m = $('ctx'), cur = (S && S.logoStyle) || 'slant';

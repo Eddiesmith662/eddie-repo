@@ -18,3 +18,5 @@ Race control: a Save diagnostics button at the top right of the Race Control pag
 Announcer page: in a league race, the driver on camera now shows their season in that series under their name (championship place and points, starts, wins, top 5s, top 10s, average finish, laps led) and their bio, team, sponsor and hometown when they have written them on the league site. Nothing to set up.
 
 Race control: the line under Calls now says where the race is really saved (data\steward\race-control). Only the label was wrong; nothing was saved in the wrong place.
+
+Control panel: the Graphics buttons on the Race tab are grouped by when in the show they are used, each group in a thin blue frame: logo and league tag; prerace (broadcast team, track graphic, standings, grid, race info); during the race (ticker, driver info, telemetry, track conditions, race recap, biggest movers); after the race (results, next broadcast). The buttons work as before.
