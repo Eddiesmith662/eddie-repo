@@ -43,6 +43,7 @@
  *         /login, /auth/callback, /logout    Discord sign-in (auth.js)
  */
 import { latestRelease } from "./release.js";
+import { systemPrompt, cleanTurns, askClaude, HELP_PER_DAY } from "./help.js";
 import { teamStandings, parseTeams, teamsCsv } from "./teams.js";
 import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, importEvent, setSeriesRole, seriesById, seasonsOf,
   getRules, saveRules, seasonEvents, listAdjustments, addAdjustment, deleteAdjustment,
@@ -50,7 +51,7 @@ import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, i
   logChange, listChanges, whoName, mergeDrivers, separateDriver, aliasesOf, findDrivers,
   seriesEvents, allSeriesEvents, listRoster, addRoster, removeRoster, listSchedule, upcoming, addSchedule, addScheduleLines, deleteSchedule,
   scheduleEntry, linkScheduleTo, getSetting, setSetting, editSchedule,
-  linkDriver, unlinkDriver, setLink, linkedAccount, listAccounts, listClaims, decideClaim, getTeams, saveTeams, setSeriesTeams, listBlocks, setBlock, missedResults, setEventSeason, saveProfile, PROFILE_FIELDS, driversForMatching, directorOf, listDirectors, setDirector, accountRoles, searchDrivers, normName, decisionsFor, fileProtest, listProtests, getProtest, setProtestStatus, listDecisions, addDecision, deleteDecision,
+  linkDriver, unlinkDriver, setLink, linkedAccount, listAccounts, listClaims, decideClaim, getTeams, saveTeams, setSeriesTeams, listBlocks, setBlock, missedResults, logHelp, helpToday, listHelp, setEventSeason, saveProfile, PROFILE_FIELDS, driversForMatching, directorOf, listDirectors, setDirector, accountRoles, searchDrivers, normName, decisionsFor, fileProtest, listProtests, getProtest, setProtestStatus, listDecisions, addDecision, deleteDecision,
   saveRaceCalls, raceCalls } from "./db.js";
 import { KINDS, AMOUNT, CHANGES_ORDER, decisionText } from "./stewards.js";
 import { resultsPost, standingsPost, teamStandingsPost, penaltyPost, fixPost, decisionPost, enqueue, processQueue, queueFor, retryQueued, discardQueued, isRecent } from "./discord.js";
@@ -134,7 +135,7 @@ label.up{margin:0 0 0 10px;display:inline;color:var(--link);font-size:13px;curso
 .stw{margin:18px 0 4px;font-size:14px}tr.wd td b,tr.wd td:first-child{text-decoration:line-through;opacity:.6}textarea{width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
 input.search{width:100%;max-width:360px;margin:0 0 12px;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
 __THEME_CSS__</style></head><body><header><a class="brand" href="${BASE}/">__THEME_BRAND__</a>__THEME_SWITCH__<div class="me"><a href="${BASE}/">Series List</a><a href="${BASE}/schedule">Schedule</a><a href="${BASE}/drivers">Drivers</a>${user
-  ? `${user.cust ? `<a href="${BASE}/me">My races</a>` : ""}<a href="${BASE}/protests">Protests</a>${user.producer || usesRaceControl(user) ? `<a href="${BASE}/downloads">Downloads</a>` : ""}${user.official ? `<a href="${BASE}/history">History</a>${user.admin ? `<a href="${BASE}/accounts">Accounts</a><a href="${BASE}/keys">Overlay keys</a><a href="${BASE}/settings">Settings</a>` : ""}<a href="${BASE}/upload">Upload results</a>` : ""}<span class="tag">${esc(user.name)}</span><form method="post" action="${BASE}/logout"><button class="link">Sign out</button></form>`
+  ? `${user.cust ? `<a href="${BASE}/me">My races</a>` : ""}<a href="${BASE}/protests">Protests</a>${user.producer || usesRaceControl(user) ? `<a href="${BASE}/downloads">Downloads</a>` : ""}${user.official ? `<a href="${BASE}/history">History</a>${user.admin ? `<a href="${BASE}/accounts">Accounts</a><a href="${BASE}/keys">Overlay keys</a><a href="${BASE}/settings">Settings</a>` : ""}<a href="${BASE}/upload">Upload results</a>` : ""}${user.help ? `<a href="${BASE}/help">Help</a>` : ""}<span class="tag">${esc(user.name)}</span><form method="post" action="${BASE}/logout"><button class="link">Sign out</button></form>`
   : `<a href="${BASE}/login">Sign in</a>`}</div></header><main>${body}</main></body></html>`,
   { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
 
@@ -1133,7 +1134,7 @@ function historyPage(rows, user, only = null, choices = []) {
   return page("History", body, { user });
 }
 
-function settingsPage(cur, short, user, msg = "", stewardRole = "", producerRole = "", officialRole = "") {
+function settingsPage(cur, short, user, msg = "", stewardRole = "", producerRole = "", officialRole = "", help = { on: true, key: false }) {
   let body = `<h1>Site settings</h1><p class="sub">How the site looks for everyone.</p>${msg ? `<div class="msg ${/^Saved/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>` : ""}
   <form method="post"><fieldset><legend>Theme</legend>${Object.entries(THEMES).map(([k, t]) => `<label class="chk"><input type="radio" name="theme" value="${k}"${k === cur ? " checked" : ""}>
     <span><b>${esc(t.label)}</b> <span class="tag">${esc(t.note)}</span> <a href="${BASE}?theme=${k}" target="_blank">Preview</a></span></label>`).join("")}</fieldset>
@@ -1144,6 +1145,9 @@ function settingsPage(cur, short, user, msg = "", stewardRole = "", producerRole
   <p class="tag">A signed-in overlay sends race results and shows race control's calls in the penalty box, as that producer. Admins count as producers. Overlay keys still work too.</p>
   <label for="so">Series official role (Discord role ID; its members run the series an admin assigns them)</label><input type="text" id="so" name="official_role" value="${esc(officialRole)}" maxlength="25" inputmode="numeric">
   <p class="tag">Assign each director their series on the <a href="${BASE}/accounts">Accounts</a> page. ${officialRole ? "" : "<b>Saving this switches off each series' own role</b> (on its Edit page): assign everyone on the Accounts page first, where you can see who is an official now. "}Taking the role away in Discord removes all their series within 15 minutes.</p>
+  <fieldset><legend>Help chat</legend><label class="chk"><input type="checkbox" name="help_on" value="1"${help.on ? " checked" : ""}>
+    <span><b>Help</b> in the header for series directors and admins: an AI helper that answers questions about using the site (it can't see or change anything). <a href="${BASE}/help/log">What people asked</a></span></label>
+    ${help.key ? "" : `<p class="tag"><b>Not working yet:</b> the Anthropic API key isn't in Cloudflare (the ANTHROPIC_API_KEY secret), so Help stays hidden.</p>`}</fieldset>
   <p><button class="btn">Save</button></p></form>`;
   return page("Site settings", body, { user });
 }
@@ -1370,6 +1374,71 @@ async function overlayCaller(request, env, db, count, fresh = false) {
   return { error: "The site doesn't recognise this key or sign-in. Sign the overlay in again, or make a new key on the site's Overlay keys page.", status: 401 };
 }
 
+// The Help chat (directors and admins): the page, the question endpoint, and the admins' log of questions
+async function helpRoute(request, env, db, url, path, user) {
+  if (path === `${BASE}/help/log`) {
+    if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/help/log`, 302);
+    if (!user.admin) return notFound("Only admins can see what people asked the helper.", user);
+    return helpLogPage(user, await listHelp(db));
+  }
+  if (path === `${BASE}/help`) {
+    if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/help`, 302);
+    if (!user.help) return notFound(user.official ? "The Help chat is switched off right now." : "Help is for series directors and admins.", user);
+    return helpPage(user, HELP_PER_DAY - await helpToday(db, user.id));
+  }
+  // POST /api/help {messages: [{role, content}]}: the question is the last user message
+  if (request.method !== "POST") return json({ ok: false, error: "Use POST." }, 405);
+  if (!sameOrigin(request, url)) return json({ ok: false, error: "Ask from the Help page." }, 403);
+  if (!user) return json({ ok: false, error: "Sign in again." }, 401);
+  if (!user.help) return json({ ok: false, error: user.official ? "The Help chat is switched off right now." : "Help is for series directors and admins." }, 403);
+  let body = null;
+  try { body = await request.json(); } catch (e) { /* handled below */ }
+  const turns = cleanTurns(body && body.messages);
+  if (!turns) return json({ ok: false, error: "Type a question first." }, 400);
+  const used = await helpToday(db, user.id);
+  if (used >= HELP_PER_DAY) return json({ ok: false, error: `That's today's ${HELP_PER_DAY} questions. Ask again tomorrow, or ask an admin in the GLR Discord.`, left: 0 }, 429);
+  const names = user.admin ? [] : (await listSeries(db)).filter(x => (user.directs || []).includes(x.id)).map(x => x.name);
+  const question = turns[turns.length - 1].content;
+  let answer;
+  try { answer = await askClaude(env, systemPrompt(user, names), turns); }
+  catch (e) { await logHelp(db, { id: user.id, name: user.name, question, answer: "(no answer: " + e.message + ")" }); return json({ ok: false, error: e.message, left: HELP_PER_DAY - used - 1 }, 502); }
+  await logHelp(db, { id: user.id, name: user.name, question, answer });
+  return json({ ok: true, answer, left: HELP_PER_DAY - used - 1 });
+}
+
+function helpPage(user, left) {
+  const body = `<h1>Help</h1><p class="sub">Ask how to do something on GLR HUB, like "How do I make a race official?" or "Why are my standings wrong?". The helper knows the site's guides. It can't see your series' data or change anything, and it can be wrong: if something doesn't look right, ask an admin in the GLR Discord.</p>
+  <div id="chat" class="help" aria-live="polite"></div>
+  <form id="ask" class="helpask"><textarea id="q" rows="3" maxlength="2000" placeholder="Type your question" required></textarea>
+  <p><button class="btn" id="go">Ask</button> <button type="button" class="link" id="clear">Start over</button> <span class="tag" id="left">${left > 0 ? `${left} questions left today` : "No questions left today"}</span>${user.admin ? ` · <a href="${BASE}/help/log">What people asked</a>` : ""}</p></form>
+  <style>.help{display:flex;flex-direction:column;gap:10px;margin:14px 0}.help .m{padding:10px 14px;border-radius:8px;border:1px solid var(--line);background:var(--card);white-space:normal;line-height:1.45}
+  .help .u{align-self:flex-end;max-width:85%;background:transparent}.help .a{max-width:95%}.help .e{border-color:#d33}.helpask textarea{max-width:900px}</style>
+  <script>
+  const chat=document.getElementById('chat'),q=document.getElementById('q'),go=document.getElementById('go'),leftEl=document.getElementById('left');let turns=[];
+  const esc=t=>t.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  // the answer is plain text with a little markdown: bold, bullets, and site paths become links
+  const fmt=t=>esc(t).replace(/\\*\\*([^*]+)\\*\\*/g,'<b>$1</b>').replace(/(^|[\\s(])((?:https:\\/\\/glrhub\\.app)?\\/[a-z0-9][a-z0-9\\/_-]*)/gi,(m,a,p)=>a+'<a href="'+p.replace(/^https:\\/\\/glrhub\\.app/,'')+'">'+p+'</a>').replace(/^\\s*[-*] /gm,'• ').replace(/\\n/g,'<br>');
+  const add=(cls,html)=>{const d=document.createElement('div');d.className='m '+cls;d.innerHTML=html;chat.appendChild(d);d.scrollIntoView({block:'nearest'});return d;};
+  document.getElementById('clear').onclick=()=>{turns=[];chat.innerHTML='';q.focus();};
+  q.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();document.getElementById('ask').requestSubmit();}});
+  document.getElementById('ask').onsubmit=async e=>{e.preventDefault();const text=q.value.trim();if(!text||go.disabled)return;
+    add('u',esc(text).replace(/\\n/g,'<br>'));turns.push({role:'user',content:text});q.value='';go.disabled=true;const wait=add('a','<span class="tag">Thinking…</span>');
+    try{const r=await fetch('${BASE}/api/help',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({messages:turns})});const j=await r.json();
+      if(j.ok){wait.innerHTML=fmt(j.answer);turns.push({role:'assistant',content:j.answer});}else{wait.className='m a e';wait.textContent=j.error||'Something went wrong.';turns.pop();}
+      if(typeof j.left==='number')leftEl.textContent=j.left>0?j.left+' questions left today':'No questions left today';
+    }catch(err){wait.className='m a e';wait.textContent="Couldn't reach the site. Check your connection and try again.";turns.pop();}
+    go.disabled=false;q.focus();};
+  </script>`;
+  return page("Help", body, { user });
+}
+
+function helpLogPage(user, rows) {
+  const body = `<h1>What people asked the helper</h1><p class="sub">The latest ${rows.length} questions to the Help chat, newest first. Questions that come up often are a sign a page or guide needs to be clearer. Only admins see this.</p>
+  ${rows.length ? `<table><tr><th>When</th><th>Who</th><th>Question</th><th>Answer</th></tr>${rows.map(r => `<tr class="r"><td>${day(r.at)}</td><td>${esc(r.name || r.discord_id)}</td>
+    <td style="white-space:pre-wrap;min-width:220px">${esc(r.question)}</td><td style="white-space:pre-wrap;min-width:320px;font-size:14px">${esc(r.answer || "")}</td></tr>`).join("")}</table>` : `<p class="hint">Nobody has asked anything yet.</p>`}`;
+  return page("Help questions", body, { user });
+}
+
 const site = {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(processQueue(env.DB));       // retry Discord posts that are waiting
@@ -1415,6 +1484,12 @@ const site = {
       }
       if (path === `${BASE}/logout` && request.method === "POST" && sameOrigin(request, url)) return logout(request, env);
       let user = await currentUser(request, env);
+      // the Help chat: directors and admins, once the API key is in Cloudflare and an admin hasn't switched it off
+      if (user && user.official && env.ANTHROPIC_API_KEY && await getSetting(db, "help_off") !== "1") user.help = true;
+      if (path === `${BASE}/help` || path === `${BASE}/api/help` || path === `${BASE}/help/log`) {
+        const r = await helpRoute(request, env, db, url, path, user);
+        if (r) return r;
+      }
       if (path === `${BASE}/upload`) return !user ? Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/upload`, 302) : user.official ? uploadPage(user) : notFound("Only series officials can upload results.", user);
       if (path === `${BASE}/api/upload`) {
         if (request.method !== "POST") return json({ ok: false, error: "Use POST." }, 405);
@@ -1821,13 +1896,19 @@ const site = {
               await setSetting(db, "official_role", so);
               await logChange(db, { by: `discord:${user.id}:${user.name}`, kind: "series", summary: so ? `Series official role set to ${so}: directors are now assigned on the Accounts page` : "Series official role removed: each series' own role is used again" });
             }
+            const helpOff = f.get("help_on") ? "" : "1";
+            if (helpOff !== (await getSetting(db, "help_off") || "")) {
+              await setSetting(db, "help_off", helpOff);
+              await logChange(db, { by: `discord:${user.id}:${user.name}`, kind: "series", summary: helpOff ? "Help chat turned off" : "Help chat turned on" });
+            }
             themeCache = null;
             await logChange(db, { by: `discord:${user.id}:${user.name}`, kind: "series", summary: `Site theme set to ${THEMES[theme].label}${short ? `, short name ${short}` : ""}` });
             msg = "Saved.";
           }
         }
         const cur = await siteTheme(db, new URL(url.origin + BASE));
-        return settingsPage(cur.theme, cur.short, user, msg, await getSetting(db, "steward_role"), await getSetting(db, "producer_role"), await getSetting(db, "official_role"));
+        return settingsPage(cur.theme, cur.short, user, msg, await getSetting(db, "steward_role"), await getSetting(db, "producer_role"), await getSetting(db, "official_role"),
+          { on: await getSetting(db, "help_off") !== "1", key: !!env.ANTHROPIC_API_KEY });
       }
       if (path === `${BASE}/history`) {
         if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/history`, 302);

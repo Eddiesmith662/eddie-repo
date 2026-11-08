@@ -89,6 +89,8 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS driver_profiles (cust_id INTEGER PRIMARY KEY, bio TEXT NOT NULL DEFAULT '', sponsor TEXT NOT NULL DEFAULT '',
      team TEXT NOT NULL DEFAULT '', hometown TEXT NOT NULL DEFAULT '', updated_at TEXT, updated_by TEXT)`,
   // an admin turned a person's overlay access off: wins over their Discord roles until it's lifted
+  `CREATE TABLE IF NOT EXISTS help_log (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, discord_id TEXT NOT NULL, name TEXT, question TEXT NOT NULL, answer TEXT)`,
+  `CREATE INDEX IF NOT EXISTS help_log_who ON help_log (discord_id, at)`,
   `CREATE TABLE IF NOT EXISTS overlay_blocks (discord_id TEXT PRIMARY KEY, blocked_at TEXT NOT NULL, blocked_by TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS link_claims (
      id INTEGER PRIMARY KEY AUTOINCREMENT, discord_id TEXT NOT NULL, discord_name TEXT, cust_id INTEGER NOT NULL,
@@ -1049,6 +1051,20 @@ export async function saveProfile(db, cust, fields, by) {
 }
 
 // overlay blocks: { blocked_at, blocked_by } or null; all of them for the Accounts page
+// the Help chat's question log: what officials asked, for admins to see where the learning curve is
+export async function logHelp(db, { id, name, question, answer }) {
+  await db.prepare(`INSERT INTO help_log (at, discord_id, name, question, answer) VALUES (?, ?, ?, ?, ?)`)
+    .bind(new Date().toISOString(), id, name || "", question, answer || "").run();
+}
+// how many questions this person asked today (UTC)
+export async function helpToday(db, id, now = Date.now()) {
+  const day = new Date(now).toISOString().slice(0, 10);
+  return (await db.prepare(`SELECT COUNT(*) AS n FROM help_log WHERE discord_id = ? AND at >= ?`).bind(id, day).first()).n;
+}
+export async function listHelp(db, limit = 200) {
+  return (await db.prepare(`SELECT * FROM help_log ORDER BY id DESC LIMIT ?`).bind(limit).all()).results;
+}
+
 export async function getBlock(db, discordId) {
   await ensureSchema(db);
   return db.prepare(`SELECT blocked_at, blocked_by FROM overlay_blocks WHERE discord_id = ?`).bind(discordId).first();
