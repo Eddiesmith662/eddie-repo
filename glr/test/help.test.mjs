@@ -37,14 +37,17 @@ const ask = (s, messages) => s.go("/api/help", { method: "POST", headers: { orig
   .then(async r => ({ status: r.status, body: await r.json() }));
 const q = text => [{ role: "user", content: text }];
 
-test("directors and admins see Help; drivers, race control and visitors don't", async () => {
+test("directors, race control and admins see Help; drivers, producers and visitors don't", async () => {
   const s = await setup();
   await s.signIn(director);
   assert.match((await s.page("/")).html, /id="hc-open"/);
   assert.equal((await s.page("/help")).status, 200);
   await s.signIn(ADMIN);
   assert.match((await s.page("/")).html, /id="hc-open"/);
-  for (const who of [{ id: "71", roles: [RC], nick: "Steward Sam" }, { id: "72", roles: [], nick: "Racer Ray" }]) {
+  await s.signIn({ id: "71", roles: [RC], nick: "Steward Sam" });
+  assert.match((await s.page("/")).html, /id="hc-open"/);
+  assert.equal((await ask(s, q("How do I sign race control in?"))).status, 200);
+  for (const who of [{ id: "72", roles: [], nick: "Racer Ray" }]) {
     await s.signIn(who);
     assert.doesNotMatch((await s.page("/")).html, /id="hc-open"/);
     assert.equal((await s.page("/help")).status, 404);
@@ -138,4 +141,17 @@ test("the Help bubble is on every page for directors, but not on the Help page i
   assert.doesNotMatch((await s.page("/")).html, /What people asked/);       // the log link is for admins
   await s.signIn(ADMIN);
   assert.match((await s.page("/")).html, /href="\/help\/log">What people asked/);
+});
+
+test("race control is told they're race control, and that running a series is for its director", async () => {
+  const s = await setup();
+  await s.signIn({ id: "71", roles: [RC], nick: "Steward Sam" });
+  assert.equal((await ask(s, q("Why don't I see incident points?"))).status, 200);
+  const sys = s.claude[0].req.system;
+  assert.match(sys, /Steward Sam, race control: a steward for every series/);
+  assert.match(sys, /running a series .* is for the series director or an admin/);
+  assert.match(sys, /No incident points: you're not a session admin/);         // the race control guide is in
+  await s.signIn(director);
+  await ask(s, q("hi"));
+  assert.doesNotMatch(s.claude[1].req.system, /They're not a series director/);
 });

@@ -1,6 +1,7 @@
-// The Help chat for series directors and admins (Nov 2026, for the first release's learning curve).
+// The Help chat for series directors, race control and admins (Nov 2026, for the first release's learning curve).
 // It answers questions about using GLR HUB from the knowledge below, and never changes anything.
-// The knowledge is the Series Director and Admin guides (Claude Docs), shortened, plus what was added after them.
+// The knowledge is the Series Director, Race Control and Admin guides (Claude Docs) and the README's race control
+// section, shortened, plus what was added after them.
 // When a page changes, change its paragraph here too, or the helper gives the old answer.
 
 export const HELP_MODEL = "claude-haiku-5-5";
@@ -8,7 +9,7 @@ export const HELP_PER_DAY = 30;          // questions per person per day (UTC)
 const MAX_TURNS = 12, MAX_CHARS = 2000;
 
 export const KNOWLEDGE = String.raw`
-# GLR HUB (glrhub.app): how it works, for series directors and admins
+# GLR HUB (glrhub.app) and race control: how they work, for series directors, race control stewards and admins
 
 ## Roles (they add up: someone with two roles gets everything from both)
 - Admin: the admin Discord role (set in Cloudflare as DISCORD_ROLE_ID). Does everything in every series. Only admins have Accounts, Overlay keys and Settings in the header, assign series directors, decide driver disputes, merge drivers, block someone from the overlay, and turn Team points on for a series.
@@ -23,7 +24,7 @@ Role changes reach the site within 15 minutes; signing out and back in picks the
 1. Get the Series official role in Discord from an admin. 2. Sign in once at glrhub.app with Discord (the first time it asks which driver you are: pick yourself, or "I don't race"). 3. An admin assigns your series on Accounts (you must have signed in once first). 4. Your header then shows History, Upload results and Downloads, and your series shows Edit series and a Director tab.
 
 ## Header links
-Series List (home, all series), Schedule (all series), Drivers, My races (linked drivers), Protests, Downloads (producers and race control users), History and Upload results (officials), Accounts, Overlay keys and Settings (admins), Help (directors and admins).
+Series List (home, all series), Schedule (all series), Drivers, My races (linked drivers), Protests, Downloads (producers and race control users), History and Upload results (officials), Accounts, Overlay keys and Settings (admins). Help is the button in the bottom-right corner (directors, race control and admins).
 
 ## The Director tab (start here)
 Each series has a Director tab, seen only by its directors and admins. "Needs attention" lists: scheduled races with no results on the site by noon Eastern the next day (upload the iRacing file, or remove the race from the schedule if it didn't run); races still provisional; open protests; Discord posts that didn't go out. Below that are links to everything a director can change, and the series' recent changes.
@@ -47,8 +48,8 @@ Each series has a Director tab, seen only by its directors and admins. "Needs at
 - Remove a race uploaded by mistake: open it > Remove this race (at the bottom, Officials). Its results, penalties and fixes are deleted and standings recalculate. It can be uploaded again.
 - A race outside every season's dates doesn't count. Open it and use Add to a season (Officials, at the bottom) to count it.
 
-## Stewarding
-Directors steward their own series, alongside race control.
+## Stewarding on the site
+Race control stewards every series; directors steward their own series. Some stewarding happens after the race, on the site.
 - Protests in the header lists open protests and recently closed ones.
 - Decide a protest: open it (it's on the race's stewards' report) > Decide this protest: driver, decision (no action, warning, points, positions, time, disqualified, or an in-race penalty) and reason. Or Close it without a decision (filed by mistake, duplicate). Closed protests can be reopened.
 - A decision without a protest: make it on the race's stewards' report.
@@ -57,6 +58,24 @@ Directors steward their own series, alongside race control.
 - Take back a site decision: remove it from the report.
 - Nobody judges themselves: if you raced and the protest is yours or against you, or it's about your car, the site won't let you decide it.
 - Driver pages show which Discord account is linked ("Discord: name"); only officials see this.
+
+## Race control (the program)
+Race control is a program a steward runs on their own Windows PC during a league race. It watches the race through iRacing, lists every incident as it happens, and lets the steward make calls. It works the same whether or not the race is broadcast. Who can use it: the race control role (every series), or a series director (only their assigned series).
+- Needs: the race control role; a Windows PC with iRacing joined to the league session as a session admin (so iRacing shares incident points and accepts penalty commands; ask the series director to make you one); internet; a browser, best on a second screen. No vMix or OBS, no Python to install.
+- Install: GLR HUB > Downloads (header) > Download VSPEED race control. Right-click the zip > Properties > tick Unblock > OK, then extract it to a folder not synced by OneDrive (e.g. C:\VSPEED). Double-click start-race-control.bat (not start.bat, which is the broadcast overlay). The first time it sets itself up (about a minute). The Race Control page opens in the browser; if not, open http://localhost:8766/racecontrol. A VSPEED Race Control desktop shortcut is made: start it with that from then on. Its black window stays minimized on the taskbar; leave it running. A deleted shortcut can be made again with race-control-shortcut.bat. start-race-control.bat --demo runs a pretend race for practice (demo calls never go to the site).
+- Same PC as the overlay is fine: race control uses port 8766 and data\steward; the overlay uses 8765. Only one copy of each runs at a time ("VSPEED is already running on this PC" means it's open in another window).
+- Sign in to GLR HUB (once per PC): press Sign in to the league site (top right). Race control shows a code like K7QF-2MXP and opens a GLR HUB page; sign in with Discord there, check the code matches, press Allow (the page must say Race control, not broadcast overlay). The League site pill then shows signed in and the Steward box fills with your Discord name. Codes last 10 minutes; a PC stays signed in for a year from last use. "Race control needs the race control role, or the Series official role with a series assigned to you" means you need the role from an admin (role changes take up to 15 minutes).
+- Before the green flag: join the session as a session admin, start race control from the shortcut, check the League site pill says signed in.
+- Screen: Incidents (left; To review is what still needs a look; click to open, double-click to replay in the sim, the seconds box sets how far back). Logged: iRacing's own penalties, cautions and retirements (a record, not decisions). Map (bottom right): every car (camera car red, pits blue, black-flagged black, recent incident flashing) and a mark per open incident; click a car to put the camera on it, click a mark to open the incident; Pop out map for a second screen. While watching a replay, new incidents aren't detected; incident points gained meanwhile are added when you press Live, marked found after review.
+- Making a call: pick the car, the call (warning, drive-through, stop-and-go, time penalty, end of line, positions, points, disqualified, no action), the number where needed, and the reason; press Make the call. For calls iRacing can give in the sim (warning, drive-through, stop-and-go, end of line, disqualified) the button says Make the call and send to iRacing, and race control types the admin command into iRacing's chat. The reason after !black, !eol or !dq shows in chat to everyone: keep it short and neutral. Stop-and-go: type the hold you want (25 s is the shortest). End of line only works under caution; otherwise it's logged with a Send to iRacing button for later. DQ asks are you sure (iRacing can't undo it). After sending: In the sim when the flag shows, Served when it goes; Didn't show in iRacing means no flag within 10 seconds (check the sim, Send again; commands only work as a session admin). Time, positions and points penalties don't go to iRacing: they change the results on GLR HUB.
+- Something with no incident: double-click the driver in the running order, or New call without an incident.
+- Withdraw a call made by mistake: it stays in the log crossed out, with who and why. Clear (next to a black-flagged driver) sends !clear for that driver and Clear all penalties sends !clearall; both remove all their penalties, iRacing's own included, and ask first.
+- Other stewards: every call goes to GLR HUB straight away under your Discord name; every 10 seconds race control reads the race back, so other stewards' calls show in your call log under their names, and it asks first before you penalize a driver another steward penalized in the last 2 minutes. If the internet drops, calls wait on the PC and go when it's back, even after a restart; closing race control mid-race loses nothing. The race's official results also go to the site with the same sign-in.
+- The broadcast: the producer's overlay reads calls from GLR HUB; a black-flagged car's penalty can show in its penalty box, but nothing goes on air until the producer presses Show.
+- Updates: race control checks for a new version at each start and asks Install it now? [Y/N]: press Y before the race, not during. Settings and calls are never touched. restore-previous.bat goes back a version.
+- Sign out in race control ends that PC's sign-in; an admin can also turn it off on the Overlay keys page, and removing the role does it within 15 minutes.
+- Save diagnostics (top right) makes a zip of logs and race files to send to an admin when something goes wrong (no sign-in in it).
+- Troubleshooting: page didn't open: find the black window on the taskbar, or open http://localhost:8766/racecontrol. League site pill not signed in: Sign in to the league site and Allow again. A race "turned down" by the site: not a GLR series on the site, or you don't steward that series; the calls stay on the PC. "You can't steward any series now": role or assignment taken away. No incident points: you're not a session admin. The map is empty: needs internet; "No map for this track yet" means tell an admin which track. Pop out map or Sign in does nothing: update race control. Anything else: tell an admin which race and roughly when.
 
 ## Discord posts
 On Edit series > Discord posts, paste a webhook link for each kind of post (in Discord: the channel's settings > Integrations > Webhooks > New Webhook > Copy Webhook URL): Results (when a race is official), Standings (after each official race), Team standings (where Team points is on), Penalties and result fixes. One link can go in several boxes. Send test checks a link; Send latest posts the latest one again (a missed post, or on demand). Posts come from "GLR HUB". Treat a webhook link like a password. A post that can't go waits under Waiting to post with the problem: Try again or Discard.
@@ -92,17 +111,19 @@ History in the header shows who changed what: uploads, official results, fixes, 
 
 // what the helper is told before each conversation
 export function systemPrompt(user, seriesNames = []) {
+  const directs = !user.admin && (user.directs || []).length > 0;
   const who = user.admin ? "an admin (every series, plus the admin-only pages)"
-    : `the series director of ${seriesNames.length ? seriesNames.join(", ") : "their assigned series"} (not an admin)`;
+    : directs ? `the series director of ${seriesNames.length ? seriesNames.join(", ") : "their assigned series"}${user.steward ? ", and race control (a steward for every series)" : ""} (not an admin)`
+    : "race control: a steward for every series, using the race control program and the site's protests and stewards' reports (not a series director or an admin)";
   return `You are the GLR HUB help assistant on glrhub.app, the website of Goat Locker Racing, a sim racing league on iRacing.
 You're talking with ${user.name || "a league official"}, ${who}.
 
 Answer questions about using GLR HUB, using only the knowledge below. Rules:
 - Be short and practical: the steps, with the names of the buttons and tabs as written. Use plain words. No headings.
 - Say where things are: a header link, a series tab, or a page; you can give site paths like /upload or /settings.
-${user.admin ? "" : "- They're not an admin: if what they want needs an admin (Accounts, Settings, assigning series, disputes, blocking, Team points, merging drivers), say so and tell them to ask an admin.\n"}- If the knowledge doesn't cover it, or you're not sure, say so plainly and suggest asking an admin in the GLR Discord. Never guess at buttons or pages that aren't in the knowledge.
+${user.admin ? "" : "- They're not an admin: if what they want needs an admin (Accounts, Settings, assigning series, disputes, blocking, Team points, merging drivers), say so and tell them to ask an admin.\n"}${user.admin || directs ? "" : "- They're not a series director: running a series (Edit series, schedule, rules, uploading results, Mark results official, fixing results, penalties tab, Discord posts) is for the series director or an admin; say so when that's what they need.\n"}- If the knowledge doesn't cover it, or you're not sure, say so plainly and suggest asking an admin in the GLR Discord. Never guess at buttons or pages that aren't in the knowledge.
 - You can't see the site's data (results, standings, accounts) and you can't change anything. Never say you did something.
-- Only help with GLR HUB, the league's results, stewarding and Discord posts. Politely decline anything else.
+- Only help with GLR HUB, race control, the league's results, stewarding and Discord posts. Politely decline anything else.
 
 <knowledge>
 ${KNOWLEDGE}

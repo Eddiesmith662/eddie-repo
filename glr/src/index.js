@@ -1146,7 +1146,7 @@ function settingsPage(cur, short, user, msg = "", stewardRole = "", producerRole
   <label for="so">Series official role (Discord role ID; its members run the series an admin assigns them)</label><input type="text" id="so" name="official_role" value="${esc(officialRole)}" maxlength="25" inputmode="numeric">
   <p class="tag">Assign each director their series on the <a href="${BASE}/accounts">Accounts</a> page. ${officialRole ? "" : "<b>Saving this switches off each series' own role</b> (on its Edit page): assign everyone on the Accounts page first, where you can see who is an official now. "}Taking the role away in Discord removes all their series within 15 minutes.</p>
   <fieldset><legend>Help chat</legend><label class="chk"><input type="checkbox" name="help_on" value="1"${help.on ? " checked" : ""}>
-    <span><b>Help</b> in the header for series directors and admins: an AI helper that answers questions about using the site (it can't see or change anything). <a href="${BASE}/help/log">What people asked</a></span></label>
+    <span><b>Help</b> (the bubble in the bottom-right corner) for series directors, race control and admins: an AI helper that answers questions about using the site (it can't see or change anything). <a href="${BASE}/help/log">What people asked</a></span></label>
     ${help.key ? "" : `<p class="tag"><b>Not working yet:</b> the Anthropic API key isn't in Cloudflare (the ANTHROPIC_API_KEY secret), so Help stays hidden.</p>`}</fieldset>
   <p><button class="btn">Save</button></p></form>`;
   return page("Site settings", body, { user });
@@ -1392,7 +1392,7 @@ const HELP_JS = `  const chat=document.getElementById('chat'),q=document.getElem
     }catch(err){wait.className='m a e';wait.textContent="Couldn't reach the site. Check your connection and try again.";turns.pop();save();}
     go.disabled=false;q.focus();};
 `;
-// the Help bubble in the bottom-right corner of every page, for directors and admins: opens a small chat panel
+// the Help bubble in the bottom-right corner of every page, for directors, race control and admins: opens a small chat panel
 function helpWidget(user) {
   return `<button type="button" id="hc-open" class="hc-open" aria-expanded="false" aria-controls="hc-panel" title="Ask how to do something on GLR HUB"><b>?</b> Help</button>
 <section id="hc-panel" class="hc-panel" hidden aria-label="Help chat"><div class="hc-top"><b>Help</b><span class="tag">Answers from the site's guides. It can't see or change anything, and it can be wrong.</span><button type="button" class="link" id="hc-close" aria-label="Close help">×</button></div>
@@ -1424,14 +1424,14 @@ async function helpRoute(request, env, db, url, path, user) {
   }
   if (path === `${BASE}/help`) {
     if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/help`, 302);
-    if (!user.help) return notFound(user.official ? "The Help chat is switched off right now." : "Help is for series directors and admins.", user);
+    if (!user.help) return notFound(user.official || user.steward ? "The Help chat is switched off right now." : "Help is for series directors, race control and admins.", user);
     return helpPage(user, HELP_PER_DAY - await helpToday(db, user.id));
   }
   // POST /api/help {messages: [{role, content}]}: the question is the last user message
   if (request.method !== "POST") return json({ ok: false, error: "Use POST." }, 405);
   if (!sameOrigin(request, url)) return json({ ok: false, error: "Ask from the Help page." }, 403);
   if (!user) return json({ ok: false, error: "Sign in again." }, 401);
-  if (!user.help) return json({ ok: false, error: user.official ? "The Help chat is switched off right now." : "Help is for series directors and admins." }, 403);
+  if (!user.help) return json({ ok: false, error: user.official || user.steward ? "The Help chat is switched off right now." : "Help is for series directors, race control and admins." }, 403);
   let body = null;
   try { body = await request.json(); } catch (e) { /* handled below */ }
   const turns = cleanTurns(body && body.messages);
@@ -1510,8 +1510,8 @@ const site = {
       }
       if (path === `${BASE}/logout` && request.method === "POST" && sameOrigin(request, url)) return logout(request, env);
       let user = await currentUser(request, env);
-      // the Help chat: directors and admins, once the API key is in Cloudflare and an admin hasn't switched it off
-      if (user && user.official && env.ANTHROPIC_API_KEY && await getSetting(db, "help_off") !== "1") user.help = true;
+      // the Help chat: directors, race control and admins, once the API key is in Cloudflare and an admin hasn't switched it off
+      if (user && (user.official || user.steward) && env.ANTHROPIC_API_KEY && await getSetting(db, "help_off") !== "1") user.help = true;
       if (path === `${BASE}/help` || path === `${BASE}/api/help` || path === `${BASE}/help/log`) {
         const r = await helpRoute(request, env, db, url, path, user);
         if (r) return r;
