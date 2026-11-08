@@ -71,13 +71,24 @@
   .gfx .none { color: var(--faint); font-size: 13px; }
   /* the driver on camera: their season in this series and their own info, from the league site */
   .drv:empty { display: none; }
-  .drv { margin-top: 6px; font-size: 14px; line-height: 1.45; }
+  .drv { margin-top: 8px; font-size: 14px; line-height: 1.45; }
+  .drv .head { margin-bottom: 8px; }
   .drv .ch { display: inline-block; background: #3a1420; border: 1px solid #5a2433; border-radius: 4px; padding: 1px 8px; font-weight: 800; margin-right: 6px; }
-  .drv .ssn { color: var(--dim); }
-  .drv .facts { margin-top: 3px; } .drv .facts b { color: var(--dim); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; }
-  .drv .bio { margin-top: 4px; white-space: pre-line; color: var(--text, #ddd); }
-  .drv .bio.short { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+  .drv .ssn { color: var(--dim); font-size: 12px; letter-spacing: .8px; text-transform: uppercase; }
+  /* stats in a column on the left (label, number), the driver's own info beside them; stacked on a phone */
+  .drv .cols { display: grid; grid-template-columns: auto 1fr; gap: 0 24px; align-items: start; }
+  .drv .stats { display: grid; grid-template-columns: auto auto; gap: 2px 14px; align-items: baseline; }
+  .drv .stats .k { font-size: 12px; color: var(--dim); letter-spacing: .8px; text-transform: uppercase; }
+  .drv .stats .v { font-size: 16px; font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+  .drv .facts div { margin-bottom: 2px; }
+  .drv .facts b { color: var(--dim); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .5px; margin-right: 6px; }
+  .drv .bio { margin-top: 6px; white-space: pre-line; color: var(--text, #ddd); }
+  .drv .bio.short { display: -webkit-box; -webkit-line-clamp: 6; -webkit-box-orient: vertical; overflow: hidden; }
   .drv .more { background: none; border: 0; color: var(--red); font: inherit; font-size: 12px; font-weight: 700; padding: 0; cursor: pointer; }
+  @media (max-width: 600px) {
+    .drv .cols { grid-template-columns: 1fr; gap: 10px; }
+    .drv .stats { grid-template-columns: auto auto auto auto; gap: 2px 12px; }
+  }
 
   /* running order */
   .tbl { overflow-x: auto; }
@@ -187,25 +198,26 @@ function drvBox(cam) {
   if (!cam || !drvKey || drvKey.split('|').slice(0, 2).join('|') !== cam.n + '|' + cam.d) bioOpen = false;
   drvKey = key;
   if (!x) { $('drv').innerHTML = ''; return; }
-  const pl = (n, one, many) => n + ' ' + (n === 1 ? one : many);
-  let h = '';
   const ch = x.ch, s = x.s;
-  if (ch && ch.out) h += '<span class="ch">Out in ' + esc(ch.out) + '</span>';
-  else if (ch && ch.pos) h += '<span class="ch">P' + esc(ch.pos) + (ch.round ? ' in ' + esc(ch.round) : ' in points') +
+  // top: championship place and points, and which season the numbers are from
+  let head = '';
+  if (ch && ch.out) head += '<span class="ch">Out in ' + esc(ch.out) + '</span>';
+  else if (ch && ch.pos) head += '<span class="ch">P' + esc(ch.pos) + (ch.round ? ' in ' + esc(ch.round) : ' in points') +
     (ch.pts != null ? ' · ' + esc(ch.pts) + ' pts' : '') + (ch.behind ? ' (−' + esc(ch.behind) + ')' : ch.pos === 1 ? ' (leader)' : '') + '</span>';
+  if (x.season) head += '<span class="ssn">' + esc(x.season) + '</span>';
+  // left: the season's numbers, one per line
+  let stats = '';
   if (s) {
-    const bits = [pl(s.st, 'start', 'starts'), pl(s.w, 'win', 'wins'), s.t5 + ' top 5', s.t10 + ' top 10'];
-    if (s.po) bits.push(pl(s.po, 'pole', 'poles'));
-    if (s.as != null) bits.push('avg start ' + s.as);
-    if (s.af != null) bits.push('avg finish ' + s.af);
-    if (s.led) bits.push(s.led + ' laps led');
-    if (s.dnf) bits.push(pl(s.dnf, 'DNF', 'DNFs'));
-    h += (x.season ? '<span class="ssn">' + esc(x.season) + ':</span> ' : '') + esc(bits.join(' · '));
+    const rows = [['Starts', s.st], ['Wins', s.w], ['Top 5', s.t5], ['Top 10', s.t10], ['Poles', s.po],
+                  ['Avg start', s.as], ['Avg finish', s.af], ['Laps led', s.led], ['DNFs', s.dnf]].filter(r => r[1] != null);
+    stats = '<div class="stats">' + rows.map(r => '<span class="k">' + r[0] + '</span><span class="v">' + esc(r[1]) + '</span>').join('') + '</div>';
   }
+  // right: team, sponsor, hometown and the bio
   const facts = [['Team', x.team], ['Sponsor', x.sp], ['From', x.home]].filter(f => f[1]);
-  if (facts.length) h += '<div class="facts">' + facts.map(f => '<b>' + f[0] + '</b> ' + esc(f[1])).join(' &nbsp; ') + '</div>';
-  if (x.bio) h += '<div class="bio' + (bioOpen ? '' : ' short') + '" id="bio">' + esc(x.bio) + '</div><button class="more" id="bioMore" hidden></button>';
-  $('drv').innerHTML = h;
+  let info = facts.length ? '<div class="facts">' + facts.map(f => '<div><b>' + f[0] + '</b>' + esc(f[1]) + '</div>').join('') + '</div>' : '';
+  if (x.bio) info += '<div class="bio' + (bioOpen ? '' : ' short') + '" id="bio">' + esc(x.bio) + '</div><button class="more" id="bioMore" hidden></button>';
+  $('drv').innerHTML = (head ? '<div class="head">' + head + '</div>' : '') +
+    (stats || info ? '<div class="cols">' + (stats ? '<div>' + stats + '</div>' : '') + (info ? '<div>' + info + '</div>' : '') + '</div>' : '');
   const bio = $('bio'), more = $('bioMore');
   if (bio && more) {
     more.hidden = !bioOpen && bio.scrollHeight <= bio.clientHeight + 1;   // short bios need no More
