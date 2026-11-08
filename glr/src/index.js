@@ -562,15 +562,48 @@ function driverPage(d, user, { aliases = [], all = [], msg = "", discord = null 
   return page(d.name, body, { user });
 }
 
+// a series' directors' home: what needs doing, and where everything they can change is
+function directorPage(sr, seasons, user, { provisional = [], protests = [], queue = [], changes = [] } = {}) {
+  const S = `${BASE}/${esc(sr.slug)}`;
+  let body = seriesTabs(sr, "director", seasons, null, user);
+  body += `<p class="tag">Only this series' directors and admins see this tab.</p><h2>Needs attention</h2>`;
+  const todo = [];
+  if (provisional.length) todo.push(`<li><b>${provisional.length} race${provisional.length === 1 ? "" : "s"} still provisional</b> (from a broadcast overlay). Upload the iRacing results file, or open the race, check it and press Mark results official:<ul>${provisional.map(e =>
+    `<li><a href="${BASE}/results/${e.subsession_id}">${day(e.start_time)} · ${esc(e.track)}</a></li>`).join("")}</ul></li>`);
+  if (protests.length) todo.push(`<li><b>${protests.length} open protest${protests.length === 1 ? "" : "s"}</b>:<ul>${protests.map(p =>
+    `<li><a href="${BASE}/results/${p.subsession_id}/stewards#p${p.id}">#${p.id} · ${esc(p.track)}, ${day(p.start_time)}</a></li>`).join("")}</ul></li>`);
+  const stuck = queue.filter(q => q.attempts > 0 || q.next_try > 8e15);
+  if (stuck.length) todo.push(`<li><b>${stuck.length} Discord post${stuck.length === 1 ? "" : "s"} didn't go out.</b> <a href="${S}/edit#discord">See Waiting to post</a> to try again or discard.</li>`);
+  body += todo.length ? `<ul class="todo">${todo.join("")}</ul>` : `<p class="hint">Nothing waiting: every race is official, no open protests, and every Discord post went out.</p>`;
+  const L = [
+    [`${BASE}/upload`, "Upload results", "the iRacing results file after each race (it makes the race official)"],
+    [`${S}/schedule`, "Schedule", "add, change or remove races"],
+    [`${S}/rules`, "Rules", "points, bonus points, drop weeks, playoffs (Change the rules)"],
+    [`${S}/penalties`, "Penalties", "points penalties and adjustments"],
+    [`${BASE}/protests`, "Protests", "open and recent protests; decide them on each race's stewards' report"],
+    [`${S}/drivers`, "Drivers", "add a driver who hasn't raced yet"],
+    ...(sr.teams ? [[`${S}/teams`, "Teams", "upload the team list (CSV)"]] : []),
+    [`${S}/edit`, "Edit series", "the series' name and web address"],
+    [`${S}/edit#discord`, "Discord posts", "webhooks for results, standings and penalties; Send test, Send latest"],
+    [`${S}/embed`, "Embed on a website", "standings, schedule and results widgets for a website, OBS or vMix"],
+    [`${BASE}/history`, "History", "every change, and who made it"],
+  ];
+  body += `<h2>Manage the series</h2><table class="manage">${L.map(([h, n, w]) => `<tr><td><a href="${h}"><b>${n}</b></a></td><td class="tag" style="white-space:normal">${w}</td></tr>`).join("")}</table>
+    <p class="tag">Fixing one driver's result, and removing a race uploaded by mistake, are at the bottom of that race's page (Officials).</p>`;
+  if (changes.length) body += `<h2>Recent changes</h2><div class="wrap"><table><tr><th>When</th><th>Who</th><th>What</th></tr>${changes.map(c =>
+    `<tr><td>${day(c.at)}</td><td>${esc(whoName(c.by))}</td><td style="white-space:normal">${esc(c.summary)}</td></tr>`).join("")}</table></div><p><a class="tag" href="${BASE}/history">All of History</a></p>`;
+  return page(`${sr.short_name} director`, body, { user });
+}
+
 function seriesTabs(sr, on, seasons, seasonId, user) {
   const q = seasonId && seasonId !== "all" && seasons.length > 1 ? `?season=${seasonId}` : "";
-  const t = (k, label, href) => `<a class="${on === k ? "on" : ""}" href="${BASE}/${esc(sr.slug)}${href}${["results", "drivers", "schedule"].includes(k) ? "" : q}">${label}</a>`;
+  const t = (k, label, href) => `<a class="${on === k ? "on" : ""}" href="${BASE}/${esc(sr.slug)}${href}${["results", "drivers", "schedule", "director"].includes(k) ? "" : q}">${label}</a>`;
   const opts = on === "stats" && seasons.length > 1 ? [...seasons, { id: "all", name: "All seasons" }] : seasons;
-  const pick = !["results", "drivers", "schedule"].includes(on) && opts.length > 1 ? `<form class="season" method="get"><select name="season" onchange="this.form.submit()">${opts.map(se =>
+  const pick = !["results", "drivers", "schedule", "director"].includes(on) && opts.length > 1 ? `<form class="season" method="get"><select name="season" onchange="this.form.submit()">${opts.map(se =>
     `<option value="${se.id}"${se.id === seasonId ? " selected" : ""}>${esc(se.name)}</option>`).join("")}</select></form>` : "";
   const logo = ASSETS[`series-${sr.id}.png`] ? `<img class="shlogo" src="${BASE}/theme/series-${sr.id}.png" alt="${esc(sr.short_name)} logo">` : "";
   return `<p class="crumb"><a href="${BASE}/">GLR</a></p><div class="shead">${logo}<div><h1>${esc(sr.short_name)}</h1><p class="sub">${esc(sr.name)}${canEdit(user, sr) ? ` · <a href="${BASE}/${esc(sr.slug)}/edit">Edit series</a> · <a href="${BASE}/${esc(sr.slug)}/embed">Embed on a website</a>` : ""}</p></div></div>
-    <nav class="tabs">${t("results", "Results", "")}${t("schedule", "Schedule", "/schedule")}${t("standings", "Standings", "/standings")}${t("stats", "Stats", "/stats")}${t("drivers", "Drivers", "/drivers")}${sr.teams ? t("teams", "Teams", "/teams") : ""}${t("rules", "Rules", "/rules")}${t("penalties", "Penalties", "/penalties")}${pick}</nav>`;
+    <nav class="tabs">${t("results", "Results", "")}${t("schedule", "Schedule", "/schedule")}${t("standings", "Standings", "/standings")}${t("stats", "Stats", "/stats")}${t("drivers", "Drivers", "/drivers")}${sr.teams ? t("teams", "Teams", "/teams") : ""}${t("rules", "Rules", "/rules")}${t("penalties", "Penalties", "/penalties")}${canEdit(user, sr) ? t("director", "Director", "/director") : ""}${pick}</nav>`;
 }
 
 // a table whose columns sort when their heading is clicked (numbers from data-v)
@@ -1865,6 +1898,18 @@ const site = {
         if (m[2] === "schedule") return widgetPage(`${sr.short_name} schedule`, scheduleWidget(sr, await listSchedule(db, sr.id), rows), opts);
         const last = (await listEvents(db, { series: sr.id, limit: 1 }))[0];
         return widgetPage(`${sr.short_name} results`, resultsWidget(sr, last && await getEvent(db, last.subsession_id), rows), opts);
+      }
+      if ((m = path.match(/^\/([a-z0-9-]+)\/director$/))) {
+        const sr = await getSeries(db, m[1]);
+        if (!sr) return notFound("No such series.", user);
+        if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${encodeURIComponent(path)}`, 302);
+        if (!canEdit(user, sr)) return notFound("This page is for the series' directors.", user);
+        return directorPage(sr, await seasonsOf(db, sr.id), user, {
+          provisional: (await listEvents(db, { series: sr.id })).filter(e => e.status !== "official"),
+          protests: await listProtests(db, { seriesIds: [sr.id], open: true }),
+          queue: await queueFor(db, sr.id),
+          changes: await listChanges(db, { seriesIds: [sr.id], limit: 10 }),
+        });
       }
       if ((m = path.match(/^\/([a-z0-9-]+)\/embed$/))) {
         const sr = await getSeries(db, m[1]);

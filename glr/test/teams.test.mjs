@@ -155,3 +155,26 @@ test("Send latest posts the real results, standings or team standings for the la
   }
   assert.match(text((await s.page("/history")).html), /Standings for Test Oval posted to Discord by hand/);
 });
+
+test("the Director tab: what needs attention and where everything is, for the series' directors only", async () => {
+  const { fileProtest } = await import("../src/db.js");
+  const s = makeSite();
+  await s.signIn({ id: "1", roles: [ADMIN_ROLE], nick: "Test Admin" });
+  await s.addRace({ sub: 9001, date: week(0) });
+  await s.addRace({ sub: 9002, date: week(1) });
+  let p = await s.page("/test-cup/director");
+  assert.match(p.html, /href="\/test-cup\/director">Director</);
+  assert.match(text(p.html), /Nothing waiting: every race is official/);
+  assert.match(text(p.html), /Manage the series Upload results .* Schedule .* Rules .* Discord posts .* Embed on a website .* History/);
+  assert.doesNotMatch(text(p.html), /Teams upload the team list/);                // only with team points on
+  await s.DB.prepare(`UPDATE events SET status = 'provisional' WHERE subsession_id = 9002`).run();
+  await fileProtest(s.DB, { sub: 9001, filedBy: "discord:9:x", filer: 101, against: 103, lap: "lap 4", what: "Pushed me wide", video: "" });
+  p = await s.page("/test-cup/director");
+  assert.match(text(p.html), /1 race still provisional .* Test Oval/);
+  assert.match(text(p.html), /1 open protest : #1 · Test Oval/);
+  s.cookie = "";                                                                   // the public: no tab, no page
+  assert.doesNotMatch((await s.page("/test-cup")).html, /\/test-cup\/director/);
+  assert.equal((await s.go("/test-cup/director")).status, 302);
+  await s.signIn({ id: "5", roles: [], nick: "Just A Member" });
+  assert.equal((await s.page("/test-cup/director")).status, 404);
+});
