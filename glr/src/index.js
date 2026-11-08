@@ -586,12 +586,12 @@ function directorPage(sr, seasons, user, { provisional = [], protests = [], queu
     [`${S}/edit`, "Edit series", "the series' name and web address"],
     [`${S}/edit#discord`, "Discord posts", "webhooks for results, standings and penalties; Send test, Send latest"],
     [`${S}/embed`, "Embed on a website", "standings, schedule and results widgets for a website, OBS or vMix"],
-    [`${BASE}/history`, "History", "every change, and who made it"],
+    [`${BASE}/history?series=${esc(sr.slug)}`, "History", "every change to this series, and who made it"],
   ];
   body += `<h2>Manage the series</h2><table class="manage">${L.map(([h, n, w]) => `<tr><td><a href="${h}"><b>${n}</b></a></td><td class="tag" style="white-space:normal">${w}</td></tr>`).join("")}</table>
     <p class="tag">Fixing one driver's result, and removing a race uploaded by mistake, are at the bottom of that race's page (Officials).</p>`;
   if (changes.length) body += `<h2>Recent changes</h2><div class="wrap"><table><tr><th>When</th><th>Who</th><th>What</th></tr>${changes.map(c =>
-    `<tr><td>${day(c.at)}</td><td>${esc(whoName(c.by))}</td><td style="white-space:normal">${esc(c.summary)}</td></tr>`).join("")}</table></div><p><a class="tag" href="${BASE}/history">All of History</a></p>`;
+    `<tr><td>${day(c.at)}</td><td>${esc(whoName(c.by))}</td><td style="white-space:normal">${esc(c.summary)}</td></tr>`).join("")}</table></div><p><a class="tag" href="${BASE}/history?series=${esc(sr.slug)}">All of this series' History</a></p>`;
   return page(`${sr.short_name} director`, body, { user });
 }
 
@@ -1107,9 +1107,11 @@ async function upload(request, env, user) {
 
 const KIND = { upload: "Upload", overlay: "Overlay", official: "Official", fix: "Fix", remove: "Removed", penalty: "Penalty", unpenalty: "Penalty removed",
   rules: "Rules", series: "Series", roster: "Drivers", schedule: "Schedule", webhook: "Discord", key: "Overlay key", merge: "Merge", separate: "Separate", note: "" };
-function historyPage(rows, user) {
+function historyPage(rows, user, only = null, choices = []) {
   const when = t => { const d = new Date(t); return isNaN(d) ? "" : d.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) + " ET"; };
-  let body = `<h1>History</h1><p class="sub">Who changed what on the site, newest first${user.admin ? "" : " (your series)"}.</p>`;
+  let body = `<h1>History${only ? `: ${esc(only.short_name)}` : ""}</h1><p class="sub">Who changed what on the site, newest first${only ? `, for ${esc(only.short_name)} only` : user.admin ? "" : " (your series)"}.</p>`;
+  if (choices.length > 1) body += `<form method="get" class="season"><select name="series" onchange="this.form.submit()"><option value="">All ${user.admin ? "" : "your "}series</option>${choices.map(x =>
+    `<option value="${esc(x.slug)}"${only && only.id === x.id ? " selected" : ""}>${esc(x.short_name)}</option>`).join("")}</select></form>`;
   body += rows.length ? `<div class="wrap"><table><tr><th>When</th><th>Who</th><th>Series</th><th>What</th></tr>` + rows.map(c => `<tr><td>${when(c.at)}</td><td>${esc(whoName(c.by))}</td>
     <td>${c.slug ? `<a href="${BASE}/${esc(c.slug)}">${esc(c.short_name)}</a>` : ""}</td>
     <td style="white-space:normal">${KIND[c.kind] ? `<span class="cls">${esc(KIND[c.kind])}</span>` : ""}${c.subsession_id && c.track ? `<a href="${BASE}/results/${c.subsession_id}">${esc(c.summary)}</a>` : esc(c.summary)}</td></tr>`).join("") + `</table></div>`
@@ -1792,7 +1794,9 @@ const site = {
         if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/history`, 302);
         if (!user.official) return notFound("History is for series officials.", user);
         const mine = user.admin ? null : user.directs;
-        return historyPage(await listChanges(db, { seriesIds: mine }), user);
+        const choices = (await listSeries(db)).filter(x => !mine || mine.includes(x.id));
+        const only = url.searchParams.get("series") ? choices.find(x => x.slug === url.searchParams.get("series")) || null : null;   // one series (the Director tab's link)
+        return historyPage(await listChanges(db, { seriesIds: only ? [only.id] : mine }), user, only, choices);
       }
       if ((m = path.match(/^\/drivers\/(\d+)\/info$/))) {
         const d = await getDriver(db, Number(m[1]));

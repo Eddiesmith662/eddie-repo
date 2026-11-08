@@ -178,3 +178,28 @@ test("the Director tab: what needs attention and where everything is, for the se
   await s.signIn({ id: "5", roles: [], nick: "Just A Member" });
   assert.equal((await s.page("/test-cup/director")).status, 404);
 });
+
+test("History for one series: the Director tab links to it; directors only get their own series", async () => {
+  const s = makeSite();
+  await s.signIn({ id: "1", roles: [ADMIN_ROLE], nick: "Test Admin" });
+  await s.addRace({ sub: 9001, date: week(0) });
+  await s.addRace({ sub: 9101, date: week(0), league: 5555, leagueName: "GLR Other SERIES", season: 600 });
+  await s.post("/test-cup/edit", { short_name: "Test Cup", slug: "test-cup", teams_form: "1", teams: "on" });
+  await s.post("/other/edit", { short_name: "Other", slug: "other", teams_form: "1", teams: "on" });
+  assert.match((await s.page("/test-cup/director")).html, /href="\/history\?series=test-cup"/);
+  let t = text((await s.page("/history?series=test-cup")).html);
+  assert.match(t, /History: Test Cup .*for Test Cup only/);
+  assert.match(t, /Test Cup Series Team points turned on/);
+  assert.doesNotMatch(t, /Other Series Team points turned on/);
+  t = text((await s.page("/history")).html);                                       // the header link: everything
+  assert.match(t, /Other Series Team points turned on .*Test Cup Series Team points turned on|Test Cup Series Team points turned on .*Other Series Team points turned on/);
+  // a director of Test Cup can't look at another series' History by changing the address
+  await s.post("/settings", { theme: "glr", short: "GLR", steward_role: "", producer_role: "", official_role: "777777" });
+  await s.signIn({ id: "8", roles: ["777777"], nick: "Cup Director" });
+  await s.signIn({ id: "1", roles: [ADMIN_ROLE], nick: "Test Admin" });
+  await s.post("/accounts", { action: "direct", id: "8", series: "4242" });
+  await s.signIn({ id: "8", roles: ["777777"], nick: "Cup Director" });
+  t = text((await s.page("/history?series=other")).html);
+  assert.doesNotMatch(t, /Other Series Team points turned on/);
+  assert.match(t, /Test Cup Series Team points turned on/);
+});
