@@ -14,3 +14,5 @@ How it works (CLAUDE.md, "Three chats, one repo"):
 ## Notes
 
 Control panel: the Graphics buttons on the Race tab are grouped by when in the show they are used, each group in a thin blue frame: logo and league tag; prerace (broadcast team, track graphic, standings, grid, race info); during the race (ticker, driver info, telemetry, track conditions, race recap, biggest movers); after the race (results, next broadcast). The buttons work as before.
+
+Ticker flag flash: with no sponsor logo loaded for the Green Flag, Restart or White Flag slot, the flash now still shows GREEN FLAG, RESTART ZONE or WHITE FLAG, centered on two lines, without "presented by". With a logo loaded it works as before.

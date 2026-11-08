@@ -125,6 +125,8 @@
   #tower .cban .ct { font-family: var(--semi); font-weight: 700; font-size: 62px; line-height: .92; letter-spacing: 1px;
     text-transform: uppercase; transform: skewX(-8deg); text-shadow: 0 3px 10px rgba(0,0,0,.25); }
   #tower .cban.white .ct { text-shadow: none; }
+  /* no sponsor logo loaded for that flag: the title alone, centered in the ticker (no "presented by", no logo box) */
+  #tower .cban.nosp .cp, #tower .cban.nosp .cbox { display: none; }
   #tower .cban .cp { margin: 16px 0 10px; font-family: var(--light); font-weight: 300; font-size: 15px; letter-spacing: 4px; }
   #tower .cban .cbox { position: relative; margin: 0 auto; width: 84%; height: 150px; border-radius: 12px; background: var(--box);
     display: flex; align-items: center; justify-content: center; overflow: hidden; box-shadow: 0 10px 26px rgba(0,0,0,.35); }
@@ -1308,6 +1310,7 @@ function flashFlag(f) {
    Restart, White Flag sponsor slots) the flag's name, "presented by" and the sponsor's logo sit in the middle of the flash,
    which then holds a little longer. */
 const FLAG_BAND = { caution: 'Caution', white: 'White flag', checkered: 'Checkered' };
+const FLAG_TITLE = { green: 'Green<br>flag', restart: 'Restart<br>zone', white: 'White<br>flag' };   // the sponsor slots' titles
 async function flagWipe(flag, slot) {
   if (!(VIS.tower && VIS.tower.on)) return;
   const file = slot ? ((((S && S.sponsor) || {}).files || {})[slot] || '') : '';
@@ -1317,17 +1320,20 @@ async function flagWipe(flag, slot) {
   w.className = 'cwipe ' + flag;
   w.getAnimations().forEach(a => a.cancel());
   b.getAnimations({ subtree: true }).forEach(a => a.cancel());
-  const dur = src ? 4200 : 3000;
+  // a sponsor slot's flag (first green, restart, white) gets its title even with no logo loaded: GREEN FLAG, RESTART
+  // ZONE, WHITE FLAG alone, centered, without "presented by" (Nov 2026); caution and checkered stay a plain flash
+  const banner = !!src || !!FLAG_TITLE[slot];
+  const dur = banner ? 4200 : 3000;
   w.animate([
     { opacity: 0, offset: 0 },     { opacity: 1, offset: .05 },  { opacity: .35, offset: .09 },
     { opacity: 1, offset: .13 },   { opacity: .5, offset: .16 }, { opacity: 1, offset: .20 },
     { opacity: 1, offset: .78 },   { opacity: 0, offset: 1 }
   ], { duration: dur, easing: 'linear' });
   anim(q('tower', '.cbar'), [{ filter: 'brightness(1.6)' }, { filter: 'none' }], { duration: 600, delay: 100 });
-  if (!src) return;
-  $('tCbanImg').src = src;
-  $('tCbanT').innerHTML = { green: 'Green<br>flag', restart: 'Restart<br>zone', white: 'White<br>flag' }[slot] || '';
-  b.className = 'cban' + (flag === 'white' ? ' white' : '');
+  if (!banner) return;
+  if (src) $('tCbanImg').src = src;
+  $('tCbanT').innerHTML = FLAG_TITLE[slot] || '';
+  b.className = 'cban' + (flag === 'white' ? ' white' : '') + (src ? '' : ' nosp');
   const k = (o, extra) => Object.assign({ offset: o }, extra);
   // the block shows once the flicker settles and goes as the flash fades; inside it the title wipes in from the left,
   // then "presented by", then the logo box pops up with a shine across it
@@ -1337,6 +1343,7 @@ async function flagWipe(flag, slot) {
     k(.16, { clipPath: 'inset(-20% 100% -20% 0)', transform: 'skewX(-8deg) translateX(-30px)', easing: 'cubic-bezier(.2,.8,.2,1)' }),
     k(.26, { clipPath: 'inset(-20% 0 -20% 0)', transform: 'skewX(-8deg)' }), k(1, { clipPath: 'inset(-20% 0 -20% 0)', transform: 'skewX(-8deg)' })
   ], { duration: dur });
+  if (!src) return;                // no sponsor logo: just the title
   b.querySelector('.cp').animate([k(0, { opacity: 0 }), k(.23, { opacity: 0 }), k(.29, { opacity: 1 }), k(1, { opacity: 1 })], { duration: dur });
   b.querySelector('.cbox').animate([
     k(0, { opacity: 0, transform: 'scale(.8)' }), k(.26, { opacity: 0, transform: 'scale(.8)', easing: 'cubic-bezier(.2,1.4,.4,1)' }),
