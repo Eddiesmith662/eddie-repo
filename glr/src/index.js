@@ -135,8 +135,8 @@ label.up{margin:0 0 0 10px;display:inline;color:var(--link);font-size:13px;curso
 .stw{margin:18px 0 4px;font-size:14px}tr.wd td b,tr.wd td:first-child{text-decoration:line-through;opacity:.6}textarea{width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
 input.search{width:100%;max-width:360px;margin:0 0 12px;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
 __THEME_CSS__</style></head><body><header><a class="brand" href="${BASE}/">__THEME_BRAND__</a>__THEME_SWITCH__<div class="me"><a href="${BASE}/">Series List</a><a href="${BASE}/schedule">Schedule</a><a href="${BASE}/drivers">Drivers</a>${user
-  ? `${user.cust ? `<a href="${BASE}/me">My races</a>` : ""}<a href="${BASE}/protests">Protests</a>${user.producer || usesRaceControl(user) ? `<a href="${BASE}/downloads">Downloads</a>` : ""}${user.official ? `<a href="${BASE}/history">History</a>${user.admin ? `<a href="${BASE}/accounts">Accounts</a><a href="${BASE}/keys">Overlay keys</a><a href="${BASE}/settings">Settings</a>` : ""}<a href="${BASE}/upload">Upload results</a>` : ""}${user.help ? `<a href="${BASE}/help">Help</a>` : ""}<span class="tag">${esc(user.name)}</span><form method="post" action="${BASE}/logout"><button class="link">Sign out</button></form>`
-  : `<a href="${BASE}/login">Sign in</a>`}</div></header><main>${body}</main></body></html>`,
+  ? `${user.cust ? `<a href="${BASE}/me">My races</a>` : ""}<a href="${BASE}/protests">Protests</a>${user.producer || usesRaceControl(user) ? `<a href="${BASE}/downloads">Downloads</a>` : ""}${user.official ? `<a href="${BASE}/history">History</a>${user.admin ? `<a href="${BASE}/accounts">Accounts</a><a href="${BASE}/keys">Overlay keys</a><a href="${BASE}/settings">Settings</a>` : ""}<a href="${BASE}/upload">Upload results</a>` : ""}<span class="tag">${esc(user.name)}</span><form method="post" action="${BASE}/logout"><button class="link">Sign out</button></form>`
+  : `<a href="${BASE}/login">Sign in</a>`}</div></header><main>${body}</main>${user && user.help && title !== "Help" ? helpWidget(user) : ""}</body></html>`,
   { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
 
 const notFound = (what, user) => page("Not found", `<h1>Not found</h1><p class="sub">${esc(what)}</p>`, { status: 404, user });
@@ -1374,6 +1374,47 @@ async function overlayCaller(request, env, db, count, fresh = false) {
   return { error: "The site doesn't recognise this key or sign-in. Sign the overlay in again, or make a new key on the site's Overlay keys page.", status: 401 };
 }
 
+// the Help chat's browser script, shared by the Help page and the corner bubble (they're never on one page together).
+// The conversation is kept for this browser tab only, so it carries on across pages.
+const HELP_JS = `  const chat=document.getElementById('chat'),q=document.getElementById('q'),go=document.getElementById('go'),leftEl=document.getElementById('left');let turns=[];const KEY='glrhelp';const save=()=>{try{sessionStorage.setItem(KEY,JSON.stringify(turns.slice(-12)))}catch(e){}};
+  const esc=t=>t.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+  // the answer is plain text with a little markdown: bold, bullets, and site paths become links
+  const fmt=t=>esc(t).replace(/\\*\\*([^*]+)\\*\\*/g,'<b>$1</b>').replace(/(^|[\\s(])((?:https:\\/\\/glrhub\\.app)?\\/[a-z0-9][a-z0-9\\/_-]*)/gi,(m,a,p)=>a+'<a href="'+p.replace(/^https:\\/\\/glrhub\\.app/,'')+'">'+p+'</a>').replace(/^\\s*[-*] /gm,'• ').replace(/\\n/g,'<br>');
+  const add=(cls,html)=>{const d=document.createElement('div');d.className='m '+cls;d.innerHTML=html;chat.appendChild(d);d.scrollIntoView({block:'nearest'});return d;};
+  document.getElementById('clear').onclick=()=>{turns=[];chat.innerHTML='';save();q.focus();};
+  try{for(const t of JSON.parse(sessionStorage.getItem(KEY)||'[]'))if(t&&t.content){turns.push(t);add(t.role==='user'?'u':'a',t.role==='user'?esc(t.content).replace(/\\n/g,'<br>'):fmt(t.content));}}catch(e){}
+  q.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();document.getElementById('ask').requestSubmit();}});
+  document.getElementById('ask').onsubmit=async e=>{e.preventDefault();const text=q.value.trim();if(!text||go.disabled)return;
+    add('u',esc(text).replace(/\\n/g,'<br>'));turns.push({role:'user',content:text});save();q.value='';go.disabled=true;const wait=add('a','<span class="tag">Thinking…</span>');
+    try{const r=await fetch('${BASE}/api/help',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({messages:turns})});const j=await r.json();
+      if(j.ok){wait.innerHTML=fmt(j.answer);turns.push({role:'assistant',content:j.answer});save();}else{wait.className='m a e';wait.textContent=j.error||'Something went wrong.';turns.pop();save();}
+      if(typeof j.left==='number')leftEl.textContent=j.left>0?j.left+' questions left today':'No questions left today';
+    }catch(err){wait.className='m a e';wait.textContent="Couldn't reach the site. Check your connection and try again.";turns.pop();save();}
+    go.disabled=false;q.focus();};
+`;
+// the Help bubble in the bottom-right corner of every page, for directors and admins: opens a small chat panel
+function helpWidget(user) {
+  return `<button type="button" id="hc-open" class="hc-open" aria-expanded="false" aria-controls="hc-panel" title="Ask how to do something on GLR HUB"><b>?</b> Help</button>
+<section id="hc-panel" class="hc-panel" hidden aria-label="Help chat"><div class="hc-top"><b>Help</b><span class="tag">Answers from the site's guides. It can't see or change anything, and it can be wrong.</span><button type="button" class="link" id="hc-close" aria-label="Close help">×</button></div>
+<div id="chat" class="help" aria-live="polite"><div class="m a">Ask how to do something on GLR HUB, like "How do I make a race official?"</div></div>
+<form id="ask" class="helpask"><textarea id="q" rows="2" maxlength="2000" placeholder="Type your question" required></textarea>
+<div class="hc-row"><button class="btn" id="go">Ask</button><button type="button" class="link" id="clear">Start over</button><span class="tag" id="left"></span>${user.admin ? `<a class="tag" href="${BASE}/help/log">What people asked</a>` : ""}</div></form></section>
+<style>.hc-open{position:fixed;right:18px;bottom:18px;z-index:50;display:flex;align-items:center;gap:8px;padding:9px 16px 9px 10px;border-radius:999px;border:0;background:var(--accent);color:#fff;font:inherit;font-size:15px;font-weight:700;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.35)}
+.hc-open b{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,.25)}.hc-open[aria-expanded=true]{display:none}
+.hc-panel{position:fixed;right:18px;bottom:18px;z-index:51;width:min(390px,calc(100vw - 24px));height:min(560px,calc(100vh - 36px));display:flex;flex-direction:column;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.45);overflow:hidden}
+.hc-panel[hidden]{display:none}.hc-top{display:flex;align-items:flex-start;gap:8px;padding:10px 12px;border-bottom:1px solid var(--line)}.hc-top .tag{flex:1;font-size:12px;white-space:normal}.hc-top button{font-size:24px;line-height:1;padding:0 2px}
+.hc-panel .help{flex:1;overflow-y:auto;margin:0;padding:10px 12px}.hc-panel .help .m{font-size:14px}.hc-panel .helpask{padding:8px 12px 10px;border-top:1px solid var(--line);margin:0}
+.hc-panel textarea{font-size:14px;resize:none}.hc-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-top:6px}
+.help{display:flex;flex-direction:column;gap:10px}.help .m{padding:9px 12px;border-radius:8px;border:1px solid var(--line);background:var(--card);white-space:normal;line-height:1.45}
+.help .u{align-self:flex-end;max-width:85%;background:transparent}.help .a{max-width:95%}.help .e{border-color:#d33}</style>
+<script>${HELP_JS}</script>
+<script>(()=>{const o=document.getElementById('hc-open'),p=document.getElementById('hc-panel'),c=document.getElementById('chat');
+const show=v=>{p.hidden=!v;o.setAttribute('aria-expanded',v);try{sessionStorage.setItem('glrhelp-open',v?'1':'')}catch(e){}if(v){c.scrollTop=c.scrollHeight;document.getElementById('q').focus();}};
+o.onclick=()=>show(true);document.getElementById('hc-close').onclick=()=>show(false);
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!p.hidden)show(false);});
+try{if(sessionStorage.getItem('glrhelp-open'))show(true);}catch(e){}})();</script>`;
+}
+
 // The Help chat (directors and admins): the page, the question endpoint, and the admins' log of questions
 async function helpRoute(request, env, db, url, path, user) {
   if (path === `${BASE}/help/log`) {
@@ -1413,22 +1454,7 @@ function helpPage(user, left) {
   <p><button class="btn" id="go">Ask</button> <button type="button" class="link" id="clear">Start over</button> <span class="tag" id="left">${left > 0 ? `${left} questions left today` : "No questions left today"}</span>${user.admin ? ` · <a href="${BASE}/help/log">What people asked</a>` : ""}</p></form>
   <style>.help{display:flex;flex-direction:column;gap:10px;margin:14px 0}.help .m{padding:10px 14px;border-radius:8px;border:1px solid var(--line);background:var(--card);white-space:normal;line-height:1.45}
   .help .u{align-self:flex-end;max-width:85%;background:transparent}.help .a{max-width:95%}.help .e{border-color:#d33}.helpask textarea{max-width:900px}</style>
-  <script>
-  const chat=document.getElementById('chat'),q=document.getElementById('q'),go=document.getElementById('go'),leftEl=document.getElementById('left');let turns=[];
-  const esc=t=>t.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-  // the answer is plain text with a little markdown: bold, bullets, and site paths become links
-  const fmt=t=>esc(t).replace(/\\*\\*([^*]+)\\*\\*/g,'<b>$1</b>').replace(/(^|[\\s(])((?:https:\\/\\/glrhub\\.app)?\\/[a-z0-9][a-z0-9\\/_-]*)/gi,(m,a,p)=>a+'<a href="'+p.replace(/^https:\\/\\/glrhub\\.app/,'')+'">'+p+'</a>').replace(/^\\s*[-*] /gm,'• ').replace(/\\n/g,'<br>');
-  const add=(cls,html)=>{const d=document.createElement('div');d.className='m '+cls;d.innerHTML=html;chat.appendChild(d);d.scrollIntoView({block:'nearest'});return d;};
-  document.getElementById('clear').onclick=()=>{turns=[];chat.innerHTML='';q.focus();};
-  q.addEventListener('keydown',e=>{if(e.key==='Enter'&&!e.shiftKey){e.preventDefault();document.getElementById('ask').requestSubmit();}});
-  document.getElementById('ask').onsubmit=async e=>{e.preventDefault();const text=q.value.trim();if(!text||go.disabled)return;
-    add('u',esc(text).replace(/\\n/g,'<br>'));turns.push({role:'user',content:text});q.value='';go.disabled=true;const wait=add('a','<span class="tag">Thinking…</span>');
-    try{const r=await fetch('${BASE}/api/help',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({messages:turns})});const j=await r.json();
-      if(j.ok){wait.innerHTML=fmt(j.answer);turns.push({role:'assistant',content:j.answer});}else{wait.className='m a e';wait.textContent=j.error||'Something went wrong.';turns.pop();}
-      if(typeof j.left==='number')leftEl.textContent=j.left>0?j.left+' questions left today':'No questions left today';
-    }catch(err){wait.className='m a e';wait.textContent="Couldn't reach the site. Check your connection and try again.";turns.pop();}
-    go.disabled=false;q.focus();};
-  </script>`;
+  <script>${HELP_JS}</script>`;
   return page("Help", body, { user });
 }
 

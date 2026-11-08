@@ -40,13 +40,13 @@ const q = text => [{ role: "user", content: text }];
 test("directors and admins see Help; drivers, race control and visitors don't", async () => {
   const s = await setup();
   await s.signIn(director);
-  assert.match((await s.page("/")).html, /href="\/help">Help</);
+  assert.match((await s.page("/")).html, /id="hc-open"/);
   assert.equal((await s.page("/help")).status, 200);
   await s.signIn(ADMIN);
-  assert.match((await s.page("/")).html, /href="\/help">Help</);
+  assert.match((await s.page("/")).html, /id="hc-open"/);
   for (const who of [{ id: "71", roles: [RC], nick: "Steward Sam" }, { id: "72", roles: [], nick: "Racer Ray" }]) {
     await s.signIn(who);
-    assert.doesNotMatch((await s.page("/")).html, /href="\/help"/);
+    assert.doesNotMatch((await s.page("/")).html, /id="hc-open"/);
     assert.equal((await s.page("/help")).status, 404);
     assert.equal((await ask(s, q("hi"))).status, 403);
   }
@@ -117,13 +117,25 @@ test("when Claude fails, the person gets a plain message and it's logged", async
 
 test("Help stays hidden without the API key, and an admin can switch it off on Settings", async () => {
   const s = await setup({ key: false });
-  assert.doesNotMatch((await s.page("/")).html, /href="\/help"/);
+  assert.doesNotMatch((await s.page("/")).html, /id="hc-open"/);
   assert.match(text((await s.page("/settings")).html), /Not working yet: the Anthropic API key isn.t in Cloudflare/);
   const t = await setup();
   await t.post("/settings", { theme: "glr", short: "GLR", steward_role: RC, official_role: OFFICIAL });   // box unticked
-  assert.doesNotMatch((await t.page("/")).html, /href="\/help"/);
+  assert.doesNotMatch((await t.page("/")).html, /id="hc-open"/);
   assert.equal((await ask(t, q("hi"))).status, 403);
   assert.match(text((await t.page("/history")).html), /Help chat turned off/);
   await t.post("/settings", { theme: "glr", short: "GLR", steward_role: RC, official_role: OFFICIAL, help_on: "1" });
-  assert.match((await t.page("/")).html, /href="\/help">Help</);
+  assert.match((await t.page("/")).html, /id="hc-open"/);
+});
+
+test("the Help bubble is on every page for directors, but not on the Help page itself", async () => {
+  const s = await setup();
+  await s.signIn(director);
+  for (const p of ["/", "/test-cup", "/test-cup/standings", "/test-cup/director", "/protests"]) assert.match((await s.page(p)).html, /id="hc-open"[^]*id="hc-panel"/, p);
+  const h = (await s.page("/help")).html;
+  assert.doesNotMatch(h, /id="hc-open"/);
+  assert.equal((h.match(/id="chat"/g) || []).length, 1);
+  assert.doesNotMatch((await s.page("/")).html, /What people asked/);       // the log link is for admins
+  await s.signIn(ADMIN);
+  assert.match((await s.page("/")).html, /href="\/help\/log">What people asked/);
 });
