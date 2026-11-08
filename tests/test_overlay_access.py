@@ -347,6 +347,44 @@ class Gate(unittest.TestCase):
         finally:
             lu.ON_SIGNED_IN = real
 
+    def get_any(self, path):
+        try:
+            return self.get(path)
+        except urllib.error.HTTPError as e:
+            return e.code, e.read().decode("utf-8")
+
+    def test_overlay_pages_by_their_file_name_are_blank_too(self):
+        for page in ("/static/overlay.html", "/static/standings-graphic.html", "/static/Overlay.HTML"):
+            code, body = self.get_any(page)
+            self.assertIn("location.reload", body, page)
+            self.assertNotIn("<div", body, page)
+
+    def test_race_control_mode_serves_only_race_control(self):
+        # Nov 8, 2026: race control mode has no producer sign-in, and opening :8766/control gave the whole overlay
+        was = server.RC["on"]
+        server.RC["on"], access.ENABLED["on"] = True, False             # as start-race-control.bat runs it
+        try:
+            for page in ("/", "/racecontrol", "/static/racecontrol.html"):
+                code, body = self.get_any(page)
+                self.assertEqual(code, 200, page)
+                self.assertNotIn(server.RC_ONLY, body, page)
+            for page in ("/control", "/timing", "/overlay", "/standings", "/graphic", "/analysis", "/team",
+                         "/standings-graphic.html", "/static/control.html", "/static/overlay.html"):
+                code, body = self.get_any(page)
+                self.assertEqual(code, 403, page)
+                self.assertIn(server.RC_ONLY, body, page)
+            for path, body in (("/api/gfx", {"cmd": "towerShow"}), ("/api/settings", {"raceName": "SNEAKY"}),
+                               ("/api/leagueupload", {"cmd": "signin"}), ("/api/announcer", {"cmd": "on"})):
+                code, j = self.post(path, body)
+                self.assertEqual((code, j["ok"], j["error"]), (403, False, server.RC_ONLY), path)
+            self.assertNotEqual(server.STATE.settings.get("raceName"), "SNEAKY")
+            code, j = self.post("/api/clientlog", {"msg": "test"})     # race control's own requests still work
+            self.assertEqual(code, 200)
+            code, j = self.post("/api/rc", {"cmd": "nosuchthing"})
+            self.assertNotEqual(code, 403)
+        finally:
+            server.RC["on"] = was
+
 
 if __name__ == "__main__":
     unittest.main()

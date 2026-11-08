@@ -12,3 +12,5 @@ How it works (CLAUDE.md, "Three chats, one repo"):
   VERSION bump).
 
 ## Notes
+
+Race control is race control only: started with start-race-control.bat, it now shows just the race control page. The overlay's control panel, broadcast pages and buttons answer "This is race control. Start the overlay to use graphics." Before, opening the control panel on race control's port gave the whole overlay without signing in. Stewards see no change: race control still sends its calls and official results with the steward's sign-in. Producers keep starting the overlay as usual.

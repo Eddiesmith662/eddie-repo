@@ -1725,6 +1725,21 @@ BLANK_PAGE = (b"<!doctype html><html><head><meta charset='utf-8'><title>VSPEED</
               b"<script>setTimeout(function(){location.reload()},5000)</script></body></html>")
 # what still works before signing in: the sign-in itself, page errors and diagnostics
 OPEN_POSTS = {"/api/leagueupload", "/api/clientlog", "/api/diagnostics"}
+# Race control mode (start-race-control.bat) has no producer sign-in, so it serves only the race control page: the
+# overlay's pages and buttons stay with the overlay (Nov 8, 2026: opening :8766/control gave the whole overlay).
+OVERLAY_PAGES = ("/", "/control", "/timing", "/overlay", "/standings", "/graphic", "/analysis", "/team",
+                 "/standings-graphic.html")
+RC_POSTS = {"/api/rc", "/api/camera", "/api/replay", "/api/clientlog", "/api/diagnostics"}
+RC_ONLY = "This is race control. Start the overlay to use graphics."
+RC_ONLY_PAGE = ("<!doctype html><html><head><meta charset='utf-8'><title>VSPEED Race Control</title></head>"
+                "<body style='font:16px system-ui,sans-serif;margin:40px'><p>%s</p>"
+                "<p><a href='/'>Open race control</a></p></body></html>" % RC_ONLY).encode()
+
+
+def _static_page(path):
+    """/static/overlay.html and the like: an overlay page by another address (not race control's own page)."""
+    return (path.startswith("/static/") and path.lower().rstrip("/").endswith((".html", ".htm"))
+            and os.path.basename(path.lower().rstrip("/")) != "racecontrol.html")
 
 
 def announcer_command(d):
@@ -2095,6 +2110,10 @@ class Handler(BaseHTTPRequestHandler):
         path = urlparse(self.path).path
         if path == "/racecontrol" or (path == "/" and RC["on"]):
             return self.send_file(os.path.join(STATIC, "racecontrol.html"))
+        if RC["on"] and (path in OVERLAY_PAGES or _static_page(path)):
+            return self.send_bytes(RC_ONLY_PAGE, "text/html; charset=utf-8", 403)
+        if _static_page(path) and not access.allowed():
+            return self.send_bytes(BLANK_PAGE, "text/html; charset=utf-8")
         if path in ("/", "/control", "/timing"):
             return self.send_file(os.path.join(STATIC, "control.html"))      # shows the sign-in screen until allowed
         if path in ("/overlay", "/standings", "/graphic", "/analysis", "/team", "/standings-graphic.html") \
@@ -2219,6 +2238,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlparse(self.path).path
         length = int(self.headers.get("Content-Length") or 0)
+        if RC["on"] and path not in RC_POSTS:
+            if length:
+                self.rfile.read(length)
+            return self.send_json({"ok": False, "msg": RC_ONLY, "error": RC_ONLY}, 403)
         if not access.allowed() and path not in OPEN_POSTS:
             if length:
                 self.rfile.read(length)
