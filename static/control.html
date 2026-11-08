@@ -394,9 +394,39 @@
   .lyrow.sel { background: rgba(255,13,64,.18); }
   .lyrow .v { text-align: right; font-variant-numeric: tabular-nums; color: var(--dim); font-size: 13px; }
   .lyrow button { padding: 4px 8px; font-size: 12px; }
+  /* sign-in screen (Nov 2026): the overlay needs a producer signed in to the league site with Discord */
+  #gate { position: fixed; inset: 0; z-index: 100; background: var(--bg); display: flex; align-items: center; justify-content: center; padding: 16px; overflow: auto; }
+  #gate[hidden] { display: none; }
+  #gate .box { width: 100%; max-width: 460px; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 26px 24px; text-align: center; }
+  #gate img { height: 44px; margin-bottom: 18px; }
+  #gate h1 { font-size: 20px; margin: 0 0 10px; }
+  #gate .msg { color: var(--text); line-height: 1.45; margin: 0 0 18px; }
+  #gate .msg.bad { color: #ff8da3; }
+  #gate .btns { display: flex; flex-direction: column; gap: 8px; }
+  #gate .btns button { padding: 10px; font-size: 15px; }
+  #gate .code { margin-top: 16px; line-height: 1.5; color: var(--dim); }
+  #gate .code b.c { display: block; font-size: 26px; letter-spacing: 3px; color: var(--text); margin: 6px 0; }
+  #gate .foot { margin-top: 18px; color: var(--dim); font-size: 12px; line-height: 1.45; }
+  .warnbar { background: #3a1018; border-bottom: 1px solid var(--red); color: #ffd0d9; padding: 7px 16px; font-size: 13px; }
+  .warnbar.soft { background: #332c08; border-color: var(--yellow); color: #fff3b0; }
+  .warnbar[hidden] { display: none; }
 </style>
 </head>
 <body>
+<div id="gate" hidden>
+  <div class="box">
+    <img src="/static/assets/vspeed_logo.png" alt="VSPEED">
+    <h1 id="gateTitle">Sign in to use the overlay</h1>
+    <p class="msg" id="gateMsg">Checking your sign-in with the league site…</p>
+    <div class="btns">
+      <button class="go" id="gateSignIn" hidden>Sign in with Discord</button>
+      <button id="gateRetry" hidden>Try again</button>
+      <button id="gateOther" hidden>Sign in with another account</button>
+    </div>
+    <div class="code" id="gateCode" hidden></div>
+    <p class="foot">The overlay works for producers signed in to GLR HUB (glrhub.app) with Discord. Anyone with the Producer role can sign in; ask a GLR HUB admin if you need it. <span id="gateVer"></span></p>
+  </div>
+</div>
 <header>
   <div class="hbar">
     <img src="/static/assets/vspeed_logo.png" alt="VSPEED">
@@ -420,6 +450,7 @@
     <button id="codesWin" class="navlink" title="Make a producer code for a show (needs the relay password)">Producer codes ↗</button>
   </nav>
   <div class="smenu" id="seriesMenu" hidden></div>
+  <div class="warnbar" id="luWarn" hidden></div>
 </header>
 
 <!-- ================= PRERACE ================= -->
@@ -808,17 +839,13 @@
   </section>
 
   <section class="wide" id="luSetup">
-    <h2><span class="t">League site upload</span><span class="pill" id="luPill">OFF</span></h2>
-    <p class="hint" style="margin-top:0">Sends each league race's results to the league site (GLR HUB, glrhub.app) when the race ends. They show there as Provisional until the iRacing results file is uploaded. If the internet drops, races wait on this PC and go once it's back.</p>
-    <label>Sign in with your Discord account (needs the Producer role on the league site)</label>
-    <div class="url"><button id="luSignIn">Sign in with Discord</button><span class="hint" id="luWho" style="margin:0 10px;align-self:center"></span><button id="luSignOut" hidden>Sign out</button></div>
-    <div class="hint" id="luCode" hidden style="margin:8px 0 0"></div>
-    <label style="margin-top:12px">Or an overlay key (from the league site's Keys page, admins only)</label>
-    <div class="url"><input id="luKey" type="password" placeholder="vsglr_…" spellcheck="false" autocomplete="off"><button id="luSave">Save</button><button id="luTest">Test</button></div>
-    <div class="grid2" style="margin-top:10px">
-      <div><label>Upload</label><div class="seg" id="luSeg"><button data-v="on">On</button><button data-v="off">Off</button></div></div>
-      <div><label>Status</label><div class="hint" id="luStatus" style="margin:6px 0 0">—</div></div>
-    </div>
+    <h2><span class="t">League site</span><span class="pill" id="luPill">—</span></h2>
+    <div class="url"><span id="luWho" style="align-self:center;margin-right:10px">—</span><button id="luSignOut" hidden>Sign out</button></div>
+    <div class="hint" id="luAccess" style="margin:6px 0 0"></div>
+    <label style="margin-top:12px">Results</label>
+    <div class="hint" id="luStatus" style="margin:2px 0 0">—</div>
+    <p class="hint">Each league race's results go to GLR HUB (glrhub.app) by themselves when the race ends, and show there as Provisional until the iRacing results file is uploaded. If the internet drops, races wait on this PC and go once it's back.</p>
+    <p class="hint" id="luKeyRow" hidden>An overlay key is saved on this PC: it sends results if the sign-in stops working. <button id="luKeyRemove" class="small">Remove key</button></p>
   </section>
 
   <section class="wide">
@@ -1789,45 +1816,68 @@ function anRender() {
   if (document.activeElement !== $('anNotes') && !anT) $('anNotes').value = a.notes || '';
 }
 
-/* ---------- league site upload (Setup tab) ---------- */
-let LU = {};
+/* ---------- league site: the sign-in screen, and the Setup tab (Nov 2026) ---------- */
+// The overlay needs a producer signed in to GLR HUB with Discord (access.py). Until then only the sign-in screen
+// shows, and the broadcast pages stay blank. The same sign-in sends each league race's results (always on).
+let LU = {}, ACC = null;
 async function luCmd(body) { const r = await post('/api/leagueupload', body); if (r.msg) toast(r.msg); return r; }
-$('luSave').onclick = async () => { const k = $('luKey').value.trim(); const r = await luCmd({ cmd: 'key', key: k }); if (r.ok) $('luKey').value = ''; };
-$('luKey').onkeydown = e => { if (e.key === 'Enter') $('luSave').click(); };
-$('luTest').onclick = () => luCmd({ cmd: 'test' });
-$('luSeg').onclick = e => { const b = e.target.closest('button'); if (b) luCmd({ cmd: b.dataset.v }); };
 // Sign in with Discord: the site gives a code and a page; the producer presses Allow there (on this device or any
 // other), and the overlay picks up the sign-in by itself. The window is opened at the click so pop-up blockers allow it.
-$('luSignIn').onclick = async () => {
+async function luSignIn() {
   const w = window.open('', '_blank');
   const r = await post('/api/leagueupload', { cmd: 'signin' });
   if (r.ok && r.url) { if (w) w.location.href = r.url; else toast('Open ' + r.url + ' and press Allow'); }
   else { if (w) w.close(); toast(r.msg || "Couldn't start the sign-in"); }
-};
-$('luSignOut').onclick = () => { if (confirm('Sign this PC out of the league site? Results stop going there until someone signs in again (or a key is saved).')) luCmd({ cmd: 'signout' }); };
-$('luCode').onclick = e => { if (e.target.closest('[data-cancel]')) luCmd({ cmd: 'signincancel' }); };
-function luRender() {
-  const a = S.leagueUpload || {}, st = LU || {};
-  const who = st.user || '', connected = !!a.key || !!who;
-  const on = !!a.on && connected;
-  const label = !on ? 'OFF' : { ok: 'ON', ready: 'ON', waiting: 'WAITING', error: 'PROBLEM', setup: 'SET UP' }[st.state] || 'ON';
-  $('luPill').textContent = label; $('luPill').classList.toggle('air', on && (st.state === 'ok' || st.state === 'ready'));
-  $('luWho').textContent = who ? 'Signed in as ' + who : '';
-  $('luSignIn').hidden = !!who; $('luSignOut').hidden = !who;
-  const sg = st.signin;
-  $('luCode').hidden = !sg;
+}
+$('gateSignIn').onclick = luSignIn;
+$('gateOther').onclick = async () => { await luCmd({ cmd: 'signout' }); luSignIn(); };
+$('gateRetry').onclick = () => luCmd({ cmd: 'check' });
+$('gateCode').onclick = e => { if (e.target.closest('[data-cancel]')) luCmd({ cmd: 'signincancel' }); };
+$('luSignOut').onclick = () => { if (confirm('Sign this PC out of the league site? The overlay closes (the broadcast pages go blank) until someone signs in again.')) luCmd({ cmd: 'signout' }); };
+$('luKeyRemove').onclick = () => { if (confirm('Remove the overlay key saved on this PC? Results keep going with your sign-in.')) luCmd({ cmd: 'removekey' }); };
+function gateRender() {
+  const a = ACC;
+  const open = !a || a.allowed;
+  $('gate').hidden = open;
+  document.body.style.overflow = open ? '' : 'hidden';
+  if (open) return;
+  const st = a.state, sg = (LU || {}).signin;
+  $('gateTitle').textContent = { checking: 'Checking your sign-in', blocked: 'Overlay access turned off', denied: 'No overlay access',
+    'offline-wait': "Can't reach the league site" }[st] || 'Sign in to use the overlay';
+  $('gateMsg').textContent = a.msg || '';
+  $('gateMsg').classList.toggle('bad', st === 'blocked' || st === 'denied');
+  $('gateSignIn').hidden = st !== 'signin' || !!sg;
+  $('gateOther').hidden = st !== 'denied' || !!sg;
+  $('gateRetry').hidden = !(st === 'offline-wait' || st === 'blocked' || st === 'denied');
+  $('gateCode').hidden = !sg;
   if (sg) {
-    const html = `Code <b style="font-size:16px;letter-spacing:2px">${esc(sg.code)}</b>: check it matches, then press <b>Allow</b> on the league site page that opened `
-      + `(<a href="${esc(sg.url)}" target="_blank" rel="noopener">open it again</a>). Waiting… ${Math.max(1, Math.ceil(sg.left / 60))} min left. `
-      + `<button data-cancel style="margin-left:6px">Cancel</button>`;
-    if ($('luCode')._html !== html) $('luCode').innerHTML = $('luCode')._html = html;
+    const html = `Code <b class="c">${esc(sg.code)}</b>Check it matches, then press <b>Allow</b> on the GLR HUB page that opened `
+      + `(<a href="${esc(sg.url)}" target="_blank" rel="noopener">open it again</a>). Waiting… ${Math.max(1, Math.ceil(sg.left / 60))} min left.`
+      + `<div style="margin-top:10px"><button data-cancel>Cancel</button></div>`;
+    if ($('gateCode')._html !== html) $('gateCode').innerHTML = $('gateCode')._html = html;
   }
-  let info = !connected ? 'Off. Sign in with Discord (or paste a key) to switch it on.' : !a.on ? 'Off. Races are not sent.' : (st.msg || 'On. Results go to the site when each race ends.');
-  if (on && st.last && st.state !== 'ok') info += ` · Last sent ${st.last}`;
-  if (on && st.waiting) info += ` · ${st.waiting} race${st.waiting === 1 ? '' : 's'} waiting`;
-  $('luStatus').textContent = info; $('luStatus').style.color = on && st.state === 'error' ? '#ff8da3' : '';
-  document.querySelectorAll('#luSeg button').forEach(b => b.classList.toggle('on', (b.dataset.v === 'on') === on));
-  $('luKey').placeholder = a.key ? 'Key saved (paste a new one to replace it)' : 'vsglr_…';
+  $('gateVer').textContent = APP && APP.version ? 'v' + APP.version : '';
+}
+function luRender() {
+  const st = LU || {}, a = ACC || {};
+  const who = st.user || '';
+  $('luWho').textContent = who ? 'Signed in as ' + who : 'Not signed in';
+  $('luSignOut').hidden = !who;
+  $('luAccess').textContent = a.state === 'offline' ? a.msg : '';
+  $('luAccess').style.color = a.state === 'offline' ? 'var(--yellow)' : '';
+  const label = { ok: 'SENT', ready: 'ON', waiting: 'WAITING', error: 'PROBLEM', off: 'OFF' }[st.state] || 'ON';
+  $('luPill').textContent = label; $('luPill').classList.toggle('air', st.state === 'ok' || st.state === 'ready');
+  let info = st.msg || 'Results go to the site when each league race ends.';
+  if (st.last && st.state !== 'ok') info += ` · Last sent ${st.last}`;
+  if (st.waiting) info += ` · ${st.waiting} race${st.waiting === 1 ? '' : 's'} waiting`;
+  $('luStatus').textContent = info; $('luStatus').style.color = st.state === 'error' ? '#ff8da3' : '';
+  $('luKeyRow').hidden = !st.key;
+  // on every tab: a league race whose results won't reach the site, and working offline
+  const league = !!(L && L.connected && L.leagueId);
+  let warn = '', soft = false;
+  if (league && (st.state === 'error' || st.state === 'off')) warn = "This league race's results won't go to GLR HUB. " + (st.msg || 'There is nothing to send them with.') + ' (Setup tab, League site)';
+  else if (a.state === 'offline') { warn = a.msg; soft = true; }
+  $('luWarn').hidden = !warn; $('luWarn').textContent = warn; $('luWarn').classList.toggle('soft', soft);
 }
 
 /* ---------- Getting started checklist (Prerace tab) ---------- */
@@ -2129,7 +2179,8 @@ function connect() {
   es.onmessage = e => { const d = JSON.parse(e.data);
     const v = d.app && d.app.version;          // the program was updated: load the new page
     if (v) { if (window.__pageVer == null) window.__pageVer = v; else if (v !== window.__pageVer) return location.reload(); }
-    seriesUpdate(d.series); AN = d.announcer || AN; LU = d.leagueUpload || LU; S = d.settings; PR = d.pitrace || PR; L = d.live; SD = d.standings; APP = d.app || APP; PEN = d.penalties || PEN; render(); if (SOLO && d.incidentsVer !== INC.ver) incFetch(); };
+    LU = d.leagueUpload || LU; ACC = d.access || ACC; APP = d.app || APP; gateRender();
+    seriesUpdate(d.series); AN = d.announcer || AN; S = d.settings; PR = d.pitrace || PR; L = d.live; SD = d.standings; APP = d.app || APP; PEN = d.penalties || PEN; render(); if (SOLO && d.incidentsVer !== INC.ver) incFetch(); };
   es.onerror = () => { es.close(); $('conn').textContent = 'Server offline'; $('dot').className = 'dot'; setTimeout(connect, 2000); };
 }
 connect();

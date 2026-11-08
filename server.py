@@ -41,6 +41,7 @@ import profiles
 import raceresults
 import announcer
 import leagueupload
+import access     # producers sign in to use the overlay (Nov 2026)
 import racecontrol
 import rcsite
 import rcfeed     # race control's calls for the penalty box, read from the league site
@@ -196,7 +197,7 @@ class State:
         return json.dumps({"settings": self.public_settings(), "live": self.live, "standings": standings.summary(), "app": APP,
                            "penalties": dict(penalty_view(), hide=PEN["hide"], reasons=PEN_REASONS, now=time.time()),
                            "incidentsVer": incidents.STATE["ver"], "pitrace": pitrace.snapshot(), "series": profiles.summary(),
-                           "announcer": announcer.status(), "leagueUpload": leagueupload.status(),
+                           "announcer": announcer.status(), "leagueUpload": leagueupload.status(), "access": access.status(),
                            **({"raceControl": racecontrol.version()} if RC["on"] else {})})
 
     def defaults(self):
@@ -1676,20 +1677,20 @@ def penalty_command(data):
 
 
 def league_upload_signed_in(user):
-    """A producer pressed Allow on the league site: switch the upload on (like pasting a key) and tell the pages."""
-    STATE.update_settings({"leagueUpload": {"on": True}})
-    leagueupload.configure({"on": True, "key": leagueupload.stored_key()})
-    diag.log("League site upload: signed in as %s, upload on" % ((user or {}).get("name") or "a producer"))
+    """A producer pressed Allow on the league site: ask the site what they may do (access.py) and tell the pages."""
+    leagueupload.configure({"key": leagueupload.stored_key()})
+    diag.log("League site: signed in as %s" % ((user or {}).get("name") or "a producer"))
+    if access.ENABLED["on"]:
+        access.check_soon()
+    STATE.notify()
 
 
 def league_upload_command(d):
-    """League site upload, from the control panel's Setup tab: signin / signincancel / signout / key / on / off / test.
-    The key and the sign-in are kept in their own file (leagueupload.KEY_FILE), never in settings.json."""
+    """The league site sign-in, from the control panel (the sign-in screen and the Setup tab):
+    signin / signincancel / signout / removekey / check. Since Nov 8, 2026 the upload is always on and keys can't be
+    pasted any more (a key saved before keeps sending results). The sign-in and key are kept in their own file
+    (leagueupload.KEY_FILE), never in settings.json."""
     cmd = str(d.get("cmd") or "")
-    with STATE.lock:
-        cur = dict(leagueupload.DEFAULTS, on=bool((STATE.settings.get("leagueUpload") or {}).get("on")))
-    cur["key"] = leagueupload.stored_key()
-    connected = bool(cur["key"] or leagueupload.signed_in())
     if cmd == "signin":              # Sign in with Discord: a code, Allow on the site; the page opens the site's page
         ok, msg, extra = leagueupload.sign_in()
         STATE.notify()
@@ -1698,39 +1699,32 @@ def league_upload_command(d):
         leagueupload.cancel_sign_in()
         STATE.notify()
         return {"ok": True, "msg": ""}
-    if cmd == "signout":
+    if cmd == "signout":             # the overlay goes back to the sign-in screen (the producer was warned first)
         ok, msg = leagueupload.sign_out()
-        if ok and not cur["key"]:    # nothing left to send with: off, until the next sign-in or key
-            STATE.update_settings({"leagueUpload": {"on": False}})
-        leagueupload.configure({"on": cur["on"] and bool(cur["key"]), "key": cur["key"]})
+        leagueupload.configure({"key": leagueupload.stored_key()})
+        if access.ENABLED["on"]:
+            access.check()
         STATE.notify()
         return {"ok": ok, "msg": msg}
-    if cmd == "key":
-        key = str(d.get("key") or "").strip()
-        if key and not re.match(r"^vsglr_[0-9a-f]{48}$", key):
-            return False, "That isn't an overlay key. It starts with vsglr_ (from the league site's Keys page)."
-        if key:
-            ok, msg = leagueupload.check(key)
-            if not ok:
-                return False, msg
-        leagueupload.save_key(key)
-        on = bool(key) or (cur["on"] and bool(leagueupload.signed_in()))   # pasting a good key switches it on
-        STATE.update_settings({"leagueUpload": {"on": on}})
-        leagueupload.configure({"on": on, "key": key})
-        diag.log("League site upload: key %s" % ("saved" if key else "removed"))
-        return True, "Key saved: results go to the league site after each race" if key else "Key removed"
-    if cmd in ("on", "off"):
-        if cmd == "on" and not connected:
-            return False, "Sign in with Discord or paste a key from the league site first"
-        STATE.update_settings({"leagueUpload": {"on": cmd == "on"}})
-        leagueupload.configure(dict(cur, on=cmd == "on"))
-        diag.log("League site upload: %s" % cmd)
+    if cmd == "removekey":
+        leagueupload.save_key("")
+        leagueupload.configure({"key": ""})
+        diag.log("League site upload: key removed")
+        return True, "Key removed"
+    if cmd == "check":               # Try again, on the sign-in screen: never once the overlay is open (mid-race)
+        if access.ENABLED["on"] and not access.allowed():
+            access.check_soon()
         return True, ""
-    if cmd == "test":
-        if not connected:
-            return False, "Sign in with Discord or paste a key from the league site first"
-        return leagueupload.check()
     return False, "Unknown command"
+
+
+# the broadcast pages while nobody may use the overlay: blank (transparent in OBS/vMix), and they look again every
+# 5 seconds, so they come up by themselves once a producer signs in
+BLANK_PAGE = (b"<!doctype html><html><head><meta charset='utf-8'><title>VSPEED</title>"
+              b"<style>html,body{background:transparent;margin:0}</style></head><body>"
+              b"<script>setTimeout(function(){location.reload()},5000)</script></body></html>")
+# what still works before signing in: the sign-in itself, page errors and diagnostics
+OPEN_POSTS = {"/api/leagueupload", "/api/clientlog", "/api/diagnostics"}
 
 
 def announcer_command(d):
@@ -2102,7 +2096,10 @@ class Handler(BaseHTTPRequestHandler):
         if path == "/racecontrol" or (path == "/" and RC["on"]):
             return self.send_file(os.path.join(STATIC, "racecontrol.html"))
         if path in ("/", "/control", "/timing"):
-            return self.send_file(os.path.join(STATIC, "control.html"))
+            return self.send_file(os.path.join(STATIC, "control.html"))      # shows the sign-in screen until allowed
+        if path in ("/overlay", "/standings", "/graphic", "/analysis", "/team", "/standings-graphic.html") \
+                and not access.allowed():
+            return self.send_bytes(BLANK_PAGE, "text/html; charset=utf-8")
         if path == "/overlay":
             return self.send_file(os.path.join(STATIC, "overlay.html"))
         # Standings graphic (same page and URLs as the old Standings Control program)
@@ -2222,6 +2219,10 @@ class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlparse(self.path).path
         length = int(self.headers.get("Content-Length") or 0)
+        if not access.allowed() and path not in OPEN_POSTS:
+            if length:
+                self.rfile.read(length)
+            return self.send_json({"ok": False, "msg": "Sign in with Discord first", "error": "Sign in with Discord first"}, 403)
         if path == "/api/sponsor/upload":
             return self.send_json(sponsor_upload(parse_qs(urlparse(self.path).query), self.headers, self.rfile, length))
         if path == "/api/logo/upload":
@@ -3101,12 +3102,13 @@ def main():
         rcsite.start(diag.log)            # signing in to the league site and sending the calls there (phase 5c)
         leagueupload.TOKEN_SOURCE = rcsite.token     # official results go with the sign-in too, if there's no overlay key
     else:
+        access.start(STATE.notify)        # producers sign in to use the overlay: asks the site once, at start-up
         announcer.start(STATE, on_air_now, diag.log)    # the announcer page feed (does nothing until it's set up)
     try:                                   # a key saved before Nov 2026 moves out of settings.json into its own file
         leagueupload.move_key_out_of_settings(STATE, diag.log)
     except Exception as e:
         diag.error("League site upload: couldn't move the key out of settings.json: %r" % (e,), e)
-    # league site upload (does nothing until it's switched on); a Discord sign-in switches it on (league_upload_signed_in)
+    # league site upload: always on, with this PC's sign-in (or a key saved before Nov 8, 2026, or race control's)
     leagueupload.start(STATE.settings.get("leagueUpload"), diag.log, on_signed_in=league_upload_signed_in)
     rcfeed.start(rc_feed_changed, diag.log)    # race control's calls for the penalty box (league races, with an overlay key)
     threading.Thread(target=telemetry_loop, args=(args.demo, args.multiclass, args.qual), daemon=True).start()

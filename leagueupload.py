@@ -1,11 +1,15 @@
 """League site upload: sends each race's results to the league site (GLR HUB, glrhub.app) when it ends.
 
-Off until the producer connects the overlay in the control panel (Setup > League site upload), either way:
-  - Sign in with Discord (Nov 2026, glr/OVERLAY-SIGNIN.md): a code, Allow on the site with a Producer's Discord
-    account, and the site hands this PC a token (vsov_...) tied to that person. No admin and no pasting needed.
-  - An overlay key (vsglr_...) made by an admin on the site's Keys page and pasted in, as before.
-Both are kept in data/league-site-key.json, never in settings.json, logs or diagnostics. When both are there the
-sign-in is used; if the site has forgotten it (signed out, turned off on the Keys page), the key takes over.
+Always on (Nov 8, 2026: there's no on/off switch any more). It sends with, in this order:
+  - This PC's sign-in with Discord (glr/OVERLAY-SIGNIN.md): a code, Allow on the site with a Producer's Discord
+    account, and the site hands this PC a token (vsov_...) tied to that person. Since Nov 8, 2026 the overlay needs
+    this sign-in to run at all (access.py), so every overlay in use sends its league races. It's used for results
+    unless the site's answer at start-up left out "upload".
+  - An overlay key (vsglr_...) saved before Nov 8, 2026, when keys were pasted on the Setup tab. Keys saved then keep
+    working for results, as a fallback; new ones can't be pasted any more, and a key doesn't open the overlay.
+  - Race control's steward sign-in, in race control mode (TOKEN_SOURCE).
+The sign-in and key are kept in data/league-site-key.json, never in settings.json, logs or diagnostics. If the site
+has forgotten the sign-in (signed out, turned off on the Keys page), the key takes over.
 Results go when iRacing has them a minute after the checkered, and again when iRacing makes them official; the site
 files them as Provisional until the iRacing results file is uploaded there.
 
@@ -34,24 +38,26 @@ RETRY = 60                     # seconds between tries while something is waitin
 TRY_AGAIN = (408, 425, 429)   # turned down for now (timeout, too many requests): try again, like a site problem
 LOCK = threading.Lock()
 _wake = threading.Event()
-_cfg = {"on": False, "key": "", "token": ""}     # token: this PC's Discord sign-in (vsov_...), from the key file
+_cfg = {"key": "", "token": ""}  # token: this PC's Discord sign-in (vsov_...), from the key file
+UPLOAD = {"allowed": True}     # access.py: False when the site's start-up answer left out "upload"
 _START = {}                    # queued file -> the race time of its first copy (the file is gone once it's sent)
 _log = print
 STATUS = {"state": "off", "msg": "", "last": ""}
-DEFAULTS = {"on": False, "key": ""}
 # race control (start-race-control.bat) sets this to its sign-in token: a steward signed in to the site sends the
-# official results with it, so a race nobody broadcasts needs no overlay key (plan doc, phase 5c). The overlay key,
-# when there is one and the upload is on, is used first.
+# official results with it, so a race nobody broadcasts needs no overlay key (plan doc, phase 5c). This PC's own
+# sign-in or key, when there is one, is used first.
 TOKEN_SOURCE = None
 
 
 def _key():
-    """-> what to send as "Authorization: Bearer ...": this PC's sign-in, else its overlay key, else race control's
-    sign-in; "" when the upload is off and race control isn't signed in."""
+    """-> what to send as "Authorization: Bearer ...": this PC's sign-in (when it may send results), else its overlay
+    key, else race control's sign-in; "" when there's none of them."""
     with LOCK:
-        on, key, token = _cfg["on"], _cfg["key"], _cfg["token"]
-    if on and (token or key):
-        return token or key
+        key, token = _cfg["key"], _cfg["token"]
+    if token and UPLOAD["allowed"]:
+        return token
+    if key:
+        return key
     try:
         return (TOKEN_SOURCE() or "") if TOKEN_SOURCE else ""
     except Exception:
@@ -63,7 +69,8 @@ def _key():
 # same way. Only this module reads or writes it; the pages only ever learn whether a key is saved and who is signed in.
 KEY_FILE = os.path.join(datafiles.DATA, "league-site-key.json")
 # the key file once read (None = not read yet), so pages asking 5 times a second don't read the disk:
-# {"key", "token", "user": {"id", "name"} or None, "pc"}
+# {"key", "token", "user": {"id", "name"} or None, "pc", "access"}. access: the site's last good answer at start-up
+# ({"user", "perms", "at"}), which lets the overlay work offline for 5 days (access.py)
 _stored = {"key": None}
 
 
@@ -73,16 +80,30 @@ def _creds():
         d = d if isinstance(d, dict) else {}
         u = d.get("user") if isinstance(d.get("user"), dict) else None
         _stored.update(key=str(d.get("key") or "").strip(), token=str(d.get("token") or "").strip(),
-                       user={"id": str(u.get("id", "")), "name": str(u.get("name", ""))} if u else None, pc=str(d.get("pc") or ""))
+                       user={"id": str(u.get("id", "")), "name": str(u.get("name", ""))} if u else None, pc=str(d.get("pc") or ""),
+                       access=_access_from(d.get("access")))
     return _stored
+
+
+def _access_from(a):
+    if not isinstance(a, dict):
+        return None
+    u = a.get("user") if isinstance(a.get("user"), dict) else {}
+    try:
+        at = float(a.get("at") or 0)
+    except (TypeError, ValueError):
+        return None
+    return {"user": {"id": str(u.get("id", "")), "name": str(u.get("name", ""))},
+            "perms": [str(p) for p in (a.get("perms") or []) if isinstance(p, str)], "at": at}
 
 
 def _save_creds():
     c = _creds()
     if c["key"] or c["token"]:
         datafiles.write_json(KEY_FILE, {"key": c["key"], "token": c["token"], "user": c["user"], "pc": c["pc"],
+                                        "access": c["access"],
                                         "note": "The league site key and sign-in for this PC. Keep it private: don't share "
-                                                "this file. Sign out or remove the key on the Setup tab."}, indent=1)
+                                                "this file. Sign out on the Setup tab."}, indent=1)
     else:
         try:
             os.remove(KEY_FILE)
@@ -107,18 +128,46 @@ def signed_in():
     return dict(c["user"] or {"id": "", "name": ""}) if c["token"] else None
 
 
-def _forget_token():
+def token():
+    """This PC's sign-in token (vsov_...), or "". For access.py only: never shown or logged."""
+    return _creds()["token"]
+
+
+def access_record():
+    """The site's last good answer at start-up ({"user", "perms", "at"}), or None."""
+    a = _creds()["access"]
+    return dict(a, perms=list(a["perms"])) if a else None
+
+
+def save_access(rec):
+    """Keep (or, with None, forget) the site's last good answer, beside the sign-in."""
     c = _creds()
-    c["token"], c["user"] = "", None
+    rec = _access_from(rec)
+    if rec != c["access"]:
+        c["access"] = rec
+        _save_creds()
+
+
+def set_upload_allowed(ok):
+    UPLOAD["allowed"] = bool(ok)
+    _wake.set()
+
+
+def forget_token():
+    c = _creds()
+    c["token"], c["user"], c["access"] = "", None, None
     _save_creds()
     with LOCK:
         _cfg["token"] = ""
 
 
+_forget_token = forget_token
+
+
 # ---------------------------------------------------------------- Sign in with Discord (glr/OVERLAY-SIGNIN.md)
 SIGNIN = {"link": None}        # the sign-in under way: {"code", "url", "poll", "until"}, or None
 POLL_EVERY = 2.0
-ON_SIGNED_IN = None            # server.py: switch the upload on and tell the pages, once a producer has pressed Allow
+ON_SIGNED_IN = None            # server.py: check the overlay access and tell the pages, once a producer has pressed Allow
 
 
 def _pc_name():
@@ -165,7 +214,7 @@ def _poll_sign_in(link):
             c = _creds()
             with LOCK:                               # in use first, then saved and shown as signed in
                 _cfg["token"] = str(j["token"])
-            c["user"], c["token"] = dict(user), str(j["token"])
+            c["user"], c["token"], c["access"] = dict(user), str(j["token"]), None
             _save_creds()
             SIGNIN["link"] = None
             _set("ready", "Signed in as %s" % (user["name"] or "a producer"))
@@ -233,16 +282,15 @@ def move_key_out_of_settings(state, log=print):
 
 
 def configure(cfg):
-    """On/off (settings.json "leagueUpload") and the key (the key file). The sign-in comes from the key file unless
-    cfg says otherwise ("token")."""
+    """The key (the key file). The sign-in comes from the key file unless cfg says otherwise ("token"). An "on" in
+    cfg (settings.json "leagueUpload", before Nov 8, 2026) is ignored: the upload is always on."""
     cfg = cfg or {}
-    token = str(cfg["token"] if "token" in cfg else _creds()["token"] or "").strip()
+    tok = str(cfg["token"] if "token" in cfg else _creds()["token"] or "").strip()
     with LOCK:
-        changed = (_cfg["on"], _cfg["key"], _cfg["token"]) != (bool(cfg.get("on")), str(cfg.get("key") or "").strip(), token)
-        _cfg["on"] = bool(cfg.get("on"))
+        changed = (_cfg["key"], _cfg["token"]) != (str(cfg.get("key") or "").strip(), tok)
         _cfg["key"] = str(cfg.get("key") or "").strip()
-        _cfg["token"] = token
-    if changed:                              # a new key or switch: start the status over
+        _cfg["token"] = tok
+    if changed:                              # a new key or sign-in: start the status over
         STATUS["state"], STATUS["msg"] = "ready", ""
     _wake.set()
 
@@ -290,7 +338,7 @@ def build(live, sess, info, official):
 
 
 def queue(live, sess, info, sess_num, official):
-    """Called when the overlay saves a race's results. Queues them for the site if the upload is on."""
+    """Called when the overlay saves a race's results. Queues them for the site if there's anything to send with."""
     if not _key():
         return
     if not info.get("leagueId") or not info.get("subId"):
@@ -337,7 +385,7 @@ def check(key=None):
     c = _creds()
     key = key if key is not None else (c["token"] or c["key"])
     if not key:
-        return False, "Sign in with Discord or paste a key from the league site first"
+        return False, "Sign in with Discord first"
     try:
         code, j = _request("/api/overlay/check", key)
     except Exception as e:
@@ -361,16 +409,21 @@ def _set(state, msg):
     STATUS["state"], STATUS["msg"] = state, msg
 
 
+NO_UPLOAD = "Your Discord account can use the overlay but not send results. Ask a GLR HUB admin."
+
+
 def _send_all():
-    with LOCK:
-        on = _cfg["on"]
     key = _key()
     if not key:
-        return _set("off", "") if not on else _set("setup", "Sign in with Discord or paste a key from the league site")
+        with LOCK:
+            tok = _cfg["token"]
+        if tok and not UPLOAD["allowed"]:
+            return _set("error", NO_UPLOAD)
+        return _set("off", "Sign in with Discord to send results")
     files = pending()
     if not files:
         if STATUS["state"] not in ("ok", "error"):     # keep the last result or problem on show
-            _set("ready", "On. Results go to the site when each race ends.")
+            _set("ready", "Results go to the site when each league race ends.")
         return
     for name in files:
         path = os.path.join(DIR, name)
@@ -462,12 +515,12 @@ def _loop():
 
 
 def start(cfg, log=print, on_signed_in=None):
-    """cfg: settings.json's "leagueUpload" (on/off); the key and sign-in come from the key file.
-    on_signed_in(user): called once a producer presses Allow (server.py switches the upload on)."""
+    """cfg: settings.json's "leagueUpload" (not used since Nov 8, 2026: always on); the key and sign-in come from
+    the key file. on_signed_in(user): called once a producer presses Allow (server.py checks the overlay access)."""
     global _log, ON_SIGNED_IN
     _log = log
     ON_SIGNED_IN = on_signed_in
-    configure({"on": bool((cfg or {}).get("on")), "key": stored_key()})
+    configure({"key": stored_key()})
     threading.Thread(target=_loop, daemon=True).start()
 
 
@@ -476,5 +529,5 @@ def status():
     link = SIGNIN["link"]
     who = signed_in()
     return {"state": STATUS["state"], "msg": STATUS["msg"], "last": STATUS["last"], "waiting": len(pending()),
-            "user": who["name"] if who else "", "site": SITE,
+            "user": who["name"] if who else "", "site": SITE, "key": bool(stored_key()), "uploadAllowed": UPLOAD["allowed"],
             "signin": {"code": link["code"], "url": link["url"], "left": max(0, round(link["until"] - time.time()))} if link else None}

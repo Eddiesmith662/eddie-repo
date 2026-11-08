@@ -58,27 +58,24 @@ class KeyFile(unittest.TestCase):
         self.assertEqual(shown["leagueUpload"], {"on": True, "key": "saved"})
         self.assertNotIn(KEY, json.dumps(shown))
 
-    def test_pasting_a_key_saves_it_in_its_own_file(self):
-        real_check, real_state = lu.check, server.STATE
-        lu.check = lambda key: (True, "Key works (Test)")
+    def test_a_saved_key_sends_results_with_no_switch_and_can_be_removed(self):
+        # Nov 8, 2026: the upload is always on, and keys can't be pasted any more; a key saved before keeps working
+        real_state = server.STATE
         server.STATE = self.st
         try:
-            ok, msg = server.league_upload_command({"cmd": "key", "key": KEY})
-            self.assertTrue(ok, msg)
-            self.assertEqual(read(lu.KEY_FILE)["key"], KEY)
-            self.assertNotIn(KEY, open(datafiles.SETTINGS_FILE, encoding="utf-8").read())
-            self.assertTrue(self.st.settings["leagueUpload"]["on"])
-            self.assertEqual(lu._key(), KEY)                                   # and the upload uses it
-            ok, _ = server.league_upload_command({"cmd": "off"})
-            self.assertEqual(lu._key(), "")
-            ok, _ = server.league_upload_command({"cmd": "on"})
-            self.assertTrue(ok)
+            self.st.update_settings({"leagueUpload": {"on": False}})          # an old "off" in settings.json is ignored
+            lu.save_key(KEY)
+            lu.configure({"on": False, "key": KEY})
             self.assertEqual(lu._key(), KEY)
-            ok, _ = server.league_upload_command({"cmd": "key", "key": ""})   # removed
+            self.assertEqual(server.league_upload_command({"cmd": "key", "key": KEY}), (False, "Unknown command"))
+            self.assertEqual(server.league_upload_command({"cmd": "off"}), (False, "Unknown command"))
+            self.assertEqual(lu._key(), KEY)
+            ok, _ = server.league_upload_command({"cmd": "removekey"})
+            self.assertTrue(ok)
             self.assertFalse(os.path.exists(lu.KEY_FILE))
-            self.assertFalse(self.st.settings["leagueUpload"]["on"])
+            self.assertEqual(lu._key(), "")
         finally:
-            lu.check, server.STATE = real_check, real_state
+            server.STATE = real_state
 
     def test_start_reads_the_key_file(self):
         lu.save_key(KEY)

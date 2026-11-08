@@ -180,19 +180,23 @@ Each file has position, car number, driver, start, laps, laps led, gap, fastest 
 (Running, or why they're out). A first copy is saved a minute after the checkered flag and replaced when iRacing makes
 the results official. It goes into the folder of the series picked when the race ends.
 
-### Sending results to the league site
+### Signing in, and sending results to the league site
 
-The overlay can also send each league race's results to the league site (GLR HUB, glrhub.app) when the race ends.
-It's off until you connect it, in the control panel under **Setup > League site upload**:
+The overlay needs a producer signed in to the league site (GLR HUB, glrhub.app) with Discord (since v1.5.45). Until
+then the control panel shows only a sign-in screen and the broadcast pages stay blank:
 
-- **Sign in with Discord** (the usual way): press it, check the code matches on the page that opens, and press
-  **Allow** there with your Discord account. It needs the **Producer** role on the league site (an admin gives it).
-  The overlay picks up the sign-in by itself and switches the upload on. **Sign out** ends it, here and on the site.
-- **Or an overlay key**: a site admin makes one on the site's **Keys** page and sends it to you; paste it and press
-  **Save**.
+- **Sign in with Discord**: press it, check the code matches on the page that opens, and press **Allow** there with
+  your Discord account. It needs the **Producer** role in the league's Discord (an admin gives it). The overlay picks up
+  the sign-in by itself and opens. A PC signed in before (for sending results) is already signed in.
+- The overlay checks with the site **once, at start-up**, never during a race. If the site can't be reached, it keeps
+  working on its last good check for **5 days**; after that it asks for the internet once.
+- Taking the Producer role away, or an admin pressing **Block** on the site's Accounts page, stops the overlay at its
+  next start-up. **Sign out** (Setup tab, League site) closes it on this PC until someone signs in again.
 
-**Test** checks the connection any time. If the site stops accepting the sign-in (signed out on the site, or the
-Producer role taken away), the panel says so and races wait on this PC until you sign in again.
+The same sign-in sends each league race's results to the site, by itself: there's no switch. An overlay key pasted
+before v1.5.45 keeps sending results if the sign-in stops working, but keys can't be pasted any more and don't open
+the overlay. The Setup tab shows who is signed in and the last results sent; a bar at the top of every tab says when a
+league race's results won't reach the site.
 
 Results go a minute after the checkered and again when iRacing makes them official. On the site they show as
 **Provisional** until a league official uploads the iRacing results file, which replaces them. Only league races are

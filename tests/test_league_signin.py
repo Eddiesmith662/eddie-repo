@@ -3,6 +3,7 @@
 import json
 import os
 import shutil
+import threading
 import time
 import unittest
 
@@ -75,16 +76,17 @@ class SignIn(unittest.TestCase):
         r = server.league_upload_command({"cmd": "signin"})
         self.assertEqual((r["ok"], r["code"]), (True, "ABCD-EFGH"))
         self.site.allowed = True
-        # signed in, and the upload switched on (both happen on the background sign-in thread)
-        self.assertTrue(wait(lambda: lu.signed_in() is not None and server.STATE.settings.get("leagueUpload", {}).get("on")))
+        # signed in (on the background sign-in thread, which saves the key file and then ends); results go with it
+        # straight away, there's no switch
+        self.assertTrue(wait(lambda: lu.signed_in() is not None and lu._key() == TOKEN and not any(
+            t.name == "league-signin" and t.is_alive() for t in threading.enumerate())))
         return r
 
-    def test_sign_in_switches_the_upload_on_and_keeps_the_token_private(self):
+    def test_sign_in_sends_results_and_keeps_the_token_private(self):
         self.assertEqual(self.site.calls[0][1] if self.site.calls else "", "")
         self.sign_in()
         self.assertEqual(self.site.calls[0], ("/api/overlay/link", ""))          # asking for a code sends no key
         self.assertEqual(lu.signed_in()["name"], "Producer Pat")
-        self.assertTrue(server.STATE.settings["leagueUpload"]["on"])
         self.assertEqual(lu._key(), TOKEN)
         with open(lu.KEY_FILE, encoding="utf-8") as f:
             self.assertEqual(json.load(f)["token"], TOKEN)
@@ -150,7 +152,7 @@ class SignIn(unittest.TestCase):
         self.assertTrue(r["ok"] and self.site.signed_out)
         self.assertIsNone(lu.signed_in())
         self.assertFalse(os.path.exists(lu.KEY_FILE))                            # nothing left in it
-        self.assertFalse(server.STATE.settings["leagueUpload"]["on"])            # no key either: off
+        self.assertEqual(lu._key(), "")                                           # no key either: nothing to send with
 
     def test_sign_out_with_the_site_unreachable(self):
         self.sign_in()
