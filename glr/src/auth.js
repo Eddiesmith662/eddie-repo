@@ -69,17 +69,35 @@ export const cookies = req => Object.fromEntries((req.headers.get("cookie") || "
 const setCookie = (name, value, maxAge) => `${name}=${value}; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=${maxAge}`;
 const redirect = (to, headers = []) => { const h = new Headers({ location: to, "cache-control": "no-store" }); for (const c of headers) h.append("set-cookie", c); return new Response(null, { status: 302, headers: h }); };
 
+// Every call to Discord gets 5 seconds to answer. Nov 8 2026: signed-in pages on glrhub.app hung until the browser
+// gave up (Cloudflare log: canceled after 5.4 s, 0 ms CPU) while the site waited on Discord's role check.
+export const discordTiming = { ms: 5000 };     // tests shorten it
+async function discordFetch(what, url, init = {}) {
+  const t = Date.now();
+  try {
+    const r = await fetch(url, { ...init, signal: AbortSignal.timeout(discordTiming.ms) });
+    const ms = Date.now() - t;
+    if (!r.ok || ms > 2000) console.warn(`discord: ${what} answered ${r.status} in ${ms} ms`);
+    return r;
+  } catch (e) {
+    console.warn(`discord: ${what} got no answer after ${Date.now() - t} ms (${e.name}: ${e.message})`);
+    throw Object.assign(new Error("Discord didn't answer"), { transient: true });
+  }
+}
+// a refresh or sign-in code Discord turned down (400/401: the person disconnected the app, or the code is used up)
+// is final; anything else (busy, down, slow) is Discord's problem, not the person's
 async function discordToken(env, url, body) {
-  const r = await fetch(`${API}/oauth2/token`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+  const r = await discordFetch("token", `${API}/oauth2/token`, { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({ client_id: env.DISCORD_CLIENT_ID, client_secret: env.DISCORD_CLIENT_SECRET, redirect_uri: redirectUri(url), ...body }) });
-  if (!r.ok) throw new Error("discord token " + r.status);
+  if (!r.ok) throw Object.assign(new Error("discord token " + r.status), { transient: r.status !== 400 && r.status !== 401 });
   return r.json();
 }
-const discordGet = (path, token) => fetch(API + path, { headers: { authorization: `Bearer ${token}` } });
+const discordGet = (path, token) => discordFetch(path.includes("/member") ? "member roles" : "user", API + path, { headers: { authorization: `Bearer ${token}` } });
 
 // the member's roles in the league server: null = not in the server, false = Discord couldn't be asked
 async function memberRoles(env, token) {
-  const r = await discordGet(`/users/@me/guilds/${env.DISCORD_GUILD_ID}/member`, token);
+  let r;
+  try { r = await discordGet(`/users/@me/guilds/${env.DISCORD_GUILD_ID}/member`, token); } catch (e) { return false; }
   if (r.status === 404 || r.status === 403) return null;
   if (!r.ok) return false;
   const m = await r.json();
@@ -100,8 +118,13 @@ export async function callback(request, env, url) {
   const [state, back] = (cookies(request)[STATE] || "").split("|");
   if (url.searchParams.get("error")) return { error: "Sign-in was cancelled." };
   if (!state || state !== url.searchParams.get("state")) return { error: "That sign-in link expired. Try again." };
-  const tok = await discordToken(env, url, { grant_type: "authorization_code", code: url.searchParams.get("code") || "" });
-  const user = await (await discordGet("/users/@me", tok.access_token)).json();
+  let tok, user;
+  try {
+    tok = await discordToken(env, url, { grant_type: "authorization_code", code: url.searchParams.get("code") || "" });
+    user = await (await discordGet("/users/@me", tok.access_token)).json();
+  } catch (e) {
+    return { error: e.transient ? "Discord didn't answer. Try again in a minute." : "Discord didn't accept that sign-in. Try again." };
+  }
   const name = user.global_name || user.username || "";
   const mem = await memberRoles(env, tok.access_token);
   if (mem === false) return { error: "Discord didn't answer. Try again in a minute.", name };
@@ -181,11 +204,17 @@ async function userFor(request, env, token, kind, fresh = false) {
       }
       if (mem) await env.DB.prepare(`UPDATE sessions SET checked = ?, roles = ?, name = COALESCE(NULLIF(?, ''), name) WHERE discord_id = ?`)
         .bind(now, JSON.stringify(roles), mem.nick, s.discord_id).run();
-      // mem === false: Discord is down; keep the session and ask again next time
+      // mem === false: Discord is busy, down or slow: keep the last roles, and ask again in a minute (not on every page)
+      if (mem === false) await env.DB.prepare(`UPDATE sessions SET checked = ? WHERE discord_id = ?`).bind(now - RECHECK_MS + 60000, s.discord_id).run();
     } catch (e) {
-      // refresh refused (the person disconnected the app in Discord): sign them out
-      await env.DB.prepare(`DELETE FROM sessions WHERE token_hash = ?`).bind(h).run();
-      return null;
+      if (e.transient) {           // Discord busy or slow while refreshing: same as above, never a reason to sign out
+        await env.DB.prepare(`UPDATE sessions SET checked = ? WHERE discord_id = ?`).bind(now - RECHECK_MS + 60000, s.discord_id).run();
+      } else {
+        // refresh refused (the person disconnected the app in Discord): sign them out
+        console.warn(`discord: sign-in refresh refused (${e.message}); signing out`);
+        await env.DB.prepare(`DELETE FROM sessions WHERE token_hash = ?`).bind(h).run();
+        return null;
+      }
     }
   }
   return describe(env, { id: s.discord_id, name: s.name, avatar: s.avatar, roles });
