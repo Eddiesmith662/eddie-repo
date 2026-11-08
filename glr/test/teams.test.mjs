@@ -164,7 +164,7 @@ test("the Director tab: what needs attention and where everything is, for the se
   await s.addRace({ sub: 9002, date: week(1) });
   let p = await s.page("/test-cup/director");
   assert.match(p.html, /href="\/test-cup\/director">Director</);
-  assert.match(text(p.html), /Nothing waiting: every race is official/);
+  assert.match(text(p.html), /Nothing waiting: every scheduled race has results/);
   assert.match(text(p.html), /Manage the series Upload results .* Schedule .* Rules .* Discord posts .* Embed on a website .* History/);
   assert.doesNotMatch(text(p.html), /Teams upload the team list/);                // only with team points on
   await s.DB.prepare(`UPDATE events SET status = 'provisional' WHERE subsession_id = 9002`).run();

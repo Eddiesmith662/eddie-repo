@@ -111,3 +111,55 @@ test("overlay keys keep working as before", async () => {
   assert.equal((await call(s, key, "POST", "/api/overlay/results", results(2002))).status, 200);
   assert.equal((await call(s, key, "GET", "/api/overlay/calls/1000")).status, 200);
 });
+
+// Overlay permissions and the admin's Block switch (Nov 2026). The overlay reads "perms" once at start-up.
+const ADMIN = { id: "1", roles: [ADMIN_ROLE], nick: "Test Admin" };
+const block = async (s, id, on = true) => { await s.signIn(ADMIN); return s.post("/accounts", { action: on ? "block" : "unblock", id }); };
+
+test("check gives a signed-in overlay its permissions; an overlay key gets none", async () => {
+  const s = await setup();
+  const { token } = await signIn(s);
+  assert.deepEqual((await call(s, token, "GET", "/api/overlay/check")).body.perms, ["overlay", "upload"]);
+  const admin = await signIn(s, ADMIN, "ovpc02");
+  assert.deepEqual((await call(s, admin.token, "GET", "/api/overlay/check")).body.perms, ["overlay", "upload"]);
+});
+
+test("check reads Discord roles fresh at start-up: a removed role counts straight away, not 15 minutes later", async () => {
+  const s = await setup();
+  const { token } = await signIn(s);
+  s.who = { ...producer, roles: [] };
+  assert.equal((await call(s, token, "GET", "/api/overlay/check")).status, 403);
+  s.who = producer;
+  assert.equal((await call(s, token, "GET", "/api/overlay/check")).status, 200);
+});
+
+test("a blocked producer gets 403 with text the overlay shows as it is, can't allow a new PC, and unblocking restores them", async () => {
+  const s = await setup();
+  const { token } = await signIn(s);
+  const r = await block(s, "80");
+  assert.match(text(r.html), /Producer Pat is blocked from the overlay/);
+  const accounts = text((await s.page("/accounts")).html);
+  assert.match(accounts, /Blocked \S+ .*by Test Admin.*Unblock/);
+  assert.match(text((await s.page("/history")).html), /Admin blocked Producer Pat from the broadcast overlay/);
+  for (const [m, p, b] of [["GET", "/api/overlay/check"], ["POST", "/api/overlay/results", results(2003)], ["GET", "/api/overlay/calls/1000"]]) {
+    const res = await call(s, token, m, p, b);
+    assert.equal(res.status, 403, p);
+    assert.equal(res.body.error, "Your overlay access was turned off by a GLR HUB admin. Ask an admin to turn it back on.");
+    assert.equal(res.body.blocked, true);
+  }
+  const again = await signIn(s, producer, "ovpc03");                     // the block wins over the Producer role
+  assert.equal(again.token, undefined);
+  assert.match(again.page, /turned off by a GLR HUB admin/);
+  await block(s, "80", false);
+  assert.equal((await call(s, token, "GET", "/api/overlay/check")).status, 200);
+  assert.match(text((await s.page("/history")).html), /Admin unblocked Producer Pat/);
+});
+
+test("an admin can't block themselves, and a block doesn't touch race control or overlay keys", async () => {
+  const s = await setup();
+  await signIn(s);
+  assert.match(text((await block(s, "1")).html), /can.{1,6}t block yourself/);
+  const key = (await s.post("/keys", { name: "Old Overlay" })).html.match(/vsglr_[0-9a-f]{48}/)[0];
+  await block(s, "80");
+  assert.equal((await call(s, key, "GET", "/api/overlay/check")).status, 200);
+});

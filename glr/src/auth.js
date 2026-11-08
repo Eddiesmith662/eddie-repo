@@ -21,7 +21,7 @@
  *   race control (stewards)      token "vsrc_...", session kind 'rc', link page /rc/link
  *   broadcast overlay (producers) token "vsov_...", session kind 'ov', link page /overlay/link
  */
-import { ensureSchema, seriesRoles, getSetting, linkedDriver, noteAccount, directorOf } from "./db.js";
+import { ensureSchema, seriesRoles, getSetting, linkedDriver, noteAccount, directorOf, getBlock } from "./db.js";
 
 const API = "https://discord.com/api/v10";
 const COOKIE = "glr_session", STATE = "glr_state";
@@ -139,15 +139,22 @@ const bearerToken = (request, kind) => {
 };
 
 // the person behind a program's "Authorization: Bearer vsrc_/vsov_..." token, or null
-export async function programUser(request, env, kind) {
+export async function programUser(request, env, kind, fresh = false) {
   const token = bearerToken(request, kind);
   if (!token || !configured(env)) return null;
-  return userFor(request, env, token, kind);
+  return userFor(request, env, token, kind, fresh);
 }
 export const raceControlUser = (request, env) => programUser(request, env, "rc");
-export const overlayUser = (request, env) => programUser(request, env, "ov");
+// fresh: read the roles from Discord now, not the last 15 minutes' copy (the overlay's start-up check, so a role
+// change counts at the next start-up)
+export const overlayUser = (request, env, fresh = false) => programUser(request, env, "ov", fresh);
 
-async function userFor(request, env, token, kind) {
+// what a signed-in overlay may do, from Discord roles: the Producer role (or admin) gives the overlay and results uploads.
+// Later site features add more names. A block from an admin wins over the roles.
+export const BLOCK_MSG = "Your overlay access was turned off by a GLR HUB admin. Ask an admin to turn it back on.";
+const permsFor = u => u.overlayBlock ? [] : u.producer ? ["overlay", "upload"] : [];
+
+async function userFor(request, env, token, kind, fresh = false) {
   await schema(env.DB);
   const h = await sha256(token), now = Date.now();
   const s = await env.DB.prepare(`SELECT * FROM sessions WHERE token_hash = ? AND kind = ?`).bind(h, kind).first();
@@ -155,7 +162,7 @@ async function userFor(request, env, token, kind) {
   if (kind === "rc" && now - (s.last_used || 0) > 60000)         // a signed-in race control PC stays signed in while it's used
     await env.DB.prepare(`UPDATE sessions SET last_used = ?, expires = ? WHERE token_hash = ?`).bind(now, now + 365 * 864e5, h).run();
   let roles = JSON.parse(s.roles || "[]");
-  if (now - s.checked > RECHECK_MS) {
+  if (fresh || now - s.checked > RECHECK_MS) {
     let access = s.access_token;
     try {
       if (s.token_expires < now + 60000 && s.refresh_token) {
@@ -265,8 +272,11 @@ async function describe(env, u) {
     : (await seriesRoles(env.DB)).filter(x => x.role_id && u.roles.includes(x.role_id)).map(x => x.id);
   const official = admin || directs.length > 0;
   const link = await linkedDriver(env.DB, u.id);
-  return { ...u, admin, official, directs, steward: admin || (!!rc && u.roles.includes(rc)), producer: admin || (!!pr && u.roles.includes(pr)),
-    cust: link && link.cust_id ? link.cust_id : null, driverName: link ? link.name || "" : "", noDriver: !!link && !link.cust_id };
+  const d = { ...u, admin, official, directs, steward: admin || (!!rc && u.roles.includes(rc)), producer: admin || (!!pr && u.roles.includes(pr)),
+    cust: link && link.cust_id ? link.cust_id : null, driverName: link ? link.name || "" : "", noDriver: !!link && !link.cust_id,
+    overlayBlock: await getBlock(env.DB, u.id) || null };
+  d.perms = permsFor(d);
+  return d;
 }
 
 // POST /logout

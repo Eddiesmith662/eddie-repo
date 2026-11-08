@@ -1,6 +1,6 @@
 # The broadcast overlay signing in to GLR HUB
 
-For the overlay chat. The site side is live (Nov 7, 2026). It works like race control's sign-in (`rcsite.py`), but
+For the overlay chat. The site side is live (Nov 7, 2026; permissions and the admin's Block switch added Nov 8, 2026). It works like race control's sign-in (`rcsite.py`), but
 with its own endpoints and its own token, and the person needs the **Producer** role instead of a steward role.
 
 The overlay can now get its access from the site in either of two ways:
@@ -50,9 +50,25 @@ The same endpoints as with an overlay key:
 
 | Request | Sends | Gets back |
 | --- | --- | --- |
-| `GET /api/overlay/check` | nothing | `{"ok": true, "name": "overlay (Producer Pat)", "user": {"id", "name"}}`. With a key: `{"ok": true, "name": "<key name>"}`, as before. |
+| `GET /api/overlay/check` | nothing | `{"ok": true, "name": "overlay (Producer Pat)", "user": {"id", "name"}, "perms": ["overlay", "upload"]}`. With a key: `{"ok": true, "name": "<key name>"}`, as before, with no `perms`. |
 | `POST /api/overlay/results` | the `vspeed_overlay_result` race file, as now | as now: `{"ok": true, ...}` (the results are filed as provisional; `skipped` if the race is already official) |
 | `GET /api/overlay/calls/<session>` | nothing | as now: `{"ok": true, "subsessionId": ..., "calls": [...]}` |
+
+### Permissions (`perms`)
+
+`check` with a `vsov_` token answers with `perms`, the list of what this person may do, worked out from their Discord
+roles **read fresh from Discord at that check** (not the 15-minute role cache), so a role change counts at the next
+start-up:
+
+- `"overlay"`: may open the overlay.
+- `"upload"`: may send results.
+
+Producer or admin gives both. Later site features will add more names to this list: ignore names you don't know, and
+treat a name that's missing as not allowed. Call `check` once at start-up (never during a race); working offline on the
+last good answer for 5 days is the overlay's choice, and the site doesn't need to know.
+
+With an overlay key (`vsglr_`) there is **no** `perms`: keys keep working for uploads and calls only, and don't open the
+overlay.
 
 Results sent with a token are recorded as sent by that producer (their Discord name, in the site's History), where a
 key records the key's name.
@@ -64,7 +80,8 @@ The reason is always in `error`.
 | Code | Meaning | What the overlay should do |
 | --- | --- | --- |
 | **401** | The site doesn't know this key or token: it was signed out, turned off on the Keys page, its year ran out, or the person left the league's Discord. | Show "Signed out of the league site", and offer Sign in again (or a key). Results keep waiting in the queue, as now. |
-| **403** | The token is fine, but the person doesn't have the **Producer role** any more. Roles are checked again at most every 15 minutes, so this follows a role change within 15 minutes. | Show the `error` text. Retrying won't help until an admin gives the role back. |
+| **403** | The token is fine, but the person doesn't have the **Producer role** any more. `check` reads the roles fresh; results and calls re-check them at most every 15 minutes. | Show the `error` text. Retrying won't help until an admin gives the role back. |
+| **403** with `"blocked": true` | An admin turned this person's overlay access off with **Block** on the Accounts page. The block wins over their Discord roles until an admin unblocks them. `error` is always `Your overlay access was turned off by a GLR HUB admin. Ask an admin to turn it back on.` | Show the `error` text as it is. Don't offer Sign in again: they can't allow a new PC either while blocked. Results stay in the queue. |
 | 400 | Something is wrong in the results file (as now). | As now. |
 | 405 | Results sent without POST. | n/a |
 
@@ -72,7 +89,8 @@ The reason is always in `error`.
 
 `POST /api/overlay/signout` with `Authorization: Bearer vsov_...` returns `{"ok": true}`, and the token stops working
 straight away. Then forget the token on the PC. An admin can also sign a PC out on the site's Keys page ("Overlay
-sign-ins"); the overlay then gets 401.
+sign-ins"); the overlay then gets 401. That's for one PC; **Block** (on the Accounts page) is for the person, on every
+PC, and gives 403 as above.
 
 ## Not changed
 
@@ -80,6 +98,7 @@ sign-ins"); the overlay then gets 401.
   backfill.
 - **Race control's sign-in** (`/api/rc/...`, `vsrc_` tokens) is separate. An overlay token doesn't work for race
   control, and a code from one can't be allowed on the other's page. A race control token still works on the overlay's
-  results and calls endpoints, as before.
+  results and calls endpoints, as before, unless that person is blocked (then 403 as above). Blocking only touches the
+  overlay endpoints: their race control and website access are unchanged.
 - **Nothing goes on air from the site.** This only changes who the site trusts. The penalty box and everything else
   still wait for the producer's Show.

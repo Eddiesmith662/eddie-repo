@@ -50,7 +50,7 @@ import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, i
   logChange, listChanges, whoName, mergeDrivers, separateDriver, aliasesOf, findDrivers,
   seriesEvents, allSeriesEvents, listRoster, addRoster, removeRoster, listSchedule, upcoming, addSchedule, addScheduleLines, deleteSchedule,
   scheduleEntry, linkScheduleTo, getSetting, setSetting, editSchedule,
-  linkDriver, unlinkDriver, setLink, linkedAccount, listAccounts, listClaims, decideClaim, getTeams, saveTeams, setSeriesTeams, setEventSeason, saveProfile, PROFILE_FIELDS, driversForMatching, directorOf, listDirectors, setDirector, accountRoles, searchDrivers, normName, decisionsFor, fileProtest, listProtests, getProtest, setProtestStatus, listDecisions, addDecision, deleteDecision,
+  linkDriver, unlinkDriver, setLink, linkedAccount, listAccounts, listClaims, decideClaim, getTeams, saveTeams, setSeriesTeams, listBlocks, setBlock, missedResults, setEventSeason, saveProfile, PROFILE_FIELDS, driversForMatching, directorOf, listDirectors, setDirector, accountRoles, searchDrivers, normName, decisionsFor, fileProtest, listProtests, getProtest, setProtestStatus, listDecisions, addDecision, deleteDecision,
   saveRaceCalls, raceCalls } from "./db.js";
 import { KINDS, AMOUNT, CHANGES_ORDER, decisionText } from "./stewards.js";
 import { resultsPost, standingsPost, teamStandingsPost, penaltyPost, fixPost, decisionPost, enqueue, processQueue, queueFor, retryQueued, discardQueued, isRecent } from "./discord.js";
@@ -60,7 +60,7 @@ import { THEMES, themeOf } from "./themes.js";
 import { ASSETS } from "./assets.js";
 import { parseExport, parseOverlay } from "./parse.js";
 import { configured, login, callback, currentUser, logout, canEdit, canSteward, cookies,
-  raceControlUser, overlayUser, PROGRAMS, linkStart, linkPoll, linkFind, linkAllow, programSignOut, listProgramSessions, revokeProgramSession } from "./auth.js";
+  raceControlUser, overlayUser, BLOCK_MSG, PROGRAMS, linkStart, linkPoll, linkFind, linkAllow, programSignOut, listProgramSessions, revokeProgramSession } from "./auth.js";
 
 // the site sits at the front of its own domain (glrhub.app, Nov 7 2026); it was vspeedlivetiming.app/glr before
 const BASE = "";
@@ -455,7 +455,7 @@ function myRacesPage(user, d, { protests = [], decisions = [] } = {}) {
 }
 
 // admins: every Discord account that has signed in, its driver, and claims on a driver someone else has
-function accountsPage(user, { accounts = [], claims = [], all = [], msg = "", series = [], directors = [], roles = new Map(), officialRole = "" } = {}) {
+function accountsPage(user, { accounts = [], claims = [], all = [], msg = "", series = [], directors = [], roles = new Map(), officialRole = "", blocks = new Map() } = {}) {
   let body = `<h1>Accounts</h1><p class="sub">Everyone who has signed in to GLR HUB with Discord. Only officials can see which driver each person is.</p>`;
   if (msg) body += `<div class="msg ${/^(Linked|Unlinked|Approved|Rejected|Set)/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>`;
   body += `<h2>Disputes</h2>` + (claims.length ? `<div class="wrap"><table><tr><th>Who</th><th>Says they're</th><th>Linked now to</th><th>Asked</th><th></th></tr>` + claims.map(c => `<tr>
@@ -477,10 +477,17 @@ function accountsPage(user, { accounts = [], claims = [], all = [], msg = "", se
   };
   const dirForm = (a, mine) => mine.map(d => `<form method="post" style="display:inline;margin-right:8px"><input type="hidden" name="action" value="undirect"><input type="hidden" name="id" value="${esc(a.discord_id)}"><input type="hidden" name="series" value="${d.series_id}">${esc(short(d.series_id))} <button class="link" title="Remove">×</button></form>`).join("")
     + (series.length > mine.length ? `<form method="post" style="display:inline"><input type="hidden" name="action" value="direct"><input type="hidden" name="id" value="${esc(a.discord_id)}"><select name="series" onchange="this.form.submit()"><option value="">Add series…</option>${series.filter(x => !mine.some(d => d.series_id === x.id)).map(x => `<option value="${x.id}">${esc(x.short_name)}</option>`).join("")}</select></form>` : "");
+  // the overlay block switch: wins over the person's Discord roles until it's lifted
+  const overlayCell = a => {
+    const b = blocks.get(a.discord_id);
+    if (b) return `<b style="color:#d33">Blocked</b><br><span class="tag">${day(b.blocked_at)} by ${esc(whoName(b.blocked_by))}</span><br><form method="post" style="display:inline"><input type="hidden" name="action" value="unblock"><input type="hidden" name="id" value="${esc(a.discord_id)}"><button class="link">Unblock</button></form>`;
+    if (a.discord_id === user.id) return `<span class="tag">Allowed</span>`;
+    return `<span class="tag">Allowed</span> <form method="post" style="display:inline" onsubmit="return confirm('Block ${esc(String(a.name || "").replace(/['"\\]/g, ""))} from the overlay? It works even if they have the Producer role, until you unblock them.')"><input type="hidden" name="action" value="block"><input type="hidden" name="id" value="${esc(a.discord_id)}"><button class="link">Block</button></form>`;
+  };
   const linked = a => a.cust_id ? driverLink(a.cust_id, a.driver || a.cust_id) : a.cust_id === 0 ? `<span class="tag">I don't race</span>` : `<span class="tag">Not answered</span>`;
   body += `<h2>Accounts</h2><input class="search" placeholder="Find a name" data-rows="#acc tr.r">
-    <div class="wrap"><table id="acc"><tr><th>Discord</th><th>Driver</th><th>Directs</th><th>Last signed in</th><th>Change driver</th></tr>` + accounts.map(a => `<tr class="r">
-      <td>${esc(a.name || "")}<br><span class="tag">${esc(a.discord_id)}</span></td><td>${linked(a)}</td><td style="white-space:normal">${directs(a)}</td><td>${day(a.last_seen)}</td>
+    <div class="wrap"><table id="acc"><tr><th>Discord</th><th>Driver</th><th>Directs</th><th>Overlay</th><th>Last signed in</th><th>Change driver</th></tr>` + accounts.map(a => `<tr class="r">
+      <td>${esc(a.name || "")}<br><span class="tag">${esc(a.discord_id)}</span></td><td>${linked(a)}</td><td style="white-space:normal">${directs(a)}</td><td style="white-space:normal">${overlayCell(a)}</td><td>${day(a.last_seen)}</td>
       <td style="white-space:normal"><form method="post" style="display:inline"><input type="hidden" name="action" value="set"><input type="hidden" name="id" value="${esc(a.discord_id)}">
         <input type="text" name="driver" list="drl" placeholder="Driver name or iRacing ID" autocomplete="off" style="width:200px"> <button class="link">Set</button></form>
         ${a.cust_id != null ? `<form method="post" style="display:inline;margin-left:10px" onsubmit="return confirm('Unlink? They are asked which driver they are at their next sign-in.')"><input type="hidden" name="action" value="unlink"><input type="hidden" name="id" value="${esc(a.discord_id)}"><button class="link">Unlink</button></form>` : ""}</td></tr>`).join("") +
@@ -488,6 +495,7 @@ function accountsPage(user, { accounts = [], claims = [], all = [], msg = "", se
     <ul class="tag">
       <li><b>Driver:</b> the iRacing driver this person is. To change it, type a driver's name or iRacing ID under <b>Change driver</b> and press <b>Set</b>. If someone else was linked to that driver, they're unlinked, and GLR HUB asks them "Which driver are you?" the next time they sign in.</li>
       <li><b>Directs:</b> the series this person is a director of. <b>Add series…</b> adds one; <b>×</b> removes it. ${officialRole ? "It only works if they also have the Series official role in Discord." : "Not used yet: for now, each series' old role decides who its officials are (shown as \"Official now (old role)\"). This column takes over when you save the Series official role on <a href=\"" + BASE + "/settings\">Settings</a>."}</li>
+      <li><b>Overlay:</b> anyone with the Producer role can use the broadcast overlay. <b>Block</b> turns it off for one person even if they have the role, until you unblock them: their overlay stops at its next start-up and they can't sign another PC in.</li>
       <li>Every change on this page is recorded in History.</li></ul>` + SORT_JS;
   return page("Accounts", body, { user });
 }
@@ -567,18 +575,20 @@ function driverPage(d, user, { aliases = [], all = [], msg = "", discord = null 
 }
 
 // a series' directors' home: what needs doing, and where everything they can change is
-function directorPage(sr, seasons, user, { provisional = [], protests = [], queue = [], changes = [] } = {}) {
+function directorPage(sr, seasons, user, { provisional = [], protests = [], queue = [], changes = [], missed = [] } = {}) {
   const S = `${BASE}/${esc(sr.slug)}`;
   let body = seriesTabs(sr, "director", seasons, null, user);
   body += `<p class="tag">Only this series' directors and admins see this tab.</p><h2>Needs attention</h2>`;
   const todo = [];
+  if (missed.length) todo.push(`<li><b>${missed.length} scheduled race${missed.length === 1 ? " has" : "s have"} no results</b> on the site yet. Upload the iRacing results file (or, if the race didn't run, remove it from the <a href="${S}/schedule">schedule</a>):<ul>${missed.map(r =>
+    `<li>${day(r.starts_at)} · ${esc(r.track)}</li>`).join("")}</ul></li>`);
   if (provisional.length) todo.push(`<li><b>${provisional.length} race${provisional.length === 1 ? "" : "s"} still provisional</b> (from a broadcast overlay). Upload the iRacing results file, or open the race, check it and press Mark results official:<ul>${provisional.map(e =>
     `<li><a href="${BASE}/results/${e.subsession_id}">${day(e.start_time)} · ${esc(e.track)}</a></li>`).join("")}</ul></li>`);
   if (protests.length) todo.push(`<li><b>${protests.length} open protest${protests.length === 1 ? "" : "s"}</b>:<ul>${protests.map(p =>
     `<li><a href="${BASE}/results/${p.subsession_id}/stewards#p${p.id}">#${p.id} · ${esc(p.track)}, ${day(p.start_time)}</a></li>`).join("")}</ul></li>`);
   const stuck = queue.filter(q => q.attempts > 0 || q.next_try > 8e15);
   if (stuck.length) todo.push(`<li><b>${stuck.length} Discord post${stuck.length === 1 ? "" : "s"} didn't go out.</b> <a href="${S}/edit#discord">See Waiting to post</a> to try again or discard.</li>`);
-  body += todo.length ? `<ul class="todo">${todo.join("")}</ul>` : `<p class="hint">Nothing waiting: every race is official, no open protests, and every Discord post went out.</p>`;
+  body += todo.length ? `<ul class="todo">${todo.join("")}</ul>` : `<p class="hint">Nothing waiting: every scheduled race has results, every race is official, no open protests, and every Discord post went out.</p>`;
   const L = [
     [`${BASE}/upload`, "Upload results", "the iRacing results file after each race (it makes the race official)"],
     [`${S}/schedule`, "Schedule", "add, change or remove races"],
@@ -1341,16 +1351,22 @@ function linkPage(kind, code, user, { done = false, msg = "" } = {}) {   // msg:
  * sign-in (vsrc_, for results from a race with no broadcast, and the calls). -> { key } or { error, status }.
  * key: { id, name, via: "key" | "ov" | "rc", user? }. count: a race sent (adds to the key's "races sent").
  */
-async function overlayCaller(request, env, db, count) {
+// who is calling an overlay endpoint: an overlay key, a producer's sign-in, or race control's sign-in.
+// fresh: read the producer's Discord roles now (the start-up check).
+async function overlayCaller(request, env, db, count, fresh = false) {
   const k = await checkKey(db, bearer(request), "overlay", count);
   if (k) return { key: { ...k, via: "key" } };
-  const prod = await overlayUser(request, env);
+  const prod = await overlayUser(request, env, fresh);
   if (prod) {
+    if (prod.overlayBlock) return { error: BLOCK_MSG, status: 403, blocked: true };
     if (!prod.producer) return { error: "You don't have the Producer role in the league's Discord any more. Ask an admin.", status: 403 };
     return { key: { id: 0, name: `overlay (${prod.name})`, via: "ov", user: prod } };
   }
   const rcu = await raceControlUser(request, env);
-  if (rcu) return { key: { id: 0, name: `race control (${rcu.name})`, via: "rc", user: rcu } };
+  if (rcu) {
+    if (rcu.overlayBlock) return { error: BLOCK_MSG, status: 403, blocked: true };
+    return { key: { id: 0, name: `race control (${rcu.name})`, via: "rc", user: rcu } };
+  }
   return { error: "The site doesn't recognise this key or sign-in. Sign the overlay in again, or make a new key on the site's Overlay keys page.", status: 401 };
 }
 
@@ -1430,15 +1446,18 @@ const site = {
       // control's GET, without the stewards' names.
       if ((m = path.match(/^\/api\/overlay\/calls\/(\d+)$/))) {
         const who = await overlayCaller(request, env, db, false);
-        if (who.error) return json({ ok: false, error: who.error }, who.status);
+        if (who.error) return json({ ok: false, error: who.error, ...(who.blocked ? { blocked: true } : {}) }, who.status);
         const calls = (await raceCalls(db, Number(m[1]))).map(({ madeBy, withdrawnBy, ...c }) => c);
         return json({ ok: true, subsessionId: Number(m[1]), calls });
       }
       if (path === `${BASE}/api/overlay/check` || path === `${BASE}/api/overlay/results`) {
-        const who = await overlayCaller(request, env, db, true);   // overlay keys: counted as before
-        if (who.error) return json({ ok: false, error: who.error }, who.status);
+        const check = path.endsWith("/check");
+        // the start-up check reads the producer's roles from Discord now; overlay keys are counted as before
+        const who = await overlayCaller(request, env, db, true, check);
+        if (who.error) return json({ ok: false, error: who.error, ...(who.blocked ? { blocked: true } : {}) }, who.status);
         const key = who.key;
-        if (path.endsWith("/check")) return json({ ok: true, name: key.name, ...(key.user ? { user: { id: key.user.id, name: key.user.name } } : {}) });
+        // perms: what this sign-in may do (a Discord sign-in only; an overlay key answers as before and can't open the overlay)
+        if (check) return json({ ok: true, name: key.name, ...(key.user ? { user: { id: key.user.id, name: key.user.name } } : {}), ...(key.via === "ov" ? { perms: key.user.perms } : {}) });
         if (request.method !== "POST") return json({ ok: false, error: "Use POST." }, 405);
         let ev;
         try { ev = parseOverlay(await request.json()); } catch (e) { return json({ ok: false, error: e.message }, 400); }
@@ -1463,6 +1482,7 @@ const site = {
         if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${encodeURIComponent(`${PROGRAMS[kind].page}?code=${code}`)}`, 302);
         const l = await linkFind(env, code);
         if (!l || l.kind !== kind) return linkPage(kind, code, user, { msg: `That code has expired or was already used. Press Sign in in ${t.where} again.` });
+        if (kind === "ov" && user.overlayBlock) return linkPage(kind, code, user, { msg: BLOCK_MSG });
         const allowed = kind === "ov" ? user.producer : (await listSeries(db)).some(x => canSteward(user, x));
         if (!allowed) return linkPage(kind, code, user, { msg: kind === "ov"
           ? "The overlay needs the Producer role in the league's Discord. Ask an admin."
@@ -1683,6 +1703,12 @@ const site = {
               await setDirector(db, id, sr.id, a === "direct", by);
               await logChange(db, { by, seriesId: sr.id, kind: "account", summary: a === "direct" ? `Admin made ${nm} a director of ${sr.short_name}` : `Admin removed ${nm} as a director of ${sr.short_name}` });
               msg = a === "direct" ? `Set: ${nm} directs ${sr.short_name}.` : `Set: ${nm} no longer directs ${sr.short_name}.`;
+            } else if (a === "block" || a === "unblock") {
+              const id = String(f.get("id")), nm = await nameOf(id);
+              if (id === user.id) throw new Error("You can't block yourself.");
+              await setBlock(db, id, a === "block", by);
+              await logChange(db, { by, kind: "account", summary: a === "block" ? `Admin blocked ${nm} from the broadcast overlay` : `Admin unblocked ${nm}: overlay access follows their Discord roles again` });
+              msg = a === "block" ? `Set: ${nm} is blocked from the overlay.` : `Set: ${nm} is unblocked.`;
             } else if (a === "unlink") {
               const id = String(f.get("id")), nm = await nameOf(id);
               await unlinkDriver(db, id);
@@ -1703,7 +1729,7 @@ const site = {
           } catch (e) { msg = e.message; }
         }
         return accountsPage(user, { accounts: await listAccounts(db), claims: await listClaims(db), all: await findDrivers(db), msg,
-          series: await listSeries(db), directors: await listDirectors(db), roles: await accountRoles(db), officialRole: await getSetting(db, "official_role") });
+          series: await listSeries(db), directors: await listDirectors(db), roles: await accountRoles(db), officialRole: await getSetting(db, "official_role"), blocks: await listBlocks(db) });
       }
       if (path === `${BASE}/protests`) {
         if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/protests`, 302);
@@ -1926,6 +1952,7 @@ const site = {
           protests: await listProtests(db, { seriesIds: [sr.id], open: true }),
           queue: await queueFor(db, sr.id),
           changes: await listChanges(db, { seriesIds: [sr.id], limit: 10 }),
+          missed: await missedResults(db, sr.id),
         });
       }
       if ((m = path.match(/^\/([a-z0-9-]+)\/embed$/))) {

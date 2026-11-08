@@ -88,6 +88,8 @@ const SCHEMA = [
   // in /api/drivers/<id> for the overlay
   `CREATE TABLE IF NOT EXISTS driver_profiles (cust_id INTEGER PRIMARY KEY, bio TEXT NOT NULL DEFAULT '', sponsor TEXT NOT NULL DEFAULT '',
      team TEXT NOT NULL DEFAULT '', hometown TEXT NOT NULL DEFAULT '', updated_at TEXT, updated_by TEXT)`,
+  // an admin turned a person's overlay access off: wins over their Discord roles until it's lifted
+  `CREATE TABLE IF NOT EXISTS overlay_blocks (discord_id TEXT PRIMARY KEY, blocked_at TEXT NOT NULL, blocked_by TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS link_claims (
      id INTEGER PRIMARY KEY AUTOINCREMENT, discord_id TEXT NOT NULL, discord_name TEXT, cust_id INTEGER NOT NULL,
      created_at TEXT, status TEXT NOT NULL DEFAULT 'open', decided_by TEXT, decided_at TEXT)`,
@@ -1044,6 +1046,48 @@ export async function saveProfile(db, cust, fields, by) {
       ON CONFLICT(cust_id) DO UPDATE SET bio = ?2, sponsor = ?3, team = ?4, hometown = ?5, updated_at = ?6, updated_by = ?7`)
     .bind(cust, v.bio, v.sponsor, v.team, v.hometown, new Date().toISOString(), by).run();
   return changed;
+}
+
+// overlay blocks: { blocked_at, blocked_by } or null; all of them for the Accounts page
+export async function getBlock(db, discordId) {
+  await ensureSchema(db);
+  return db.prepare(`SELECT blocked_at, blocked_by FROM overlay_blocks WHERE discord_id = ?`).bind(discordId).first();
+}
+export async function listBlocks(db) {
+  await ensureSchema(db);
+  return new Map((await db.prepare(`SELECT * FROM overlay_blocks`).all()).results.map(b => [b.discord_id, b]));
+}
+export async function setBlock(db, discordId, on, by) {
+  await ensureSchema(db);
+  if (on) await db.prepare(`INSERT OR IGNORE INTO overlay_blocks (discord_id, blocked_at, blocked_by) VALUES (?, ?, ?)`).bind(discordId, new Date().toISOString(), by).run();
+  else await db.prepare(`DELETE FROM overlay_blocks WHERE discord_id = ?`).bind(discordId).run();
+}
+
+/**
+ * Races on a series' schedule with no results on the site by noon Eastern the day after (the Director tab flags them).
+ * Only the last 14 days, so an old cancelled race doesn't stay flagged forever. A race with results uploaded within a
+ * day and a half of its time counts as having them even if the schedule didn't link it.
+ */
+export async function missedResults(db, seriesId, now = Date.now()) {
+  await ensureSchema(db);
+  const rows = (await db.prepare(`SELECT id, starts_at, track FROM schedule WHERE series_id = ? AND subsession_id IS NULL AND starts_at < ? AND starts_at > ? ORDER BY starts_at`)
+    .bind(seriesId, new Date(now).toISOString(), new Date(now - 15 * 864e5).toISOString()).all()).results;
+  if (!rows.length) return [];
+  const evs = (await db.prepare(`SELECT start_time FROM events WHERE series_id = ?`).bind(seriesId).all()).results.map(e => Date.parse(e.start_time));
+  return rows.filter(r => {
+    const t = Date.parse(r.starts_at);
+    if (evs.some(e => Math.abs(e - t) < 36 * 3600e3)) return false;
+    return now >= nextNoonEastern(t) && now - t < 14 * 864e5;
+  });
+}
+// noon in New York on the day after the moment t (Eastern time, daylight saving included)
+export function nextNoonEastern(t) {
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", year: "numeric", month: "numeric", day: "numeric" })
+    .formatToParts(new Date(t)).map(x => [x.type, x.value]));
+  const guess = Date.UTC(+p.year, +p.month - 1, +p.day + 1, 12);            // noon "UTC" on the next day ...
+  const off = n => { const s = new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", timeZoneName: "shortOffset" }).formatToParts(new Date(n)).find(x => x.type === "timeZoneName").value;
+    const m = /GMT([+-]\d+)(?::(\d+))?/.exec(s); return m ? (+m[1]) * 60 + Math.sign(+m[1]) * (+(m[2] || 0)) : 0; };
+  return guess - off(guess + 5 * 3600e3) * 60e3;                            // ... moved to noon in New York
 }
 
 // the series an admin has assigned to this Discord account
