@@ -7,7 +7,7 @@ its two edges), pitroad, start-finish (the line, and an arrow for the direction 
 Each car's place on the lap (0 to 1 from the start/finish line, from iRacing) becomes a point on the track's centre
 line, worked out from the ribbon's two edges. The start/finish line sets where 0 is, and its arrow which way the cars
 run. Cars on pit road are drawn on the pit lane, beside where they are on the lap; a stopped or slow car (an incident in the queue in the last 30 seconds)
-flashes; open incidents and the last two laps' incidents are marked where they happened.
+flashes; each incident is marked where it happened for a minute.
 
 window.RCMap.mount(el, {onCar(idx), onIncident(id)}) then RCMap.update(live, rc) on every reading.
 RCMap.geometry(layers), RCMap.at and RCMap.onPitRoad are the maths on their own, for the tests. */
@@ -16,6 +16,7 @@ RCMap.geometry(layers), RCMap.at and RCMap.onPitRoad are the maths on their own,
   const LAYERS = ['background', 'inactive', 'active', 'pitroad', 'start-finish', 'turns'];
   const N = 1000;                       // centre line points
   const FLASH_S = 30;                   // an incident flashes its car for this long
+  const MARK_S = 60;                    // an incident is marked on the map for this long
   const FLASH = new Set(['stopped', 'slow', 'spin', 'contact', 'multi', 'wall', 'offtrack', 'mechanical']);
   const st = { el: null, opts: {}, list: null, trackId: null, loading: null, geo: null, svg: null, cars: null, marks: null, msg: null };
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -230,6 +231,12 @@ RCMap.geometry(layers), RCMap.at and RCMap.onPitRoad are the maths on their own,
     }
     return g;
   }
+  // incidents from the last minute, whatever their status (a steward asked, Nov 8, 2026: marks that stayed until the
+  // incident was decided piled up); the queue keeps them all
+  function marked(live, rc) {
+    const now = (live && live.sessTime) || 0;
+    return (rc.queue || []).filter(q => q.lapPos != null && q.status !== 'logged' && q.t != null && now - q.t >= 0 && now - q.t < MARK_S);
+  }
   function update(live, rc) {
     if (!st.el) return;
     const tid = live && live.connected ? live.trackId : null;
@@ -251,10 +258,7 @@ RCMap.geometry(layers), RCMap.at and RCMap.onPitRoad are the maths on their own,
     Object.keys(st.dots).forEach(k => { if (!seen.has(k)) { st.dots[k].remove(); delete st.dots[k]; } });
     // the camera car on top
     const cam = st.dots[live.camCarIdx]; if (cam && cam !== st.cars.lastChild) st.cars.appendChild(cam);
-    // incidents: still to review, or from the last two laps (under caution, the wreck stays marked)
-    const lap = live.lap || 0;
-    const marks = (rc.queue || []).filter(q => q.lapPos != null && q.status !== 'logged' &&
-      (q.status === 'new' || q.status === 'reviewing' || (q.lap != null && lap - q.lap <= 1) || live.flag === 'caution' && q.lap != null && lap - q.lap <= 3));
+    const marks = marked(live, rc);
     const html = marks.map(q => { const p = at(st.geo, q.lapPos);
       return `<g class="mark ${esc(q.status)}" data-id="${esc(q.id)}" transform="translate(${p.x.toFixed(1)},${p.y.toFixed(1)})"><title>${esc(q.type)} · #${esc(q.num)} ${esc(q.name)} · L${esc(q.lap)}</title><path d="M0,-34 L22,4 L-22,4 Z"></path><text text-anchor="middle" dy="-4">!</text></g>`; }).join('');
     if (st.marks._h !== html) { st.marks._h = html; st.marks.innerHTML = html; }
@@ -267,5 +271,5 @@ RCMap.geometry(layers), RCMap.at and RCMap.onPitRoad are the maths on their own,
     });
     message('Waiting for iRacing');
   }
-  window.RCMap = { mount, update, geometry: (layers, runs) => geometry(layers, runs), at, onPitRoad, runsWay, N };
+  window.RCMap = { mount, update, geometry: (layers, runs) => geometry(layers, runs), at, onPitRoad, runsWay, marked, N };
 })();

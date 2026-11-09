@@ -45,6 +45,17 @@
   .sitebar.on { display: flex; } .sitebar.bad { background: #4a1020; border-color: #7a2036; color: #ffd0da; }
   .sitebar code { font-family: Consolas, monospace; font-size: 16px; letter-spacing: 2px; color: #fff; }
   .sitebar button { padding: 4px 12px; }
+  /* Session strip: actions for the whole session, not one driver (iRacing's admin commands) */
+  .sessbar { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; padding: 6px 16px; background: #1b1b1c; border-bottom: 1px solid var(--line); font-size: 13px; }
+  .sessbar > b { letter-spacing: 1.5px; text-transform: uppercase; color: var(--dim); font-size: 12px; }
+  .sessbar .grp { display: inline-flex; align-items: center; gap: 4px; padding-left: 10px; border-left: 1px solid var(--line); }
+  .sessbar .lbl { color: var(--dim); margin-right: 2px; }
+  .sessbar button { padding: 4px 10px; font-size: 13px; }
+  .sessbar input[type=number] { width: 46px; padding: 3px 4px; }
+  .sessbar #sbMsg { flex: 1 1 220px; min-width: 160px; padding: 4px 8px; }
+  .sessbar #sbYellow { background: #4a3b00; border-color: #8a6d00; color: #ffd84a; font-weight: 700; }
+  .sessbar #sbYellow.armed { background: var(--yellow); color: #000; }
+  .sessbar button:disabled { opacity: .4; cursor: default; }
   .call.other { background: #17202a; border-color: #263646; }
   .banner { display: none; align-items: center; gap: 12px; padding: 8px 16px; background: #3a2d00; border-bottom: 1px solid #7a5d00; color: #ffe08a; font-size: 14px; }
   .banner.on { display: flex; }
@@ -173,7 +184,7 @@
   .rcmap.small .mark path, .rcmap.small .mark text { transform: scale(2.4); }
   /* the map on its own (Pop out, /racecontrol?solo=map) */
   body.solo .wrap { grid-template-columns: 1fr; grid-template-rows: 1fr; }
-  body.solo .wrap > section:not(.map), body.solo section.map > h2, body.solo .steward, body.solo #site, body.solo .hbar a, body.solo #diagSave { display: none !important; }
+  body.solo .wrap > section:not(.map), body.solo section.map > h2, body.solo .steward, body.solo #site, body.solo .hbar a, body.solo #diagSave, body.solo .sessbar { display: none !important; }
   body.solo section.map { grid-column: 1 / -1; }
   @media (max-width: 1250px) { html, body { height: auto; } .wrap { flex: none; grid-template-columns: 1fr 1fr; grid-template-rows: auto; }
     section { min-height: 420px; max-height: 80vh; } section.det { max-height: none; } section.ro, section.log, section.map { grid-column: 1 / -1; grid-row: auto; } section.map { min-height: 360px; } }
@@ -196,6 +207,16 @@
   </div>
 </header>
 <div class="sitebar" id="siteBar"></div>
+<div class="sessbar" id="sessBar">
+  <b>Session</b>
+  <button id="sbYellow" title="Sends !yellow (with the message, if there is one, for everyone to see). Press twice: the first press arms it.">Throw caution</button>
+  <span class="grp" id="sbLaps" title="Under caution only: sends !pacelaps">
+    <span class="lbl">Caution laps</span><button data-laps="+1" title="One more lap under caution (!pacelaps +1)">+1</button><button data-laps="-1" title="One lap fewer (!pacelaps -1)">&minus;1</button>
+    <span class="lbl" style="margin-left:6px">Green in</span><input type="number" id="sbN" min="1" max="10" value="2"><button data-laps="n" title="Go green after this many more laps (!pacelaps N)">Set</button></span>
+  <span class="grp"><span class="lbl">Restarts</span><button data-restart="single" title="!restart single">Single file</button><button data-restart="double" title="!restart double">Double file</button></span>
+  <span class="grp" style="flex:1 1 320px"><input id="sbMsg" maxlength="200" placeholder="Message: sent with Throw caution or Advance, or on its own"><button id="sbAll" title="/all: to every driver, even with chat off">Send to everyone</button></span>
+  <button id="sbAdvance" title="Sends !advance: ends this session now and moves on to the next one">Advance session</button>
+</div>
 <div class="banner" id="replayBanner">
   <b>You're watching a replay.</b>
   <span class="grow">New incidents aren't detected until you go back to live. Incident points gained meanwhile are added when you do, marked "found after review".</span>
@@ -307,6 +328,11 @@ function renderLive() {
   const flag = L.flag ? `<span class="flag ${esc(L.flag)}">${esc(L.flag.toUpperCase())}</span>` : '';
   $('sess').innerHTML = on ? `${esc(L.track || '')} · ${esc(L.sessionName || '')}${L.lap ? ` · Lap ${L.lap}${L.totalLaps ? '/' + L.totalLaps : ''}` : ''} ${flag}` : '–';
   $('replayBanner').classList.toggle('on', !!(on && L.isReplay));
+  if (L.sessNum !== renderLive.sess) { renderLive.sess = L.sessNum; if (RC.queue) renderQueue(); }
+  const caution = L.flag === 'caution';
+  $('sbYellow').disabled = !on || caution; $('sbYellow').title = caution ? 'It\'s already under caution' : 'Sends !yellow (with the message, if there is one, for everyone to see). Press twice: the first press arms it.';
+  document.querySelectorAll('#sbLaps button, #sbN').forEach(b => b.disabled = !on || !caution);
+  document.querySelectorAll('#sessBar [data-restart], #sbAll, #sbAdvance').forEach(b => b.disabled = !on);
   $('lu').textContent = { off: 'off', setup: 'needs a key', ready: 'on', ok: 'on', waiting: 'waiting', error: 'problem' }[LU.state] || 'off';
   const cars = L.cars || [];
   const html = cars.map(c => `<tr data-idx="${c.idx}" class="${c.idx === L.camCarIdx ? 'cam' : ''}">
@@ -383,6 +409,8 @@ $('steward').oninput = () => { $('steward')._typed = true; $('steward').classLis
 $('steward').onchange = async () => { await post('/api/rc', { cmd: 'steward', name: $('steward').value.trim() }); $('steward')._typed = false; };
 
 /* ---------- queue ---------- */
+// Only this session's incidents: practice and qualifying ones stay in the race's file but don't carry over to the race.
+const here = q => !L.connected || L.sessNum == null || q.sess == null || q.sess === L.sessNum;
 const inView = q => view === 'all' ? true : view === 'review' ? (q.status === 'new' || q.status === 'reviewing')
   : view === 'decided' ? (q.status === 'decided' || q.status === 'noaction') : q.status === 'logged';
 function callText(c) {
@@ -392,11 +420,12 @@ function callText(c) {
 function who(q) { return q.type === 'caution' ? 'Full course caution' : `#${esc(q.num)} ${esc(q.name)}`; }
 function renderQueue() {
   const label = Object.fromEntries(RC.types || []);
-  const shown = RC.queue.filter(q => inView(q) && !off.has(q.type)).slice().reverse();
-  const review = RC.queue.filter(q => q.status === 'new' || q.status === 'reviewing').length;
+  const now = RC.queue.filter(here), earlier = RC.queue.length - now.length;
+  const shown = now.filter(q => inView(q) && !off.has(q.type)).slice().reverse();
+  const review = now.filter(q => q.status === 'new' || q.status === 'reviewing').length;
   $('qCount').textContent = view === 'review' ? review : shown.length;
   document.querySelectorAll('#view button').forEach(b => b.classList.toggle('on', b.dataset.v === view));
-  const html = !shown.length ? `<div class="empty">${view === 'review' ? 'Nothing to review' : 'Nothing here yet'}</div>` : shown.map(q => {
+  const html = !shown.length ? `<div class="empty">${view === 'review' ? 'Nothing to review' : 'Nothing here yet'}${earlier ? `<br><span class="by">Earlier sessions' incidents (${earlier}) are saved but not shown here.</span>` : ''}</div>` : shown.map(q => {
     const [bg, fg] = COLORS[q.type] || ['#666'];
     const calls = RC.calls.filter(c => c.incident === q.id && c.status === 'active');
     return `<div class="inc ${cur === q.id ? 'cur' : ''} ${['decided', 'noaction', 'logged'].includes(q.status) ? 'done' : ''}" data-id="${q.id}" style="--ic:${bg};--icx:${fg || '#fff'}">
@@ -593,6 +622,12 @@ function clearRow(x) {
     <span class="why"><div class="sim" style="margin-top:0"><code>${esc(x.cmd)}</code>${x.ok ? '<span class="ss cleared">Sent</span>' : `<span class="ss failed">Couldn't send</span> ${esc(x.error)}`}</div></span>
     <span class="by">${esc(x.by)}</span><span class="acts"></span></div>`;
 }
+function sessRow(x) {
+  return `<div class="call clr"><span class="by">${x.lap != null ? 'L' + Math.max(1, x.lap) + ' · ' : ''}${hm(x.at)}</span>
+    <span class="what">Session · ${esc(x.label)}</span>
+    <span class="why"><div class="sim" style="margin-top:0"><code>${esc(x.cmd)}</code>${x.ok ? '<span class="ss cleared">Sent</span>' : `<span class="ss failed">Couldn't send</span> ${esc(x.error)}`}</div></span>
+    <span class="by">${esc(x.by)}</span><span class="acts"></span></div>`;
+}
 function otherRow(x) {
   const wd = x.status === 'withdrawn';
   const who = x.source === 'race control' ? (x.madeBy || 'Another steward') : (x.madeBy || 'An official') + ' (on the site)';
@@ -603,6 +638,7 @@ function otherRow(x) {
 }
 function renderCalls() {
   const list = [...RC.calls.map(c => ({ at: c.at, h: callRow(c) })), ...(RC.clears || []).map(x => ({ at: x.at, h: clearRow(x) })),
+    ...(RC.session || []).map(x => ({ at: x.at, h: sessRow(x) })),
     ...(RC.siteCalls || []).map(x => ({ at: x.madeAt || '', h: otherRow(x) }))]
     .sort((a, b) => a.at < b.at ? 1 : a.at > b.at ? -1 : 0);
   $('cCount').textContent = RC.calls.filter(c => c.status === 'active').length;
@@ -611,6 +647,35 @@ function renderCalls() {
   if ($('calls')._h !== html) { $('calls')._h = html; $('calls').innerHTML = html; }
 }
 $('calls').onclick = e => { const wd = e.target.closest('[data-wd]'); if (wd) return withdraw(wd.dataset.wd); const sd = e.target.closest('[data-send]'); if (sd) sendSim(sd.dataset.send); };
+
+/* ---------- Session strip ---------- */
+async function sessionAct(action, value) {
+  const message = $('sbMsg').value.trim();
+  const r = await post('/api/rc', { cmd: 'session', action, value, message });
+  toast(r.ok ? (r.sent + ' sent') : (r.error || 'It couldn\'t be sent'));
+  if (r.ok && ['yellow', 'all', 'advance'].includes(action)) $('sbMsg').value = '';
+  rcFetch();
+}
+let yellowArmed = 0;
+$('sbYellow').onclick = () => {
+  const b = $('sbYellow');
+  if (Date.now() - yellowArmed < 4000) {
+    yellowArmed = 0; b.classList.remove('armed'); b.textContent = 'Throw caution';
+    return sessionAct('yellow');
+  }
+  yellowArmed = Date.now(); b.classList.add('armed'); b.textContent = 'Press again to throw caution';
+  setTimeout(() => { if (Date.now() - yellowArmed >= 4000) { b.classList.remove('armed'); b.textContent = 'Throw caution'; } }, 4100);
+};
+$('sbLaps').onclick = e => {
+  const b = e.target.closest('[data-laps]'); if (!b || b.disabled) return;
+  sessionAct('laps', b.dataset.laps === 'n' ? $('sbN').value : b.dataset.laps);
+};
+document.querySelectorAll('#sessBar [data-restart]').forEach(b => b.onclick = () => sessionAct('restart', b.dataset.restart));
+$('sbAll').onclick = () => sessionAct('all');
+$('sbAdvance').onclick = () => {
+  if (!confirm(`End ${L.sessionName || 'this session'} now?\n\nThis sends !advance: iRacing moves straight on to the next session. It can't be undone.`)) return;
+  sessionAct('advance');
+};
 
 /* ---------- the map (small, bottom right) and its pop-out window ---------- */
 const SOLO = new URLSearchParams(location.search).get('solo') === 'map';
@@ -628,7 +693,7 @@ RCMap.mount($('mapPane'), {
   onCar: idx => post('/api/camera', { carIdx: idx }),
   onIncident: id => { if (SOLO) { replay(id); toast('Replaying it in the sim'); } else { openIncident(id); } },
 });
-function renderMap() { RCMap.update(L, RC); }
+function renderMap() { RCMap.update(L, Object.assign({}, RC, { queue: (RC.queue || []).filter(here) })); }
 
 function render() { renderTypes(); renderQueue(); renderDet(); renderCalls(); renderMap(); }
 renderMap();

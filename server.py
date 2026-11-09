@@ -1865,6 +1865,14 @@ def race_control_command(d):
         racecontrol.clear_log(steward, car, text, ok, msg, live)
         STATE.notify()
         return {"ok": ok, "error": msg if not ok else "", "sent": text}
+    if cmd == "session":           # the Session strip: caution, caution laps, restarts, message to everyone, advance
+        ok, msg, text, label = racecontrol.session_prepare(d, steward, live)
+        if not ok:
+            return {"ok": False, "error": msg}
+        ok, msg = chat(text)
+        racecontrol.session_log(steward, text, label, ok, msg, live)
+        STATE.notify()
+        return {"ok": ok, "error": msg if not ok else "", "sent": text}
     ok, msg, extra = racecontrol.command(d, live, steward)
     if ok and cmd == "call" and d.get("send") and (extra or {}).get("call", {}).get("sim"):
         r = send(extra["call"]["id"])           # Make the call sends it to iRacing in the same press

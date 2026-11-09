@@ -260,13 +260,14 @@ control from before v1.5.38 kept its calls in `data\race-control`; they're copie
 - **Steward** (top right): type your name first. Every call is saved with who made it.
 - **Incidents** (left): spins, contact, stopped and slow cars, meatballs and more, as they happen. **To review** shows
   what still needs a look. Click one to open it; double-click to replay it in the sim (the seconds box sets how far
-  before it the replay starts). Replaying marks it **Reviewing**.
+  before it the replay starts). Replaying marks it **Reviewing**. Only the current session's incidents show:
+  practice and qualifying ones stay saved in the race file but don't carry over to the race.
 - **Logged**: iRacing's own penalties (black flag, warning, disqualified), cautions and retirements. They're recorded
   for the stewards, not decisions, and nothing is done with them.
 - **Map** (bottom right): iRacing's own map of the track, with every car on it (the camera car in red, cars on pit
   road in blue, drawn on the pit lane, black-flagged cars in black, cars in an incident in the last 30 s flashing) and
-  a warning mark where each open incident happened. Click a car to put the camera on it; click a mark to open that
-  incident. **Pop out map** opens a bigger one in a window of its own for a second screen (clicking a mark there
+  a warning mark where each incident happened, for a minute. Click a car to put the camera on it; click a mark to open
+  that incident. **Pop out map** opens a bigger one in a window of its own for a second screen (clicking a mark there
   replays it). The maps load from iRacing's public map server each time (nothing is stored), so the PC needs to be
   online. A track that isn't in `static\trackmaps.json` says "No map for this track yet": add one line with its
   iRacing track id and map folder. If the cars go round the wrong way (a map whose start/finish is drawn as a single
@@ -299,6 +300,17 @@ control from before v1.5.38 kept its calls in `data\race-control`; they're copie
 - **Clear** (running order, next to a driver with a black flag) sends `!clear #87`; **Clear all penalties** sends
   `!clearall`. Both ask first, since they remove **all** of those penalties, iRacing's own included, and both are kept in
   the call log with who sent them. A call whose penalty was cleared shows **Cleared in iRacing** and can be sent again.
+- **Session** (the strip under the top bar): actions for the whole session, typed into iRacing's chat like calls, and
+  kept in the call log with who sent them (not sent to the league site: they aren't penalties). They need your name.
+
+  | Button | Sent to iRacing |
+  |---|---|
+  | Throw caution (press twice: the first press arms it) | `!yellow <message>` (the message, if there is one, goes to everyone) |
+  | Caution laps **+1** / **−1** (under caution only) | `!pacelaps +1` / `!pacelaps -1` |
+  | **Green in** N laps **Set** (under caution only) | `!pacelaps N` |
+  | Restarts **Single file** / **Double file** | `!restart single` / `!restart double` |
+  | **Send to everyone** | `/all <message>`: to every driver, even with chat off |
+  | **Advance session** (asks first: it can't be undone) | `!advance <message>`: ends this session and moves on to the next |
 - **Withdraw** a call made by mistake: it stays in the log, crossed out, with who withdrew it and why. If it was sent,
   you're asked whether to clear it in iRacing too: `!clear #87` removes **all** of that driver's penalties, iRacing's
   own included.

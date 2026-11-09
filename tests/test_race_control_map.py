@@ -217,6 +217,16 @@ class Placing(unittest.TestCase):
         self.assertGreater(anti["at"]["x"], 1600)   # along the bottom to the right, then up: anticlockwise as drawn
         self.assertLess(clock["at"]["x"], 320)
 
+    def test_an_incident_is_marked_on_the_map_for_a_minute(self):
+        # a steward asked (Nov 8, 2026): marks that stayed until the incident was decided piled up
+        ids = self.page.evaluate("""() => RCMap.marked({sessTime: 1000}, {queue: [
+            {id: 'new', status: 'new', t: 950, lapPos: 0.1},          // 50 s ago, not reviewed: marked
+            {id: 'old', status: 'new', t: 930, lapPos: 0.2},          // 70 s ago, not reviewed: gone
+            {id: 'done', status: 'decided', t: 990, lapPos: 0.3},     // decided, but only 10 s ago: marked
+            {id: 'log', status: 'logged', t: 995, lapPos: 0.4},       // iRacing's own penalties: never marked
+            {id: 'nopos', status: 'new', t: 995, lapPos: null}]}).map(q => q.id)""")
+        self.assertEqual(ids, ["new", "done"])
+
     def test_a_lap_and_a_bit_lands_where_the_bit_does(self):
         a, b = self.place(RIGHT, [0.3, 12.3])["pts"]
         self.assertAlmostEqual(a["x"], b["x"], delta=0.5)

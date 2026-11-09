@@ -150,7 +150,7 @@ def _open(live):
 
 def _next(kind):
     d = _st["data"]
-    d["seq"][kind] += 1
+    d["seq"][kind] = d["seq"].get(kind, 0) + 1        # a kind a race file saved before it existed doesn't have yet
     return "%s%d" % (kind, d["seq"][kind])
 
 
@@ -423,6 +423,67 @@ def clear_log(steward, car, text, ok, error="", live=None):
     _log("Race control: %s %s %s%s" % (steward, "sent" if ok else "couldn't send", text, "" if ok else " (%s)" % error))
 
 
+# ---------------------------------------------------------------- session actions (not about one driver)
+# iRacing's own admin commands (support.iracing.com, admin commands; Nov 8, 2026). Kept in the race's file and listed
+# under Calls, not sent to the league site: they aren't penalties.
+PACE_LAPS_MAX = 10
+
+
+def session_prepare(data, steward, live):
+    """A session action from the Race Control page's Session strip. -> (ok, error, text, label)"""
+    if not str(steward or "").strip():
+        return False, "Type your name at the top first", None, None
+    live = live or {}
+    if not live.get("connected"):
+        return False, "iRacing isn't connected", None, None
+    act, msg = str(data.get("action") or ""), simchat.clean(data.get("message"))
+    caution = live.get("flag") == "caution"
+    if act == "yellow":
+        if caution:
+            return False, "It's already under caution", None, None
+        return True, "", simchat.clean("!yellow " + msg), "Caution thrown" + (": " + msg if msg else "")
+    if act == "laps":
+        if not caution:
+            return False, "Caution laps can only be changed under caution", None, None
+        v = str(data.get("value") or "").strip()
+        if v in ("+1", "-1"):
+            return True, "", "!pacelaps " + v, "Caution: one more lap" if v == "+1" else "Caution: one lap fewer"
+        try:
+            n = int(v)
+        except ValueError:
+            return False, "How many laps?", None, None
+        if not 1 <= n <= PACE_LAPS_MAX:
+            return False, "Green in 1 to %d laps" % PACE_LAPS_MAX, None, None
+        return True, "", "!pacelaps %d" % n, "Caution: green in %d lap%s" % (n, "" if n == 1 else "s")
+    if act == "restart":
+        how = str(data.get("value") or "")
+        if how not in ("single", "double"):
+            return False, "Single or double file?", None, None
+        return True, "", "!restart " + how, "Restarts: %s file" % how
+    if act == "all":
+        if not msg:
+            return False, "Type the message first", None, None
+        return True, "", simchat.clean("/all " + msg), "Message to everyone: " + msg
+    if act == "advance":
+        name = live.get("sessionName") or "the session"
+        return True, "", simchat.clean("!advance " + msg), "Advanced from %s" % name.lower() + (": " + msg if msg else "")
+    return False, "Unknown session action", None, None
+
+
+def session_log(steward, text, label, ok, error="", live=None):
+    """Every session action is kept in the race's file, with who sent it."""
+    with LOCK:
+        d = _st["data"]
+        if d is None:
+            return
+        lv = live or {}
+        d.setdefault("session", []).append({"id": _next("s"), "at": _now(), "by": str(steward).strip()[:60], "cmd": text,
+                                            "label": label, "ok": bool(ok), "error": error or "", "lap": lv.get("lap"),
+                                            "sess": lv.get("sessNum", 0), "sessName": lv.get("sessionName", "")})
+        _changed(calls=True)
+    _log("Race control: %s %s %s%s" % (steward, "sent" if ok else "couldn't send", text, "" if ok else " (%s)" % error))
+
+
 # ---------------------------------------------------------------- the league site (rcsite.py does the talking)
 def current_key():
     with LOCK:
@@ -557,7 +618,8 @@ def snapshot():
     with LOCK:
         d = _st["data"] or {"queue": [], "calls": [], "race": None, "track": "", "subId": None}
         return {"ver": _st["ver"], "race": d.get("race"), "track": d.get("track", ""), "subId": d.get("subId"),
-                "queue": list(d["queue"]), "calls": list(d["calls"]), "clears": list(d.get("clears") or []), "inReplay": _st["replay"],
+                "queue": list(d["queue"]), "calls": list(d["calls"]), "clears": list(d.get("clears") or []),
+                "session": list(d.get("session") or []), "inReplay": _st["replay"],
                 "siteCalls": list(d.get("siteCalls") or []),
                 "kinds": [{"key": k, "label": lbl, "unit": u, "sim": k in SIM_KINDS} for k, lbl, u in KINDS], "types": incidents.TYPES,
                 "holdAdd": HOLD_ADD,

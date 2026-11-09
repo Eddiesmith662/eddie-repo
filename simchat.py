@@ -1,4 +1,5 @@
-"""Typing into iRacing's chat, for race control's admin commands (!black, !clear, !eol, !dq, private messages).
+"""Typing into iRacing's chat, for race control's admin commands (!black, !clear, !eol, !dq, !yellow, !pacelaps,
+!restart, !advance, private messages and /all).
 
 iRacing's SDK opens a new chat window (the same as pressing T), and the letters and Enter are posted straight to the
 iRacing window, so iRacing doesn't have to be in front: the steward keeps the Race Control page on screen. Tested on

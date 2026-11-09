@@ -283,6 +283,44 @@ class Clearing(Base):
         self.assertEqual(self.get(cid)["sim"]["state"], "waiting")
 
 
+class SessionActions(Base):
+    """The Session strip: actions for the whole session, not one driver (a steward asked, Nov 8, 2026)."""
+
+    def prep(self, action, value=None, message="", flag="green", steward="Steward X"):
+        self.race.flag = flag
+        return rc.session_prepare({"action": action, "value": value, "message": message}, steward, self.race.live())
+
+    def test_each_action_is_iracings_own_admin_command(self):
+        self.assertEqual(self.prep("yellow")[2], "!yellow")
+        self.assertEqual(self.prep("yellow", message="Debris turn 3")[2], "!yellow Debris turn 3")
+        self.assertEqual(self.prep("laps", "+1", flag="caution")[2], "!pacelaps +1")
+        self.assertEqual(self.prep("laps", "-1", flag="caution")[2], "!pacelaps -1")
+        self.assertEqual(self.prep("laps", "3", flag="caution")[2:], ("!pacelaps 3", "Caution: green in 3 laps"))
+        self.assertEqual(self.prep("restart", "single")[2], "!restart single")
+        self.assertEqual(self.prep("restart", "double")[2], "!restart double")
+        self.assertEqual(self.prep("all", message="Pits close next lap")[2], "/all Pits close next lap")
+        self.assertEqual(self.prep("advance")[2:], ("!advance", "Advanced from race"))
+
+    def test_what_iracing_would_refuse_isnt_sent(self):
+        self.assertFalse(self.prep("yellow", flag="caution")[0])      # already under caution
+        self.assertFalse(self.prep("laps", "+1")[0])                  # caution laps only under caution
+        self.assertFalse(self.prep("laps", "0", flag="caution")[0])
+        self.assertFalse(self.prep("laps", "11", flag="caution")[0])
+        self.assertFalse(self.prep("restart", "triple")[0])
+        self.assertFalse(self.prep("all")[0])                         # nothing to send
+        self.assertFalse(self.prep("yellow", steward="")[0])          # who did it is always recorded
+
+    def test_a_message_stays_one_line(self):
+        self.assertEqual(self.prep("all", message="Two\nlines")[2], "/all Two lines")
+
+    def test_each_action_is_kept_with_who_sent_it(self):
+        ok, _, text, label = self.prep("yellow", message="Debris")
+        rc.session_log("Steward X", text, label, True, live=self.race.live())
+        x = rc.snapshot()["session"]
+        self.assertEqual([(y["cmd"], y["label"], y["by"], y["ok"], y["sess"]) for y in x],
+                         [("!yellow Debris", "Caution thrown: Debris", "Steward X", True, 2)])
+
+
 class SavedFile(Base):
     def path(self):
         return os.path.join(rc.DIR, "%d.json" % SUB)
@@ -362,6 +400,13 @@ class ServerCommands(unittest.TestCase):
         self.assertEqual(server.SOURCE.cars[1]["blackUntil"], 0)
         self.assertEqual(server.race_control_command({"cmd": "clearall"})["sent"], "!clearall")
         self.assertEqual(server.SOURCE.cars[2]["blackUntil"], 0)
+
+    def test_session_actions_reach_the_sim_and_are_kept(self):
+        server.race_control_command({"cmd": "steward", "name": "Steward X"})
+        r = server.race_control_command({"cmd": "session", "action": "restart", "value": "double"})
+        self.assertEqual((r["ok"], r["sent"]), (True, "!restart double"))
+        self.assertEqual(rc.snapshot()["session"][-1]["label"], "Restarts: double file")
+        self.assertFalse(server.race_control_command({"cmd": "session", "action": "all"})["ok"])
 
     def test_off_when_not_in_race_control_mode(self):
         server.RC["on"] = False
