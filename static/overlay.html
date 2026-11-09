@@ -591,7 +591,9 @@ const q = (id, sel) => $(id).querySelector(sel);
 const ROWS_CHECK = {
   board:  { name: 'Results board',  body: 'bCols',  rows: '.r',      render: () => renderBoard() },
   movers: { name: 'Biggest movers', body: 'mvBody', rows: '.r, .none', render: () => renderMovers() },
-  tower:  { name: 'Ticker',         body: 'tRows',  rows: '.row',    render: () => renderTower() },
+  // parts: the ticker's title bar and lap line fold the same way, and were left folded with the rows (Phoenix, Nov 8,
+  // 2026: the rows were put back but the lap and flag line stayed hidden for the whole race)
+  tower:  { name: 'Ticker',         body: 'tRows',  rows: '.row',    render: () => renderTower(), parts: { '.head': 'title bar', '.sub': 'lap line' } },
 };
 const FIX_PROPS = ['visibility', 'opacity', 'clip-path'];   // what the fix sets; only these are cleared (the ticker's rows keep other inline styles)
 function boardLog(msg) { try { navigator.sendBeacon('/api/clientlog', JSON.stringify({ page: 'overlay', msg })); } catch (e) {} }
@@ -600,22 +602,41 @@ function rowsHidden(id) {
   const rows = c.querySelectorAll(k.rows).length;
   return !rows || b.classList.contains('off') || cs.visibility === 'hidden' || cs.display === 'none' || +cs.opacity < 0.1 || r.height < 5 || /100%/.test(cs.clipPath);
 }
+function partEls(id) { const k = ROWS_CHECK[id]; return Object.keys(k.parts || {}).map(s => [s, q(id, s)]).filter(p => p[1]); }
+function partHidden(el) {
+  const cs = getComputedStyle(el);
+  return cs.visibility === 'hidden' || cs.display === 'none' || +cs.opacity < 0.1 || /100%/.test(cs.clipPath);
+}
+function hiddenParts(id) { return partEls(id).filter(p => partHidden(p[1])); }
 function rowsCheckLater(id, ms) {
   const k = ROWS_CHECK[id];
-  const c = $(k.body); FIX_PROPS.forEach(p => c.style.removeProperty(p));   // the last fix, if any
+  [$(k.body)].concat(partEls(id).map(p => p[1])).forEach(c => FIX_PROPS.forEach(p => c.style.removeProperty(p)));   // the last fix, if any
   clearTimeout(k.t); k.t = setTimeout(() => rowsCheck(id), ms);
 }
 function rowsUnfix(id) {   // the fix shows the rows with inline styles: drop them once the graphic is going off (they'd override 'off')
-  const c = $(ROWS_CHECK[id].body);
-  if (c.style.visibility) FIX_PROPS.forEach(p => c.style.removeProperty(p));
+  [$(ROWS_CHECK[id].body)].concat(partEls(id).map(p => p[1])).forEach(c => {
+    if (c.style.visibility) FIX_PROPS.forEach(p => c.style.removeProperty(p));
+  });
 }
 function rowsCheck(id, again) {
   const k = ROWS_CHECK[id];
-  if (!(VIS[id] && VIS[id].on) || !rowsHidden(id)) {
+  const up = VIS[id] && VIS[id].on, rowsGone = up && rowsHidden(id), parts = up ? hiddenParts(id) : [];
+  const what = parts.map(p => k.parts[p[0]]).join(' and ');
+  if (!rowsGone && !parts.length) {
     if (again) boardLog(k.name + ': rows put back on screen (fixed itself)');
     return;
   }
-  if (again) { boardLog(k.name + ': rows still hidden after the fix'); return; }
+  if (again) { boardLog(k.name + ': ' + (rowsGone ? 'rows' : what) + ' still hidden after the fix'); return; }
+  // only the title bar or lap line left folded (rows fine): put those back
+  const showParts = () => parts.forEach(p => { p[1].getAnimations().forEach(a => a.cancel()); FIX_PROPS.forEach((pr, i) => p[1].style.setProperty(pr, ['visible', '1', 'none'][i], 'important')); });
+  if (!rowsGone) {
+    boardLog(k.name + ' up with its ' + what + ' hidden: put back');
+    showParts();
+    setTimeout(() => rowsCheck(id, true), 1000);
+    return;
+  }
+  showParts();
+  if (parts.length) boardLog(k.name + ': its ' + what + ' hidden too: put back');
   const b = $(id), c = $(k.body), h = WIDGETS[id] && WIDGETS[id].holder;
   const desc = (el, name) => {
     if (!el) return name + ' -';

@@ -20,3 +20,5 @@ Race control: on the track map, cars on pit road are now drawn on the pit lane i
 Race control: a Session strip under the top bar for actions that aren't about one driver: throw a caution (press twice), add or take away caution laps or set green in N laps, single or double-file restarts, a message to everyone, and advance to the next session (asks first). Each is typed into iRacing's chat and listed under Calls with who sent it. Incidents from practice and qualifying no longer carry over into the race's list, and the track map marks an incident for one minute.
 
 Race control: Dismiss on each incident takes it off To review without making a call (nothing goes to the league site; who dismissed it is kept), and Clear list dismisses everything still to review in one press, after asking. Dismissed incidents stay under All and can be put back.
+
+Ticker: the lap and flag line above the running order no longer stays missing when OBS or vMix's browser leaves it folded away as the ticker comes up (seen at Phoenix, Nov 8: gone for the whole race). The overlay already put the running order back by itself in that case; now it puts back the lap line and the title bar too.
