@@ -232,10 +232,10 @@ RCMap.geometry(layers), RCMap.at and RCMap.onPitRoad are the maths on their own,
     return g;
   }
   // incidents from the last minute, whatever their status (a steward asked, Nov 8, 2026: marks that stayed until the
-  // incident was decided piled up); the queue keeps them all
+  // incident was decided piled up), except dismissed ones; the queue keeps them all
   function marked(live, rc) {
     const now = (live && live.sessTime) || 0;
-    return (rc.queue || []).filter(q => q.lapPos != null && q.status !== 'logged' && q.t != null && now - q.t >= 0 && now - q.t < MARK_S);
+    return (rc.queue || []).filter(q => q.lapPos != null && q.status !== 'logged' && q.status !== 'dismissed' && q.t != null && now - q.t >= 0 && now - q.t < MARK_S);
   }
   function update(live, rc) {
     if (!st.el) return;

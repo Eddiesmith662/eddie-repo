@@ -95,6 +95,8 @@
   .pts { font-size: 11px; padding: 1px 5px; border-radius: 3px; border: 1px solid #666; color: #ddd; white-space: nowrap; }
   .st { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; padding: 2px 6px; border-radius: 3px; white-space: nowrap; font-weight: 700; }
   .st.new { background: var(--red); color: #fff; } .st.reviewing { background: var(--amber); color: #111; }
+  .st.dismissed { background: transparent; color: var(--dim); border: 1px dashed #666; }
+  .inc .dis { margin-left: 6px; padding: 1px 8px; font-size: 12px; }
   .st.decided { background: #fff; color: #111; } .st.noaction { background: #4b5563; color: #fff; } .st.logged { background: transparent; color: var(--dim); border: 1px solid #555; }
   .inc .dt { font-size: 12px; color: var(--dim); display: flex; justify-content: space-between; gap: 6px; align-items: baseline; }
   .tag { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; color: #8fb4ff; white-space: nowrap; }
@@ -230,13 +232,14 @@
       <div class="seg" id="view">
         <button data-v="review" class="on">To review</button><button data-v="all">All</button><button data-v="decided">Decided</button><button data-v="logged">Logged</button>
       </div>
+      <button id="clearList" title="Dismisses every incident still New or Reviewing in this session (ones with a call stay). No calls are made; they stay under All, marked Dismissed.">Clear list</button>
       <span class="grow"></span>
       <input type="number" id="rewind" min="0" max="120" value="10" title="Seconds before the incident to start the replay"><span class="s">s</span>
       <button id="typesBtn">Types ▾</button>
       <div class="types" id="types" hidden></div>
     </div>
     <div class="scroll"><div class="q" id="queue"></div></div>
-    <p class="hint">Click to open it. Double-click to replay it in the sim. <b>Logged</b> = iRacing's own penalties, cautions and retirements: recorded, nothing to decide.</p>
+    <p class="hint">Click to open it. Double-click to replay it in the sim. <b>Dismiss</b> takes one off To review with no call (it stays under All and can be put back). <b>Logged</b> = iRacing's own penalties, cautions and retirements: recorded, nothing to decide.</p>
   </section>
 
   <section class="det" id="det"></section>
@@ -286,7 +289,7 @@ const load = (k, d) => { try { const v = localStorage.getItem(k); return v ? JSO
 const COLORS = { offtrack: ['#8b8f96'], spin: ['#ff8a3d'], contact: ['#ff4d6d'], wall: ['#e11d48'], multi: ['#FF0D40'], stopped: ['#ffb020', '#111'],
   mechanical: ['#a78bfa'], slow: ['#7dd3fc', '#111'], retired: ['#4b5563'], caution: ['#FFE81F', '#111'], meatball: ['#ff7a00'], penalty: ['#ffffff', '#111'],
   warning: ['#cbd5e1', '#111'], dq: ['#000000'], pit: ['#33A1FF'] };
-const STATUS = { new: 'New', reviewing: 'Reviewing', decided: 'Decided', noaction: 'No action', logged: 'Logged' };
+const STATUS = { new: 'New', reviewing: 'Reviewing', decided: 'Decided', noaction: 'No action', logged: 'Logged', dismissed: 'Dismissed' };
 const RC = { ver: -1, queue: [], calls: [], kinds: [], types: [], inReplay: false, busy: false };
 let L = { connected: false, cars: [] }, S = {}, LU = {};
 let view = load('rcView', 'review'), off = new Set(load('rcOff', ['offtrack', 'slow'])), cur = null, form = { kind: null, idx: null, value: '', reason: '' }, sel = null;
@@ -428,17 +431,32 @@ function renderQueue() {
   const html = !shown.length ? `<div class="empty">${view === 'review' ? 'Nothing to review' : 'Nothing here yet'}${earlier ? `<br><span class="by">Earlier sessions' incidents (${earlier}) are saved but not shown here.</span>` : ''}</div>` : shown.map(q => {
     const [bg, fg] = COLORS[q.type] || ['#666'];
     const calls = RC.calls.filter(c => c.incident === q.id && c.status === 'active');
-    return `<div class="inc ${cur === q.id ? 'cur' : ''} ${['decided', 'noaction', 'logged'].includes(q.status) ? 'done' : ''}" data-id="${q.id}" style="--ic:${bg};--icx:${fg || '#fff'}">
+    return `<div class="inc ${cur === q.id ? 'cur' : ''} ${['decided', 'noaction', 'logged', 'dismissed'].includes(q.status) ? 'done' : ''}" data-id="${q.id}" style="--ic:${bg};--icx:${fg || '#fff'}">
       <div class="when"><b>${q.lap != null ? 'L' + Math.max(1, q.lap) : ''}</b>${clock(q.t)}</div>
-      <div class="top"><span class="chip">${esc(label[q.type] || q.type)}</span><span class="who">${who(q)}</span>${q.pts ? `<span class="pts">+${q.pts}x</span>` : ''}<span class="st ${q.status}">${STATUS[q.status] || q.status}</span></div>
+      <div class="top"><span class="chip">${esc(label[q.type] || q.type)}</span><span class="who">${who(q)}</span>${q.pts ? `<span class="pts">+${q.pts}x</span>` : ''}<span class="st ${q.status}">${STATUS[q.status] || q.status}</span>${(q.status === 'new' || q.status === 'reviewing') && !calls.length ? `<button class="dis" data-dismiss="${q.id}" title="Off To review, no call">Dismiss</button>` : ''}</div>
       <div class="dt"><span>${esc(q.detail || '')}</span>${q.afterReview ? '<span class="tag rev">found after review</span>' : q.auto ? '<span class="tag">iRacing penalty</span>' : ''}</div>
       ${calls.length ? `<div class="calls">${calls.map(c => esc(callText(c)) + (c.car ? ' · #' + esc(c.car.num) : '')).join(' &nbsp;|&nbsp; ')}</div>` : ''}</div>`;
   }).join('');
   if ($('queue')._h !== html) { $('queue')._h = html; $('queue').innerHTML = html; }
 }
 $('view').onclick = e => { const b = e.target.closest('[data-v]'); if (!b) return; view = b.dataset.v; store('rcView', view); renderQueue(); };
-$('queue').onclick = e => { const r = e.target.closest('[data-id]'); if (!r) return; openIncident(r.dataset.id); };
-$('queue').ondblclick = e => { const r = e.target.closest('[data-id]'); if (!r) return; openIncident(r.dataset.id); replay(r.dataset.id); };
+$('queue').onclick = e => {
+  const dis = e.target.closest('[data-dismiss]'); if (dis) return dismiss('dismiss', dis.dataset.dismiss);
+  const r = e.target.closest('[data-id]'); if (!r) return; openIncident(r.dataset.id);
+};
+async function dismiss(cmd, id) {
+  const r = await post('/api/rc', { cmd, id });
+  if (!r.ok) { if (r.error && r.error.includes('name')) $('steward').classList.add('need'); toast(r.error || 'It couldn\'t be done'); }
+  else if (cmd === 'dismissall') toast(r.count ? `Dismissed ${r.count} incident${r.count === 1 ? '' : 's'}` : 'Nothing to dismiss');
+  rcFetch();
+}
+$('clearList').onclick = () => {
+  const n = RC.queue.filter(q => here(q) && (q.status === 'new' || q.status === 'reviewing') && !RC.calls.some(c => c.incident === q.id && c.status === 'active')).length;
+  if (!n) return toast('Nothing to review');
+  if (!confirm(`Dismiss ${n} incident${n === 1 ? '' : 's'}?\n\nThey come off To review with no call made. They stay under All, marked Dismissed, and can be put back.`)) return;
+  dismiss('dismissall');
+};
+$('queue').ondblclick = e => { if (e.target.closest('[data-dismiss]')) return; const r = e.target.closest('[data-id]'); if (!r) return; openIncident(r.dataset.id); replay(r.dataset.id); };
 // Not called open(): a page-level function of that name replaces the browser's window.open, which stopped Pop out map
 // and the Sign in window from opening (found Nov 7, 2026).
 function openIncident(id) {
@@ -489,6 +507,8 @@ function renderDet() {
     <div class="row">
       <button id="rpBtn">▶ Replay it</button>
       ${q.status === 'new' ? '<button id="stRev">Mark reviewing</button>' : q.status === 'reviewing' ? '<button id="stNew">Back to new</button>' : ''}
+      ${(q.status === 'new' || q.status === 'reviewing') && !RC.calls.some(c => c.incident === q.id && c.status === 'active') ? '<button id="stDis" title="Off To review, no call">Dismiss</button>' : ''}
+      ${q.status === 'dismissed' ? `<button id="stBack">Put back</button><span class="by">Dismissed${q.dismissed ? ' by ' + esc(q.dismissed.by) + ' at ' + hm(q.dismissed.at) : ''}</span>` : ''}
     </div>` : `<h2>New call</h2><p class="hint" style="margin:0 0 6px">For something that isn't in the incident list. Pick the car, or open an incident on the left.</p>`;
   const carBtns = involved.map(c => `<button data-car="${c.idx}" class="${form.idx === c.idx ? 'on' : ''}">#${esc(c.num)} ${esc(c.name)}</button>`).join('');
   const html = head + `
@@ -540,6 +560,7 @@ $('det').onclick = async e => {
   const t = e.target;
   if (t.id === 'newCall') { cur = null; form = { kind: null, idx: null, value: '', reason: '' }; return render(); }
   if (t.id === 'rpBtn') return replay(cur);
+  if (t.id === 'stDis' || t.id === 'stBack') return dismiss(t.id === 'stDis' ? 'dismiss' : 'undismiss', cur);
   if (t.id === 'stRev' || t.id === 'stNew') { const r = await post('/api/rc', { cmd: 'status', id: cur, status: t.id === 'stRev' ? 'reviewing' : 'new' }); if (!r.ok) toast(r.error); return rcFetch(); }
   const car = t.closest('[data-car]'); if (car) { form.idx = +car.dataset.car; return renderDet(); }
   const k = t.closest('[data-k]'); if (k && $('det').contains(k) && k.parentElement.classList.contains('kinds')) { form.kind = k.dataset.k; renderDet(); if ($('val')) $('val').focus(); else $('reason').focus(); return; }

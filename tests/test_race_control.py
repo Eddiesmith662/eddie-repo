@@ -283,6 +283,77 @@ class Clearing(Base):
         self.assertEqual(self.get(cid)["sim"]["state"], "waiting")
 
 
+class Dismissing(Base):
+    """Dismiss and Clear list: off To review with no call (a steward asked, Nov 8, 2026: a No action call on each
+    incident was the only way, one at a time, and those went to the league site as decisions)."""
+
+    def incidents(self, n):
+        for i in range(n):                                  # cars 0, 1, 2
+            self.race.set(i, inc=4)
+        self.race.step()
+        return [q["id"] for q in rc.snapshot()["queue"]]
+
+    def q(self, qid):
+        return next(q for q in rc.snapshot()["queue"] if q["id"] == qid)
+
+    def cmd(self, cmd, qid=None, steward="Steward X"):
+        return rc.command({"cmd": cmd, "id": qid}, self.race.live(), steward)
+
+    def test_dismiss_takes_one_off_to_review_with_who_did_it_and_no_call(self):
+        a, = self.incidents(1)
+        self.assertTrue(self.cmd("dismiss", a)[0])
+        q = self.q(a)
+        self.assertEqual((q["status"], q["dismissed"]["by"]), ("dismissed", "Steward X"))
+        self.assertEqual(rc.snapshot()["calls"], [])            # nothing for the league site
+
+    def test_it_can_be_put_back_where_it_was(self):
+        a, b = self.incidents(2)
+        rc.command({"cmd": "status", "id": b, "status": "reviewing"}, self.race.live(), "S")
+        self.cmd("dismiss", a)
+        self.cmd("dismiss", b)
+        self.cmd("undismiss", a)
+        self.cmd("undismiss", b)
+        self.assertEqual((self.q(a)["status"], self.q(b)["status"]), ("new", "reviewing"))
+        self.assertNotIn("dismissed", self.q(a))
+
+    def test_clear_list_dismisses_everything_to_review_but_leaves_incidents_with_a_call(self):
+        a, b, c = self.incidents(3)
+        self.call("drivethrough", i=1, incident=b)
+        ok, _, extra = self.cmd("dismissall")
+        self.assertEqual((ok, extra["count"]), (True, 2))
+        self.assertEqual([self.q(x)["status"] for x in (a, b, c)], ["dismissed", "decided", "dismissed"])
+
+    def test_clear_list_leaves_other_sessions_alone(self):
+        a, = self.incidents(1)
+        with rc.LOCK:
+            rc._st["data"]["queue"][0]["sess"] = 1          # from qualifying; the race is session 2
+        self.assertEqual(self.cmd("dismissall")[2]["count"], 0)
+        self.assertEqual(self.q(a)["status"], "new")
+
+    def test_who_dismissed_it_is_always_known(self):
+        a, = self.incidents(1)
+        self.assertFalse(self.cmd("dismiss", a, steward="")[0])
+        self.assertFalse(self.cmd("dismissall", steward="")[0])
+
+    def test_one_with_a_call_or_already_decided_isnt_dismissed(self):
+        a, = self.incidents(1)
+        self.call("warning", i=1, incident=a)
+        self.assertFalse(self.cmd("dismiss", a)[0])
+
+    def test_a_call_on_a_dismissed_incident_decides_it_after_all(self):
+        a, = self.incidents(1)
+        self.cmd("dismiss", a)
+        self.call("warning", i=1, incident=a)
+        self.assertEqual(self.q(a)["status"], "decided")
+        self.assertNotIn("dismissed", self.q(a))
+
+    def test_dismissed_stays_in_the_race_file(self):
+        a, = self.incidents(1)
+        self.cmd("dismiss", a)
+        saved = datafiles.load_json(os.path.join(rc.DIR, "%d.json" % SUB))
+        self.assertEqual(saved["queue"][0]["status"], "dismissed")
+
+
 class SessionActions(Base):
     """The Session strip: actions for the whole session, not one driver (a steward asked, Nov 8, 2026)."""
 

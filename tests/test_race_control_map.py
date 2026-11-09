@@ -224,6 +224,7 @@ class Placing(unittest.TestCase):
             {id: 'old', status: 'new', t: 930, lapPos: 0.2},          // 70 s ago, not reviewed: gone
             {id: 'done', status: 'decided', t: 990, lapPos: 0.3},     // decided, but only 10 s ago: marked
             {id: 'log', status: 'logged', t: 995, lapPos: 0.4},       // iRacing's own penalties: never marked
+            {id: 'dis', status: 'dismissed', t: 995, lapPos: 0.45},  // dismissed: off the map too
             {id: 'nopos', status: 'new', t: 995, lapPos: null}]}).map(q => q.id)""")
         self.assertEqual(ids, ["new", "done"])
 

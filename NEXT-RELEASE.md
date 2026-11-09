@@ -18,3 +18,5 @@ Race control is race control only: started with start-race-control.bat, it now s
 Race control: on the track map, cars on pit road are now drawn on the pit lane instead of on the track beside it (still in blue). At tracks with two pit roads, such as Bristol, each car shows on the one it is using. Kansas, Nashville and Spielberg GP no longer show the cars going round the wrong way.
 
 Race control: a Session strip under the top bar for actions that aren't about one driver: throw a caution (press twice), add or take away caution laps or set green in N laps, single or double-file restarts, a message to everyone, and advance to the next session (asks first). Each is typed into iRacing's chat and listed under Calls with who sent it. Incidents from practice and qualifying no longer carry over into the race's list, and the track map marks an incident for one minute.
+
+Race control: Dismiss on each incident takes it off To review without making a call (nothing goes to the league site; who dismissed it is kept), and Clear list dismisses everything still to review in one press, after asking. Dismissed incidents stay under All and can be put back.

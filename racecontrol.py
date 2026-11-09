@@ -46,7 +46,7 @@ KIND_UNIT = {k: u for k, _, u in KINDS}
 AUTO = {"penalty", "warning", "dq"}            # iRacing's own flags: logged, not for the steward to decide
 INFO = {"caution", "retired"}                  # context for the steward: logged, nothing to decide
 SKIP = {"pit"}                                 # incident log entries race control doesn't queue
-STATUSES = ("new", "reviewing", "decided", "noaction", "logged")
+STATUSES = ("new", "reviewing", "decided", "noaction", "logged", "dismissed")   # dismissed: off To review with no call
 CATCH_DUP_S = 3.0                              # the incident log's own copy of points found after a review: ignored
 
 # what each call sends to iRacing (tested on a live session, Nov 2026). Calls not listed change the results later.
@@ -658,6 +658,41 @@ def command(data, live, steward=""):
             _changed()
             return True, "", None
 
+        # Dismiss: off To review with no call (a steward asked, Nov 8, 2026: a No action call on each incident went to
+        # the league site as a decision). Kept on the incident with who and when; the queue never goes to the site.
+        if cmd in ("dismiss", "dismissall", "undismiss"):
+            who = str(steward or "").strip()[:60]
+            if not who:
+                return False, "Type your name at the top first", None
+            if cmd == "dismissall":            # this session's New and Reviewing incidents that have no call
+                sess = (live or {}).get("sessNum")
+                todo = [q for q in d["queue"] if q["status"] in ("new", "reviewing") and not _active_calls(d, q["id"])
+                        and (sess is None or q.get("sess") == sess)]
+            else:
+                q = by_id.get(str(data.get("id") or ""))
+                if not q:
+                    return False, "That incident isn't in the queue", None
+                if cmd == "undismiss":
+                    if q["status"] != "dismissed":
+                        return False, "That incident isn't dismissed", None
+                    q["status"] = q.pop("dismissed", {}).get("was") or "new"
+                    _changed()
+                    _log("Race control: %s put back incident %s" % (who, q["id"]))
+                    return True, "", None
+                if q["status"] not in ("new", "reviewing"):
+                    return False, "Only an incident still to review can be dismissed", None
+                if _active_calls(d, q["id"]):
+                    return False, "This incident has a call. Withdraw the call first.", None
+                todo = [q]
+            at = _now()
+            for q in todo:
+                q["dismissed"] = {"by": who, "at": at, "was": q["status"]}
+                q["status"] = "dismissed"
+            if todo:
+                _changed()
+                _log("Race control: %s dismissed %d incident%s" % (who, len(todo), "" if len(todo) == 1 else "s"))
+            return True, "", {"count": len(todo)}
+
         if cmd == "call":
             kind = str(data.get("kind") or "")
             if kind not in KIND_LABEL:
@@ -714,6 +749,7 @@ def command(data, live, steward=""):
             call["sim"] = {"cmd": text, "state": "ready"} if text else None
             d["calls"].append(call)
             if q:
+                q.pop("dismissed", None)           # a call on a dismissed incident (from All) decides it after all
                 q["status"] = "decided" if any(c["kind"] != "noaction" for c in _active_calls(d, q["id"])) else "noaction"
             _changed(calls=True)
             who = ("#%s %s" % (car["num"], car["name"])) if car else "incident %s" % q["id"]

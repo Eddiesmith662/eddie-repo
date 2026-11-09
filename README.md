@@ -262,6 +262,10 @@ control from before v1.5.38 kept its calls in `data\race-control`; they're copie
   what still needs a look. Click one to open it; double-click to replay it in the sim (the seconds box sets how far
   before it the replay starts). Replaying marks it **Reviewing**. Only the current session's incidents show:
   practice and qualifying ones stay saved in the race file but don't carry over to the race.
+- **Dismiss** (on an incident, or in the open incident) takes it off **To review** with no call: nothing goes to the
+  league site, and who dismissed it is kept. It stays under **All**, marked Dismissed, and **Put back** returns it.
+  **Clear list** dismisses every incident still New or Reviewing in this session at once, after asking (ones with a
+  call stay). Dismissed incidents come off the map too, and stay in the race file (and diagnostics).
 - **Logged**: iRacing's own penalties (black flag, warning, disqualified), cautions and retirements. They're recorded
   for the stewards, not decisions, and nothing is done with them.
 - **Map** (bottom right): iRacing's own map of the track, with every car on it (the camera car in red, cars on pit
