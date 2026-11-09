@@ -54,7 +54,7 @@ import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, i
   linkDriver, unlinkDriver, setLink, linkedAccount, listAccounts, listClaims, decideClaim, getTeams, saveTeams, setSeriesTeams, listBlocks, setBlock, missedResults, logHelp, helpToday, listHelp, setEventSeason, saveProfile, PROFILE_FIELDS, driversForMatching, directorOf, listDirectors, setDirector, accountRoles, searchDrivers, normName, decisionsFor, fileProtest, listProtests, getProtest, setProtestStatus, listDecisions, addDecision, deleteDecision,
   saveRaceCalls, raceCalls } from "./db.js";
 import { KINDS, AMOUNT, CHANGES_ORDER, decisionText } from "./stewards.js";
-import { resultsPost, standingsPost, teamStandingsPost, penaltyPost, fixPost, decisionPost, enqueue, processQueue, queueFor, retryQueued, discardQueued, isRecent } from "./discord.js";
+import { resultsPost, standingsPost, teamStandingsPost, penaltyPost, fixPost, decisionPost, penaltyReportPost, enqueue, processQueue, queueFor, retryQueued, discardQueued, isRecent } from "./discord.js";
 import { computeStandings, cleanRules, DEFAULT_RULES, GLR_PLAYOFFS } from "./standings.js";
 import { computeStats, leaders, COLUMNS } from "./stats.js";
 import { THEMES, themeOf } from "./themes.js";
@@ -334,14 +334,20 @@ function decisionForm(ev, race, { protest = null, self = null } = {}) {
     <p><button class="btn">Save decision</button></p></form>`;
 }
 
-function stewardsPage(ev, user, { protests = [], steward = false, msg = "" } = {}) {
+function stewardsPage(ev, user, { protests = [], steward = false, msg = "", report = null } = {}) {
   const race = (ev.sessions.race || []).slice().sort((a, b) => a.finish_pos - b.finish_pos);
   const decs = ev.decisions || [];
-  const ok = /^(Protest filed|Decision saved|Linked|Removed|Withdrawn|Reopened|Closed)/.test(msg);
+  const ok = /^(Protest filed|Decision saved|Linked|Removed|Withdrawn|Reopened|Closed|Sent)/.test(msg);
   let body = crumb(ev) + `<h1>Stewards: ${esc(ev.track)}</h1><p class="sub">${day(ev.start_time)}${ev.season_name ? " · " + esc(ev.season_name) : ""} · <a href="${BASE}/results/${ev.subsession_id}">Results</a></p>`
     + (msg ? `<div class="msg ${ok ? "ok" : "bad"}">${esc(msg)}</div>` : "");
   // the decisions: the report everyone sees
-  body += `<h2>Decisions</h2>` + (decs.length ? `<div class="wrap"><table><tr><th>Driver</th><th>Decision</th><th>Reason</th><th>When</th>${steward ? "<th></th>" : ""}</tr>` +
+  body += `<h2>Decisions</h2>`;
+  // the series' directors and admins: send this race's penalties to the penalties channel by hand
+  if (report) body += report.hook
+    ? `<form method="post" action="#top" style="margin:0 0 10px" onsubmit="return confirm('Send this race\\'s penalty report to the penalties Discord channel?')"><input type="hidden" name="action" value="report"><button class="btn">Send penalty report to Discord</button>
+      <span class="tag">One post with every penalty on this race (warnings, race control's calls, points penalties). Withdrawn calls and no action are left out.</span></form>`
+    : `<p class="tag">To send this race's penalty report to Discord, add a Penalties webhook on <a href="${BASE}/${report.slug}/edit">Edit series</a>.</p>`;
+  body += (decs.length ? `<div class="wrap"><table><tr><th>Driver</th><th>Decision</th><th>Reason</th><th>When</th>${steward ? "<th></th>" : ""}</tr>` +
     decs.map(d => { const off = d.status === "withdrawn", rc = d.source === "race control", info = d.info || {};
       return `<tr${off ? ' class="wd"' : ""}><td>${driverLink(d.cust_id, `${d.car_number ? "#" + d.car_number + " " : ""}${d.name || d.cust_id}`)}</td>
       <td><b>${esc(decisionText(d))}</b>${servedText(d)}${rc ? ` <span class="tag">race control${info.lap != null ? `, lap ${esc(info.lap)}` : ""}</span>` : ""}</td>
@@ -803,6 +809,20 @@ async function postOfficial(db, sub, origin) {
     }
   }
   return n;
+}
+
+// every penalty on a race, for its penalty report: active decisions (not "no action") and points penalties from the
+// Penalties tab that no decision made
+async function penaltyItems(db, ev) {
+  const decs = (ev.decisions || []).filter(d => d.status !== "withdrawn" && d.kind !== "none");
+  const car = cust => ((ev.sessions.race || []).find(r => r.cust_id === cust) || {}).car_number || "";
+  const items = decs.map(d => ({ car: d.car_number || car(d.cust_id), name: d.name || String(d.cust_id), text: decisionText(d), reason: d.reason || "" }));
+  const fromDecisions = new Set(decs.map(d => d.adj_id).filter(Boolean));
+  const adj = (await db.prepare(`SELECT a.*, (SELECT name FROM results r WHERE r.subsession_id = a.subsession_id AND r.cust_id = a.cust_id AND r.session = 'race') AS name
+    FROM adjustments a WHERE a.subsession_id = ? ORDER BY a.id`).bind(ev.subsession_id).all()).results;
+  for (const a of adj) if (!fromDecisions.has(a.id) && !(ev.decisions || []).some(d => d.adj_id === a.id))
+    items.push({ car: car(a.cust_id), name: a.name || String(a.cust_id), text: `${a.points > 0 ? "+" : "−"}${Math.abs(a.points)} point${Math.abs(a.points) === 1 ? "" : "s"}`, reason: a.reason || "" });
+  return items;
 }
 
 // a correction to an official race: the posted results are edited (when they were posted)
@@ -1737,6 +1757,15 @@ const site = {
                 if (ev.status === "official" && CHANGES_ORDER(d.kind)) { await updatePosted(db, sub, url.origin); kick(); }
               }
               msg = d && d.withdrawn ? "Withdrawn." : "Removed.";
+            } else if (a === "report") {
+              if (!canEdit(user, sr)) throw new Error("Only the series' directors and admins can send the penalty report.");
+              if (!sr.hook_penalties) throw new Error("Add a Penalties webhook on Edit series first.");
+              const items = await penaltyItems(db, ev);
+              if (!items.length) throw new Error("No penalties to send for this race.");
+              await enqueue(db, sr.id, "penalties", "report", sub, penaltyReportPost(sr, ev, items, url.origin));
+              const out = await processQueue(db);
+              await logChange(db, { by, seriesId: sr.id, sub, kind: "webhook", summary: `Penalty report for ${ev.track} posted to Discord by hand (${items.length})` });
+              msg = out.includes("sent") ? `Sent: the penalty report (${items.length} penalt${items.length === 1 ? "y" : "ies"}). Check the channel.` : "It didn't go through; see Waiting to post on Edit series.";
             } else if ((a === "close" || a === "reopen") && p && p.subsession_id === sub) {
               if (involvedIn(user, p)) throw new Error(OWN_PROTEST);
               await setProtestStatus(db, pid, a === "close" ? "withdrawn" : "open", by);
@@ -1746,7 +1775,7 @@ const site = {
           } catch (e) { msg = e.message; }
           ev = await getEvent(db, sub);
         }
-        return stewardsPage(ev, user, { protests: await listProtests(db, { sub }), steward, msg });
+        return stewardsPage(ev, user, { protests: await listProtests(db, { sub }), steward, msg, report: canEdit(user, sr) ? { hook: !!sr.hook_penalties, slug: sr.slug } : null });
       }
       if (path === `${BASE}/downloads`) {
         if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/downloads`, 302);

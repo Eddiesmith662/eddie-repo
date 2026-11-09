@@ -97,6 +97,15 @@ export function decisionPost(sr, ev, d, origin) {
     footer: { text: "GLR HUB stewards" } }] };
 }
 
+// a race's penalty report, sent by hand from its stewards' report: every penalty on the race in one post
+export function penaltyReportPost(sr, ev, items, origin) {
+  const lines = items.map(x => `${x.car ? `#${md(x.car)} ` : ""}**${md(x.name)}**: ${md(x.text)}${x.reason ? ` · ${md(x.reason)}` : ""}`);
+  let desc = `${md(ev.track)}, ${day(ev.start_time)}${ev.status === "official" ? "" : " (results still provisional)"}\n\n`;
+  for (const l of lines) { if (desc.length + l.length > 3900) { desc += `…and more on the site`; break; } desc += l + "\n"; }
+  return { embeds: [{ title: `${sr.short_name}: penalty report`, url: `${origin}/results/${ev.subsession_id}/stewards`, color: COLOR,
+    description: desc.trim(), footer: { text: `GLR HUB stewards · ${items.length} penalt${items.length === 1 ? "y" : "ies"}` } }] };
+}
+
 export function fixPost(sr, ev, name, change, reason, origin) {
   return { embeds: [{ title: `${sr.short_name}: result corrected`, url: `${origin}/results/${ev.subsession_id}`, color: COLOR,
     description: `**${md(name)}** at ${md(ev.track)}, ${day(ev.start_time)}\n${md(change)}\n\n${md(reason)}`, footer: { text: "GLR HUB" } }] };
