@@ -184,6 +184,9 @@
   .pens { margin-bottom: 10px; border: 1px solid #5a5a5b; border-left: 4px solid #fff; border-radius: 5px; background: #1a1a1b; }
   .pens .ph { display: flex; align-items: center; justify-content: space-between; padding: 7px 10px; font-size: 12px; letter-spacing: 1.5px; color: var(--dim); text-transform: uppercase; }
   .pens .ph button { padding: 4px 10px; font-size: 12px; }
+  .pens .ph span { flex: 1; }
+  .pens .ph .pcol { padding: 2px 8px; margin-right: 8px; font-size: 13px; letter-spacing: 0; }
+  .pens .pl { max-height: 170px; overflow-y: auto; }   /* about three rows, then it scrolls: the live timing stays in view */
   .pen { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-top: 1px solid #2f2f30; flex-wrap: wrap; }
   .pen .pn { font-weight: 600; min-width: 46px; }
   .pen .nm { flex: 1; min-width: 120px; }
@@ -1523,13 +1526,30 @@ $('incList').ondblclick = async e => {   // double click: replay from the incide
 };
 /* ---------- penalties (live timing window) ---------- */
 const reasonLabel = r => r.charAt(0) + r.slice(1).toLowerCase();
+// Nov 8, 2026: race control's calls filled the box and covered the live timing: it now scrolls past about three rows,
+// and collapses to one line (each viewer's choice, remembered)
+let pensCollapsed = false, pensSeen = null;
+try { pensCollapsed = localStorage.getItem('vsPensCollapsed') === '1'; } catch (e) {}
+function pensCollapse(on) {
+  pensCollapsed = on;
+  try { localStorage.setItem('vsPensCollapsed', on ? '1' : '0'); } catch (e) {}
+}
 function pensRender() {
   const now = PEN.now || Date.now() / 1000;
   const list = (PEN.list || []).filter(e => now - e.t < 30 && !e.fromRc).slice().reverse();   // each penalty stays in the list for 30 seconds, served or not
   const rc = PEN.rc || [];   // race control's calls with no black flag (from the league site), each with its own Show
   const box = $('pens');
   box.hidden = !list.length && !rc.length;
-  const html = (!list.length && !rc.length) ? '' : `<div class="ph"><span>Penalties · pick a reason, then Show to put it on screen</span><button class="vis" data-vis="penAir" data-vrole="hide" data-pcmd="hide">Hide box</button></div>` +
+  // a new black flag opens the box again if it was collapsed, so one is never missed (not on first load)
+  const newest = list.filter(e => e.active).reduce((m, e) => Math.max(m, e.id), 0);
+  if (pensSeen !== null && newest > pensSeen && pensCollapsed) pensCollapse(false);
+  pensSeen = Math.max(pensSeen || 0, newest);
+  const flags = list.filter(e => e.active).length;
+  const sum = [flags ? flags + ' black flag' + (flags === 1 ? '' : 's') : '', list.length - flags ? (list.length - flags) + ' served' : '',
+               rc.length ? rc.length + ' race control call' + (rc.length === 1 ? '' : 's') : ''].filter(Boolean).join(' · ');
+  const head = `<div class="ph"><button class="pcol" data-pcol title="${pensCollapsed ? 'Open the list' : 'Collapse to one line'}">${pensCollapsed ? '▸' : '▾'}</button>` +
+    `<span>${pensCollapsed ? 'Penalties · ' + esc(sum) : 'Penalties · pick a reason, then Show to put it on screen'}</span><button class="vis" data-vis="penAir" data-vrole="hide" data-pcmd="hide">Hide box</button></div>`;
+  const html = (!list.length && !rc.length) ? '' : head + (pensCollapsed ? '' : '<div class="pl">' +
     list.map(e => `<div class="pen ${e.active ? '' : 'old'}" data-pid="${e.id}"><span class="pn">#${esc(e.num)}</span><span class="nm">${esc(e.name)} <span class="ps">${e.pos ? 'P' + e.pos : ''}</span></span>
       <span class="sf ${e.active ? '' : 'done'}">${e.active ? esc(e.rcLabel || 'BLACK FLAG') : 'SERVED'}</span>
       ${e.rcLabel ? `<span class="rcw" title="Race control's reason (shown in the box unless you pick one)">${esc(e.rcReason)}</span>` : ''}
@@ -1537,7 +1557,7 @@ function pensRender() {
       <button class="vis" data-vis="pen-${e.id}" data-vrole="show" data-pcmd="show">Show</button></div>`).join('') +
     (rc.length ? `<div class="ph rch"><span>Race control · calls with no black flag</span></div>` + rc.map(c => `<div class="pen rc" data-uid="${esc(c.uid)}"><span class="pn">#${esc(c.num)}</span>
       <span class="nm">${esc(c.name)}${c.lap != null ? ` <span class="ps">lap ${esc(c.lap)}</span>` : ''}</span><span class="sf">${esc(c.label)}</span>
-      <span class="rcw">${esc(c.reason)}</span><button class="vis" data-vis="rc-${esc(c.uid)}" data-vrole="show" data-pcmd="showrc">Show</button></div>`).join('') : '');
+      <span class="rcw">${esc(c.reason)}</span><button class="vis" data-vis="rc-${esc(c.uid)}" data-vrole="show" data-pcmd="showrc">Show</button></div>`).join('') : '') + '</div>');
   if (box._h !== html) { box._h = html; box.innerHTML = html; }
   const onId = penOnAir(), onEv = (PEN.list || []).find(e => e.id === onId);
   list.forEach(e => vis('pen-' + e.id, e.id === onId));
@@ -1559,6 +1579,7 @@ function penOnAir() {
 $('pens').onclick = e => {
   const b = e.target.closest('button'); if (!b) return;
   const row = b.closest('[data-pid]'), id = row ? +row.dataset.pid : null;
+  if (b.hasAttribute('data-pcol')) { pensCollapse(!pensCollapsed); return pensRender(); }
   if (b.dataset.pcmd === 'hide') return post('/api/penalty', { cmd: 'hide' });
   if (b.dataset.pcmd === 'show') return post('/api/penalty', { cmd: 'show', id });
   if (b.dataset.pcmd === 'showrc') return post('/api/penalty', { cmd: 'showrc', uid: b.closest('[data-uid]').dataset.uid });

@@ -12,3 +12,5 @@ How it works (CLAUDE.md, "Three chats, one repo"):
   VERSION bump).
 
 ## Notes
+
+Penalties box (live timing): it no longer covers the live timing when race control makes a lot of calls. Past about three rows it scrolls, and the ▾ button collapses it to one line ("Penalties · 1 black flag · 5 race control calls"), remembered on that PC; a new black flag opens it again. A race control call you've shown leaves the list 2 minutes later; ones not shown yet stay.

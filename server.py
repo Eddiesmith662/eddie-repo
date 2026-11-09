@@ -1586,6 +1586,9 @@ SOURCE_LOCK = threading.Lock()
 
 
 PEN = {"seq": 0, "list": [], "prev": {}, "init": False, "hide": 0, "rcShown": {}}
+# race control's calls with no black flag, in the live timing window: the newest 8, and one that was shown leaves after 2
+# minutes (Nov 8, 2026: they stayed all race and covered the timing). One never shown stays until the producer shows it.
+RC_LISTED, RC_SHOWN_KEEP = 8, 120
 PEN_REASONS = ["SPEEDING", "PASSING UNDER YELLOW"]   # picked in the live timing window
 
 
@@ -1632,8 +1635,10 @@ def penalty_view():
         for e in PEN["list"]:
             c = None if e.get("fromRc") else rcfeed.for_black_flag(e.get("num"), e.get("t", 0))
             out.append(dict(e, rcLabel=rcfeed.label(c), rcReason=c.get("reason") or "") if c else e)
+        now = time.time()
         rc = [{"uid": c["uid"], "num": c.get("carNumber") or "", "name": c.get("driverName") or "", "label": rcfeed.label(c),
-               "reason": c.get("reason") or "", "lap": c.get("lap"), "shown": PEN["rcShown"].get(c["uid"], 0)} for c in rcfeed.listed()]
+               "reason": c.get("reason") or "", "lap": c.get("lap"), "shown": PEN["rcShown"].get(c["uid"], 0)} for c in rcfeed.listed()
+              if not (PEN["rcShown"].get(c["uid"]) and now - PEN["rcShown"][c["uid"]] > RC_SHOWN_KEEP)][:RC_LISTED]
         return {"list": out, "rc": rc}
     except Exception as e:                  # the feed must never stop the pages: show the black flags as before
         diag.error("Race control feed error: %r" % (e,), e)

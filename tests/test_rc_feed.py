@@ -82,6 +82,24 @@ class Feed(unittest.TestCase):
         self.assertTrue(ev["show"])                      # on air only because Show was pressed
         self.assertFalse(server.penalty_command({"cmd": "showrc", "uid": "p:gone"})["ok"])
 
+    def test_a_call_shown_over_two_minutes_ago_leaves_the_list(self):
+        # Nov 8, 2026: race control's calls stayed in the live timing window all race and covered the timing
+        now = time.time()
+        self.race([call("p:c1", "time", 7, 5, made=now - 300), call("p:c2", "warning", 8, made=now - 200),
+                   call("p:c3", "points", 9, 10, made=now - 100)])
+        server.PEN["rcShown"].update({"p:c1": now - server.RC_SHOWN_KEEP - 5, "p:c2": now - 60})
+        with server.STATE.lock:
+            rc = [c["uid"] for c in server.penalty_view()["rc"]]
+        self.assertEqual(rc, ["p:c3", "p:c2"])          # shown 2+ min ago: gone; shown a minute ago and never shown: kept
+
+    def test_the_list_keeps_eight_after_dropping_shown_ones(self):
+        now = time.time()
+        self.race([call("p:c%d" % i, "warning", 10 + i, made=now - 600 + i) for i in range(12)])
+        server.PEN["rcShown"].update({"p:c%d" % i: now - 600 for i in range(8, 12)})   # the 4 newest were shown long ago
+        with server.STATE.lock:
+            rc = [c["uid"] for c in server.penalty_view()["rc"]]
+        self.assertEqual(rc, ["p:c%d" % i for i in range(7, -1, -1)])
+
     def test_the_site_unreachable_keeps_the_box_working(self):
         def down(*a, **k):
             raise OSError("no internet")

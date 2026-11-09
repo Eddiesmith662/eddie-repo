@@ -95,7 +95,7 @@ def listed():
     """Calls with no black flag, newest first, for the live timing window's Race control rows."""
     out = [c for c in calls() if c.get("kind") in LISTED]
     out.sort(key=lambda c: c.get("madeAt") or "", reverse=True)
-    return out[:8]
+    return out
 
 
 def _read():
