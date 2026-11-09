@@ -107,6 +107,9 @@ History in the header shows who changed what: uploads, official results, fixes, 
 - "You're not in the league's Discord server" at sign-in: they used a Discord account not in the GLR server.
 - Two people claim one driver: Accounts > Disputes.
 - An overlay says its access was turned off by an admin: they're blocked on Accounts.
+- Pages slow or hanging only when signed in: the site checks Discord roles every 15 minutes and gives Discord 5 seconds; if Discord is slow, pages load with the last roles and nobody is signed out. Admins can search the Worker logs (Cloudflare, vspeed-glr > Logs) for "discord:".
+- Help missing for a director or race control: an admin checks Settings > Help chat is ticked and the API key is in Cloudflare.
+- A change pushed to the site isn't showing (admins): Cloudflare builds each push to main, usually within a minute, but a build can sit queued for a while.
 - Results from iRacing can't be pulled automatically: iRacing isn't giving out new API access right now, so results come from the overlay/race control or an uploaded file.
 `;
 
