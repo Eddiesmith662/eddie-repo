@@ -78,6 +78,12 @@ SF = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080">
 <rect x="955" y="855" width="10" height="110" fill="red"/>
 <polygon points="%s" fill="red"/></svg>"""
 RIGHT, LEFT = "990,990 1030,1000 990,1010", "930,990 890,1000 930,1010"
+# pit road drawn the way iRacing's older maps do it: a dashed lane inside the bottom straight (y=850, x 700 to 1220), each
+# dash its own small shape, an arrow at pit entry, and the blue merge lane (further right, also y=850) in a Mergeline group
+PIT = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080">
+<g id="Mergeline">%s</g><g id="Pitroad">%s<polygon points="640,830 690,850 640,870" fill="#d82520"/></g></svg>""" % (
+    "".join('<rect x="%d" y="848" width="30" height="5" fill="#0089ba"/>' % x for x in range(1300, 1520, 50)),
+    "".join('<rect x="%d" y="848" width="30" height="5" fill="#d82520"/>' % x for x in range(700, 1220, 50)))
 
 
 @unittest.skipUnless(__import__("importlib").util.find_spec("playwright"), "Playwright isn't installed here")
@@ -137,6 +143,23 @@ class Placing(unittest.TestCase):
             self.assertEqual(replaced, [])
         finally:
             page.close()
+
+    def pit(self, positions):
+        return self.page.evaluate("""([active, sf, pit, positions]) => {
+            const g = RCMap.geometry({active, 'start-finish': sf, pitroad: pit});
+            return positions.map(p => ({track: RCMap.at(g, p), pit: RCMap.onPitRoad(g, p)}));
+        }""", [OVAL, SF % RIGHT, PIT, positions])
+
+    def test_a_car_on_pit_road_is_drawn_on_the_pit_lane_beside_where_it_is(self):
+        stall, = self.pit([0.0])                                 # at the start/finish line, in its pit box
+        self.assertAlmostEqual(stall["pit"]["y"], 850, delta=4)  # on the pit lane...
+        self.assertAlmostEqual(stall["pit"]["x"], stall["track"]["x"], delta=30)   # ...across from where it is on the lap
+
+    def test_past_the_end_of_the_pit_lane_it_stays_on_the_track(self):
+        # by x=1400 the pit lane has ended (the dashes there are the merge lane, which isn't pit road) and the far end
+        # of the oval is nowhere near it
+        for p in self.pit([0.12, 0.25]):
+            self.assertEqual(p["pit"], p["track"])
 
     def test_a_lap_and_a_bit_lands_where_the_bit_does(self):
         a, b = self.place(RIGHT, [0.3, 12.3])["pts"]

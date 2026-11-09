@@ -263,13 +263,13 @@ control from before v1.5.38 kept its calls in `data\race-control`; they're copie
   before it the replay starts). Replaying marks it **Reviewing**.
 - **Logged**: iRacing's own penalties (black flag, warning, disqualified), cautions and retirements. They're recorded
   for the stewards, not decisions, and nothing is done with them.
-- **Map** (bottom right): iRacing's own map of the track, with every car on it (the camera car in red, cars in the
-  pits in blue, black-flagged cars in black, cars in an incident in the last 30 s flashing) and a warning mark where
-  each open incident happened. Click a car to put the camera on it; click a mark to open that incident. **Pop out
-  map** opens a bigger one in a window of its own for a second screen (clicking a mark there replays it). The maps
-  load from iRacing's public map server each time (nothing is stored), so the PC needs to be online. A track that
-  isn't in `static\trackmaps.json` says "No map for this track yet": add one line with its iRacing track id and map
-  folder.
+- **Map** (bottom right): iRacing's own map of the track, with every car on it (the camera car in red, cars on pit
+  road in blue, drawn on the pit lane, black-flagged cars in black, cars in an incident in the last 30 s flashing) and
+  a warning mark where each open incident happened. Click a car to put the camera on it; click a mark to open that
+  incident. **Pop out map** opens a bigger one in a window of its own for a second screen (clicking a mark there
+  replays it). The maps load from iRacing's public map server each time (nothing is stored), so the PC needs to be
+  online. A track that isn't in `static\trackmaps.json` says "No map for this track yet": add one line with its
+  iRacing track id and map folder.
 - **Save diagnostics** (top right): a zip to send when something goes wrong, like the overlay's: the last 7 days of
   logs, the black box, the settings, and race control's newest race files (each race's incident queue and calls). The
   league site sign-in stays out. It downloads, and a copy stays in `data\steward\diagnostics` (the last 10).

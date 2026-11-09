@@ -14,3 +14,5 @@ How it works (CLAUDE.md, "Three chats, one repo"):
 ## Notes
 
 Race control is race control only: started with start-race-control.bat, it now shows just the race control page. The overlay's control panel, broadcast pages and buttons answer "This is race control. Start the overlay to use graphics." Before, opening the control panel on race control's port gave the whole overlay without signing in. Stewards see no change: race control still sends its calls and official results with the steward's sign-in. Producers keep starting the overlay as usual.
+
+Race control: on the track map, cars on pit road are now drawn on the pit lane instead of on the track beside it (still in blue). At tracks with two pit roads, such as Bristol, each car shows on the one it is using.

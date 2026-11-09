@@ -6,11 +6,11 @@ its two edges), pitroad, start-finish (the line, and an arrow for the direction 
 
 Each car's place on the lap (0 to 1 from the start/finish line, from iRacing) becomes a point on the track's centre
 line, worked out from the ribbon's two edges. The start/finish line sets where 0 is, and its arrow which way the cars
-run. Cars on pit road are drawn as pit cars; a stopped or slow car (an incident in the queue in the last 30 seconds)
+run. Cars on pit road are drawn on the pit lane, beside where they are on the lap; a stopped or slow car (an incident in the queue in the last 30 seconds)
 flashes; open incidents and the last two laps' incidents are marked where they happened.
 
 window.RCMap.mount(el, {onCar(idx), onIncident(id)}) then RCMap.update(live, rc) on every reading.
-RCMap.geometry(svgText) is the maths on its own, for the tests. */
+RCMap.geometry(layers), RCMap.at and RCMap.onPitRoad are the maths on their own, for the tests. */
 (function () {
   const NS = 'http://www.w3.org/2000/svg';
   const LAYERS = ['background', 'inactive', 'active', 'pitroad', 'start-finish', 'turns'];
@@ -101,11 +101,45 @@ RCMap.geometry(svgText) is the maths on its own, for the tests. */
     const dot = (tip.x - arrow.c.x) * tan.x + (tip.y - arrow.c.y) * tan.y;
     return { i0, dir: dot >= 0 ? 1 : -1, sure: Math.abs(dot) > 1e-6 };
   }
+  // Pit road. iRacing reports a car in the pits by how far round the lap it is, the same as on track, so on its own
+  // the dot sits on the front stretch beside its pit box. iRacing's pitroad layer draws the pit lane as a dashed line
+  // (older maps: each dash its own small shape; newer ones such as Charlotte 2025: one dashed line), an arrow at pit
+  // entry, and the blue merge lane at pit exit in a group named Mergeline. The pit lane is everything but the merge lane
+  // and the arrows. A car on pit road goes to the nearest point of the pit lane, but only when that point is beside it
+  // (across the track from it), not ahead or behind: past the end of the drawn lane it stays on the track rather than
+  // bunching up at the lane's end. Checked Nov 8, 2026 on Talladega, Daytona oval and road, Bristol (dual pit roads:
+  // each car goes to the one beside it), Richmond, Watkins Glen and Charlotte (pit lane 127 px from the track's centre).
+  const PIT_SNAP = 200;                 // further than this from any pit lane point (in map pixels): leave it on track
+  const PIT_ALONG = 45;                 // the pit lane point may be this far ahead or behind the car along the track
+  function pitLane(pitText) {
+    const { g, els } = shapes(pitText);
+    let pts = [];
+    els.forEach(el => {
+      for (let a = el.parentElement; a && a !== g; a = a.parentElement) if (/merge/i.test(a.id || '')) return;
+      const style = (el.getAttribute('style') || '').replace(/\s/g, '');
+      const open = el.getAttribute('fill') === 'none' || /fill:none/.test(style);     // a drawn line, not a filled shape
+      const len = el.getTotalLength ? el.getTotalLength() : 0;
+      if (!open && len > 110) return;                                                // an arrow, not a dash
+      pts = pts.concat(pointsOf(el, open ? Math.max(12, Math.round(len / 4)) : 12));
+    });
+    g.remove();
+    return pts.length >= 8 ? pts : null;
+  }
+  function onPitRoad(geo, lapPos) {     // a car on pit road: lap position -> a point on the pit lane beside it
+    const p = at(geo, lapPos);
+    if (!geo.pit) return p;
+    const n = nearest(geo.pit, p);
+    if (n.d > PIT_SNAP) return p;
+    const q = geo.pit[n.i], ahead = at(geo, lapPos + 2 / N), behind = at(geo, lapPos - 2 / N);
+    const tx = ahead.x - behind.x, ty = ahead.y - behind.y, tl = Math.hypot(tx, ty) || 1;
+    return Math.abs((q.x - p.x) * tx + (q.y - p.y) * ty) / tl <= PIT_ALONG ? q : p;
+  }
   function geometry(layers) {
     const line = centreLine(layers.active);
     if (!line) return null;
     const sf = layers['start-finish'] ? startFinish(layers['start-finish'], line) : { i0: 0, dir: 1, sure: false };
-    return { line, i0: sf.i0, dir: sf.dir, sure: sf.sure };
+    const pit = layers.pitroad ? pitLane(layers.pitroad) : null;
+    return { line, i0: sf.i0, dir: sf.dir, sure: sf.sure, pit };
   }
   function at(geo, lapPos) {            // lap position 0..1 -> a point on the map
     const p = ((lapPos % 1) + 1) % 1;
@@ -170,7 +204,7 @@ RCMap.geometry(svgText) is the maths on its own, for the tests. */
     const flash = new Set((rc.queue || []).filter(q => FLASH.has(q.type) && q.t != null && now - q.t >= 0 && now - q.t < FLASH_S).map(q => q.idx));
     (live.cars || []).forEach(c => {
       if (c.progress == null || c.onTrack === false && !c.pit) return;
-      const p = at(st.geo, c.progress), g = dot(c);
+      const p = c.pit ? onPitRoad(st.geo, c.progress) : at(st.geo, c.progress), g = dot(c);
       seen.add(String(c.idx));
       g.setAttribute('transform', `translate(${p.x.toFixed(1)},${p.y.toFixed(1)})`);
       g.querySelector('text').textContent = c.num;
@@ -198,5 +232,5 @@ RCMap.geometry(svgText) is the maths on its own, for the tests. */
     });
     message('Waiting for iRacing');
   }
-  window.RCMap = { mount, update, geometry: layers => geometry(layers), at, N };
+  window.RCMap = { mount, update, geometry: layers => geometry(layers), at, onPitRoad, N };
 })();
