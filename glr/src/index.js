@@ -956,7 +956,7 @@ function standingsPage(sr, seasons, season, st, user) {
 function rulesSummary(rules, events) {
   const p = rules.points, b = rules.bonus, po = rules.playoffs;
   const bon = [["win", b.win], ["pole", b.pole], ["leading a lap", b.led], ["most laps led", b.mostLed], ["fastest lap", b.fastLap]].filter(x => x[1]).map(([k, v]) => `${num(v)} for ${k}`);
-  let h = `<div class="rules"><p><b>Points:</b> ${p.source === "iracing" ? "iRacing's league points for each race." : p.source === "field" ? "One point per car that completed a lap for 1st, one less for each place after, down to 1 for the last of them; a car with 0 laps scores nothing (the more cars, the more 1st is worth)." : `by finishing position: ${p.table.map((v, i) => `P${i + 1} ${v}`).join(", ")}${p.others ? `; every other finisher ${p.others}` : ""}.`}</p>`;
+  let h = `<div class="rules"><p><b>Points:</b> ${p.source === "iracing" ? "iRacing's league points for each race." : p.source === "field" ? "One point per car that completed a lap for 1st, one less for each place after, down to 1 for the last of them; a car with 0 laps scores nothing (the more cars, the more 1st is worth)." : `by finishing position: ${p.table.map((v, i) => `P${i + 1} ${v}`).join(", ")}${p.others ? `; every other finisher ${p.others}` : ""}${p.zeroLaps ? "; a car with 0 laps scores nothing" : ""}.`}</p>`;
   if (bon.length) h += `<p><b>Bonus points:</b> ${bon.join(", ")}.</p>`;
   h += `<p><b>Positions:</b> ${rules.byClass ? "by class in multi-class races" : "overall"}. <b>Ties:</b> ${rules.ties === "wins" ? "more wins, then better finishes" : "drivers level on points share the position"}.</p>`;
   if (rules.drops) h += `<p><b>Drop weeks:</b> each driver's ${rules.drops} worst race${rules.drops === 1 ? "" : "s"} ${po.enabled ? "of the regular season " : ""}don't count.</p>`;
@@ -983,6 +983,8 @@ function rulesForm(rules, events) {
     <label class="chk"><input type="radio" name="source" value="field"${p.source === "field" ? " checked" : ""}> By the size of the field: one point per car that completed a lap for 1st, one less for each place after, down to 1 for the last of them; a car with 0 laps scores nothing (the Warrior way)</label>
     <label for="tbl">Points for 1st, 2nd, 3rd… (commas)</label><input type="text" id="tbl" name="table" value="${esc(p.table.join(", "))}" style="max-width:100%">
     <div class="grid">${n("others", p.others, "Every other finisher")}</div>
+    <label class="chk"><input type="checkbox" name="zero_laps"${p.zeroLaps ? " checked" : ""}> A car with 0 laps scores nothing (as iRacing does: a car that never started)</label>
+    <p class="tag">With our own table, every race is scored as soon as its results arrive, from the overlay, race control or an uploaded file. The overlay reads this table for its live points.</p>
   </fieldset>
   <fieldset><legend>Bonus points (each race)</legend><div class="grid">${n("b_win", b.win, "Win")}${n("b_pole", b.pole, "Pole (best start)")}${n("b_led", b.led, "Led a lap")}${n("b_mostLed", b.mostLed, "Most laps led")}${n("b_fastLap", b.fastLap, "Fastest lap")}</div>
     <p class="tag">If iRacing's league points already include bonuses, leave these at 0.</p></fieldset>
@@ -1022,7 +1024,7 @@ function rulesFromForm(f, events) {
     rounds.push({ name: f.get(`r${i}_name`), races: f.get(`r${i}_races`), drivers: f.get(`r${i}_drivers`), reset: f.get(`r${i}_reset`),
       bonuses: !!f.get(`r${i}_bonuses`), winAdvances: !!f.get(`r${i}_win`), missMustWin: !!f.get(`r${i}_miss`), finale: !!f.get(`r${i}_final`) });
   return cleanRules({
-    points: { source: f.get("source"), table: list(f.get("table")), others: f.get("others") },
+    points: { source: f.get("source"), table: list(f.get("table")), others: f.get("others"), zeroLaps: !!f.get("zero_laps") },
     bonus: { win: f.get("b_win"), pole: f.get("b_pole"), led: f.get("b_led"), mostLed: f.get("b_mostLed"), fastLap: f.get("b_fastLap") },
     drops: f.get("drops"), byClass: !!f.get("byClass"), ties: f.get("ties"),
     skip: events.filter(e => !counted.has(e.subsession_id)).map(e => e.subsession_id),
@@ -2118,6 +2120,16 @@ const site = {
       }
       if (path === `${BASE}/drivers`) return leagueDriversPage(await leagueDrivers(db), user);
       if (path === `${BASE}/api/drivers`) return json({ ok: true, drivers: await leagueDrivers(db) });
+      // GET /api/series/<series>/points: the season's points rules, for the overlay's live points (Nov 2026).
+      // source "iracing" means iRacing's league points: the site has no table to give, so the overlay keeps its own.
+      if ((m = path.match(/^\/api\/series\/([a-z0-9-]+)\/points$/))) {
+        const sr = await getSeries(db, m[1]);
+        if (!sr) return json({ ok: false, error: "No such series" }, 404);
+        const season = pickSeason(await seasonsOf(db, sr.id), url);
+        const rules = cleanRules((season && (await getRules(db, season.id, sr.id)).rules) || DEFAULT_RULES);
+        return json({ ok: true, series: sr.short_name, season: season && { id: season.id, name: season.name },
+          source: rules.points.source, table: rules.points.table, others: rules.points.others, zeroLaps: rules.points.zeroLaps, bonus: rules.bonus });
+      }
       if ((m = path.match(/^\/(?:api\/series\/)?([a-z0-9-]+)\/(stats|drivers)$/))) {
         const sr = await getSeries(db, m[1]), api = path.startsWith(`${BASE}/api/`);
         if (!sr) return api ? json({ ok: false, error: "No such series" }, 404) : notFound("No series at that address.", user);

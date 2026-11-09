@@ -2,7 +2,8 @@
  * Standings from a season's races and that season's rules. Pure: no database, no web, so it can be tested on its own.
  *
  * rules = {
- *   points:  { source: "iracing" | "table" | "field", table: [40, 35, ...], others: 0 }   others = points for places past the table
+ *   points:  { source: "iracing" | "table" | "field", table: [40, 35, ...], others: 0, zeroLaps: false }
+ *            others = points for places past the table; zeroLaps (own table) = a car with 0 laps scores nothing, as iRacing does
  *            "field" (the Warrior series' way): 1st scores one point per car that completed a lap, one less per place,
  *            so the last of them scores 1; a car with 0 laps scores nothing (and doesn't count for its team)
  *   bonus:   { win, pole, led, mostLed, fastLap }        added to every race (pole = best starting spot)
@@ -23,7 +24,7 @@
  */
 
 export const DEFAULT_RULES = {
-  points: { source: "iracing", table: [], others: 0 },
+  points: { source: "iracing", table: [], others: 0, zeroLaps: false },
   bonus: { win: 0, pole: 0, led: 0, mostLed: 0, fastLap: 0 },
   drops: 0, byClass: true, ties: "share", skip: [],
   playoffs: { enabled: false, regularRaces: 10, minStarts: 0, field: 12, seedBonus: [], winBonus: 0, winIn: true, out: [], rounds: [] },
@@ -45,7 +46,7 @@ export function cleanRules(r) {
   r = r || {};
   const p = r.points || {}, b = r.bonus || {}, po = r.playoffs || {};
   return {
-    points: { source: ["table", "field"].includes(p.source) ? p.source : "iracing", table: (Array.isArray(p.table) ? p.table : []).map(x => int(x)).slice(0, 100), others: int(p.others) },
+    points: { source: ["table", "field"].includes(p.source) ? p.source : "iracing", table: (Array.isArray(p.table) ? p.table : []).map(x => int(x)).slice(0, 100), others: int(p.others), zeroLaps: !!p.zeroLaps },
     bonus: { win: int(b.win), pole: int(b.pole), led: int(b.led), mostLed: int(b.mostLed), fastLap: int(b.fastLap) },
     drops: Math.max(0, int(r.drops)), byClass: r.byClass !== false, ties: r.ties === "wins" ? "wins" : "share",
     skip: (Array.isArray(r.skip) ? r.skip : []).map(x => int(x)).filter(Boolean),
@@ -81,7 +82,7 @@ function scoreRaces(rules, events, adj, inClass, cls) {
       // disqualified by the stewards: no points and no bonuses
       const base = r.dq ? 0 : rules.points.source === "iracing" ? int(r.league_points)
         : rules.points.source === "field" ? ((r.laps || 0) > 0 ? ran.length - ran.indexOf(r) : 0)
-        : (rules.points.table[pos - 1] ?? rules.points.others);
+        : rules.points.zeroLaps && !((r.laps || 0) > 0) ? 0 : (rules.points.table[pos - 1] ?? rules.points.others);
       const why = r.dq ? [] : [[pos === 1, B.win, "Win"], [r.start_pos && r.start_pos === pole, B.pole, "Pole"], [(r.laps_led || 0) > 0, B.led, "Led a lap"],
         [most > 0 && r.laps_led === most, B.mostLed, "Most laps led"], [r.best_lap_ms && r.best_lap_ms === fast, B.fastLap, "Fastest lap"]].filter(([on, v]) => on && v);
       const bonus = why.reduce((s, [, v]) => s + v, 0);
