@@ -20,3 +20,5 @@ Race control: on the track map, cars on pit road are now drawn on the pit lane i
 Race control: a Session strip under the top bar for actions that aren't about one driver: throw a caution (press twice), add or take away caution laps or set green in N laps, single or double-file restarts, a message to everyone, and advance to the next session (asks first). Each is typed into iRacing's chat and listed under Calls with who sent it. Incidents from practice and qualifying no longer carry over into the race's list, and the track map marks an incident for one minute.
 
 Race control: Dismiss on each incident takes it off To review without making a call (nothing goes to the league site; who dismissed it is kept), and Clear list dismisses everything still to review in one press, after asking. Dismissed incidents stay under All and can be put back.
+
+Race control: in a league that hides incident points during the race, iRacing shows everyone's totals after the checkered. If the steward was watching a replay then, race control added every car to the incident list as points gained during the replay (Phoenix, Nov 8: 23 of them). It no longer does.

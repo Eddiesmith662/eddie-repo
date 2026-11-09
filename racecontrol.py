@@ -220,6 +220,12 @@ def _catch_up(live):
     d = _st["data"]
     t, lap = live.get("sessTime"), live.get("lap")
     found = {}
+    if (live.get("sessionState") or 0) >= 5:
+        # After the checkered, iRacing can put up its own totals: a league that hides incident points all race (0 for
+        # everyone) shows them in the cool-down. That's not points gained during the review (Phoenix, Nov 8, 2026: 23
+        # cars went in the queue as "+20x while you were in a replay"); the incident log ignores them too.
+        _st["catch"], _st["catchT"] = found, t
+        return False
     for c in live.get("cars") or []:
         before, now = _st["lastInc"].get(c["idx"]), c.get("inc")
         if isinstance(before, int) and isinstance(now, int) and now > before:
