@@ -51,7 +51,7 @@ import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, i
   logChange, listChanges, whoName, mergeDrivers, separateDriver, aliasesOf, findDrivers,
   seriesEvents, allSeriesEvents, listRoster, addRoster, removeRoster, listSchedule, upcoming, addSchedule, addScheduleLines, deleteSchedule,
   scheduleEntry, linkScheduleTo, getSetting, setSetting, editSchedule,
-  linkDriver, unlinkDriver, setLink, linkedAccount, listAccounts, listClaims, decideClaim, getTeams, saveTeams, setSeriesTeams, listBlocks, setBlock, missedResults, logHelp, helpToday, listHelp, setEventSeason, saveProfile, PROFILE_FIELDS, driversForMatching, directorOf, listDirectors, setDirector, accountRoles, searchDrivers, normName, decisionsFor, fileProtest, listProtests, getProtest, setProtestStatus, listDecisions, addDecision, deleteDecision,
+  linkDriver, unlinkDriver, setLink, linkedAccount, listAccounts, listClaims, decideClaim, getTeams, saveTeams, setSeriesTeams, listBlocks, setBlock, missedResults, logHelp, helpToday, listHelp, setEventSeason, saveProfile, PROFILE_FIELDS, driversForMatching, directorOf, listDirectors, setDirector, accountRoles, searchDrivers, normName, decisionsFor, fileProtest, listProtests, getProtest, setProtestStatus, listDecisions, addDecision, editDecision, deleteDecision,
   saveRaceCalls, raceCalls } from "./db.js";
 import { KINDS, AMOUNT, CHANGES_ORDER, decisionText } from "./stewards.js";
 import { resultsPost, standingsPost, teamStandingsPost, penaltyPost, fixPost, decisionPost, penaltyReportPost, enqueue, processQueue, queueFor, retryQueued, discardQueued, isRecent } from "./discord.js";
@@ -323,6 +323,14 @@ const involvedIn = (user, p) => !!(user && user.cust && p && (p.filer_cust === u
 const OWN_PROTEST = "You're involved in this protest, so another steward decides it.";
 const OWN_CAR = "That's your own car: another steward makes decisions about you.";
 
+// change a decision after further review: penalty, amount and reason (the driver stays the same)
+const editForm = d => `<form method="post" action="#top" class="dec"><input type="hidden" name="action" value="edit"><input type="hidden" name="id" value="${d.id}">
+  <p><b>Change this decision</b> <span class="tag">(after further review)</span></p>
+  <div class="grid"><label>Decision<br><select name="kind">${Object.entries(KINDS).map(([k, t]) => `<option value="${k}"${k === d.kind ? " selected" : ""}>${t}</option>`).join("")}</select></label>
+  <label>Points / places / seconds<br><input type="number" name="amount" min="0" max="999" value="${AMOUNT[d.kind] ? Math.abs(d.amount) : ""}"></label></div>
+  <label>Reason (public, on the report)</label><input type="text" name="reason" maxlength="300" required value="${esc(d.reason || "")}">
+  <p><button class="btn">Save change</button> <button type="button" class="link" onclick="this.closest('tr').hidden=true">Cancel</button> <span class="tag">Results and standings update straight away. The report shows what it was.</span></p></form>`;
+
 function decisionForm(ev, race, { protest = null, self = null } = {}) {
   const pre = protest && protest.against_cust;
   race = race.filter(r => r.cust_id !== self);           // never offered a decision about themselves
@@ -341,6 +349,7 @@ function stewardsPage(ev, user, { protests = [], steward = false, msg = "", repo
   let body = crumb(ev) + `<h1>Stewards: ${esc(ev.track)}</h1><p class="sub">${day(ev.start_time)}${ev.season_name ? " · " + esc(ev.season_name) : ""} · <a href="${BASE}/results/${ev.subsession_id}">Results</a></p>`
     + (msg ? `<div class="msg ${ok ? "ok" : "bad"}">${esc(msg)}</div>` : "");
   // the decisions: the report everyone sees
+  if (steward) body += `<style>tr.editrow td{background:var(--card);white-space:normal}tr.editrow .grid{display:flex;gap:12px;flex-wrap:wrap}tr.editrow input[type=text]{max-width:640px}</style>`;
   body += `<h2>Decisions</h2>`;
   // the series' directors and admins: send this race's penalties to the penalties channel by hand
   if (report) body += report.hook
@@ -351,9 +360,9 @@ function stewardsPage(ev, user, { protests = [], steward = false, msg = "", repo
     decs.map(d => { const off = d.status === "withdrawn", rc = d.source === "race control", info = d.info || {};
       return `<tr${off ? ' class="wd"' : ""}><td>${driverLink(d.cust_id, `${d.car_number ? "#" + d.car_number + " " : ""}${d.name || d.cust_id}`)}</td>
       <td><b>${esc(decisionText(d))}</b>${servedText(d)}${rc ? ` <span class="tag">race control${info.lap != null ? `, lap ${esc(info.lap)}` : ""}</span>` : ""}</td>
-      <td style="white-space:normal">${esc(d.reason)}${d.protest_id ? ` <span class="tag">(protest ${d.protest_id})</span>` : ""}${off ? `<br><span class="tag">Withdrawn${d.withdrawn_reason ? ": " + esc(d.withdrawn_reason) : ""}</span>` : ""}</td><td>${day(d.made_at)}</td>
-      ${steward ? `<td>${off || d.cust_id === (user && user.cust) || involvedIn(user, protests.find(p => p.id === d.protest_id)) ? "" : rc ? `<form method="post" action="#top" onsubmit="return confirm('Withdraw this race control call? It stays on the report, crossed out, and anything it changed goes back. Race control can\\'t bring it back.')"><input type="hidden" name="action" value="undo"><input type="hidden" name="id" value="${d.id}"><button class="link">Withdraw</button></form>`
-        : `<form method="post" action="#top" onsubmit="return confirm('Take this decision back? Any points or places it changed go back too.')"><input type="hidden" name="action" value="undo"><input type="hidden" name="id" value="${d.id}"><button class="link">Take back</button></form>`}</td>` : ""}</tr>`; }).join("") + `</table></div>`
+      <td style="white-space:normal">${esc(d.reason)}${d.protest_id ? ` <span class="tag">(protest ${d.protest_id})</span>` : ""}${d.edited_at ? `<br><span class="tag">Changed ${day(d.edited_at)} by ${esc(whoName(d.edited_by))}, was ${esc(d.edited_from || "")}</span>` : ""}${off ? `<br><span class="tag">Withdrawn${d.withdrawn_reason ? ": " + esc(d.withdrawn_reason) : ""}</span>` : ""}</td><td>${day(d.made_at)}</td>
+      ${steward ? `<td>${off || d.cust_id === (user && user.cust) || involvedIn(user, protests.find(p => p.id === d.protest_id)) ? "" : `<button type="button" class="link" onclick="const r=this.closest('tr').nextElementSibling;r.hidden=!r.hidden">Edit</button> `}${off || d.cust_id === (user && user.cust) || involvedIn(user, protests.find(p => p.id === d.protest_id)) ? "" : rc ? `<form method="post" action="#top" onsubmit="return confirm('Withdraw this race control call? It stays on the report, crossed out, and anything it changed goes back. Race control can\\'t bring it back.')"><input type="hidden" name="action" value="undo"><input type="hidden" name="id" value="${d.id}"><button class="link">Withdraw</button></form>`
+        : `<form method="post" action="#top" onsubmit="return confirm('Take this decision back? Any points or places it changed go back too.')"><input type="hidden" name="action" value="undo"><input type="hidden" name="id" value="${d.id}"><button class="link">Take back</button></form>`}</td>` : ""}</tr>${steward && !(off || d.cust_id === (user && user.cust) || involvedIn(user, protests.find(p => p.id === d.protest_id))) ? `<tr class="editrow" hidden><td colspan="5">${editForm(d)}</td></tr>` : ""}`; }).join("") + `</table></div>`
     : `<p class="hint">No decisions for this race.</p>`);
   // the protests: who protested whom, and where it stands. What was written is for the stewards and the driver who filed it.
   body += `<h2>Protests</h2>`;
@@ -1746,6 +1755,16 @@ const site = {
                 kick();
               }
               msg = `Decision saved: ${d.name}: ${r.text}.`;
+            } else if (a === "edit") {
+              const was = ev.decisions.find(x => x.id === Number(f.get("id")));
+              if (!was) throw new Error("That decision isn't on this race any more.");
+              if (user.cust && was.cust_id === user.cust) throw new Error(OWN_CAR);
+              if (was.protest_id && involvedIn(user, await getProtest(db, was.protest_id))) throw new Error(OWN_PROTEST);
+              const r = await editDecision(db, sub, was.id, { kind: String(f.get("kind")), amount: f.get("amount"), reason: f.get("reason") }, by);
+              await logChange(db, { by, seriesId: ev.series_id, sub, kind: "decision", summary: `Stewards changed a decision: ${was.name}: ${r.before.text} (${r.before.reason}) → ${r.after.text} (${r.after.reason})${was.source === "race control" ? ", a race control call" : ""}` });
+              ev = await getEvent(db, sub);
+              if (ev.status === "official" && (CHANGES_ORDER(r.before.kind) || CHANGES_ORDER(r.after.kind))) { await updatePosted(db, sub, url.origin); kick(); }
+              msg = `Decision saved: ${was.name}: now ${r.after.text}.`;
             } else if (a === "undo") {
               const was = ev.decisions.find(x => x.id === Number(f.get("id")));
               if (was && user.cust && was.cust_id === user.cust) throw new Error(OWN_CAR);

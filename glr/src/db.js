@@ -123,6 +123,8 @@ const ADDED = [
   ["decisions", "rc_uid", "TEXT"], ["decisions", "info", "TEXT NOT NULL DEFAULT '{}'"], ["decisions", "status", "TEXT NOT NULL DEFAULT 'active'"],
   ["decisions", "withdrawn_at", "TEXT"], ["decisions", "withdrawn_by", "TEXT"], ["decisions", "withdrawn_reason", "TEXT"],
   ["decisions", "withdrawn_site", "INTEGER NOT NULL DEFAULT 0"],
+  ["decisions", "edited_at", "TEXT"], ["decisions", "edited_by", "TEXT"], ["decisions", "edited_from", "TEXT"],
+  ["decisions", "edited_site", "INTEGER NOT NULL DEFAULT 0"],
 ];
 
 // short names for the GLR series (by iRacing league id); officials can change them on the site
@@ -1277,6 +1279,40 @@ export async function addDecision(db, { sub, protestId = null, cust, kind, amoun
   return { id: (await db.prepare(`SELECT MAX(id) AS id FROM decisions WHERE subsession_id = ?`).bind(sub).first()).id, text: decisionText({ kind, amount: n }) };
 }
 
+// change a decision after further review (Nov 2026): its penalty, amount and reason. Works for race control's calls
+// too; once changed on the site, race control sending the race again doesn't change it back. The report shows what it
+// was (edited_from), and the points penalty for a points decision is made again to match.
+export async function editDecision(db, sub, id, { kind, amount = 0, reason = "" }, by) {
+  await ensureSchema(db);
+  const d = await db.prepare(`SELECT * FROM decisions WHERE id = ? AND subsession_id = ?`).bind(id, sub).first();
+  if (!d) throw new Error("That decision isn't on this race any more.");
+  if (d.status === "withdrawn") throw new Error("That call was withdrawn. Make a new decision instead.");
+  const ev = await db.prepare(`SELECT season_id FROM events WHERE subsession_id = ?`).bind(sub).first();
+  if (!KINDS[kind]) throw new Error("Pick a decision.");
+  const why = String(reason || "").trim().slice(0, 300);
+  if (!why) throw new Error("Give the reason. Drivers see it on the stewards' report.");
+  let n = Math.round(Number(amount) || 0);
+  if (kind === "positions" && n < 1) throw new Error("Enter how many places to move the driver back.");
+  if (kind === "time" && n < 1) throw new Error("Enter how many seconds to add.");
+  if (kind === "points") {
+    if (!n) throw new Error("Enter the points, like 10 to take 10 off.");
+    if (!ev || !ev.season_id) throw new Error("This race isn't in a season, so there are no standings to take points from.");
+    n = -Math.abs(n);
+  } else n = AMOUNT[kind] ? Math.abs(n) : 0;
+  if (kind === d.kind && n === d.amount && why === d.reason) throw new Error("Nothing changed.");
+  if (d.adj_id) {
+    await db.prepare(`DELETE FROM adjustments WHERE id = ?`).bind(d.adj_id).run();
+    await db.prepare(`UPDATE decisions SET adj_id = NULL WHERE id = ?`).bind(id).run();
+  }
+  let adj = null;
+  if (kind === "points") adj = await addAdjustment(db, ev.season_id, { sub, cust: d.cust_id, points: n, reason: `Stewards: ${why}` }, by);
+  // the first version stays as "was", so a decision changed twice still shows what it was on race night
+  const was = d.edited_from || `${decisionText(d)}: ${d.reason || ""}`;
+  await db.prepare(`UPDATE decisions SET kind = ?, amount = ?, reason = ?, adj_id = ?, edited_at = ?, edited_by = ?, edited_from = ?, edited_site = 1 WHERE id = ?`)
+    .bind(kind, n, why, adj, new Date().toISOString(), by, was, id).run();
+  return { before: { ...d, text: decisionText(d) }, after: { kind, amount: n, reason: why, text: decisionText({ kind, amount: n }) } };
+}
+
 // take a decision back: its points penalty goes too, and its protest opens again if nothing else decided it
 export async function deleteDecision(db, sub, id, by = "", reason = "") {
   await ensureSchema(db);
@@ -1341,6 +1377,16 @@ export async function saveRaceCalls(db, sub, file, by) {
     if (!old.withdrawn_site) {                     // withdrawn on the site: race control can't bring it back
       if (withdrawn && old.status === "active") { status = "withdrawn"; wAt = String(c.withdrawnAt || now); wBy = by; wWhy = String(c.withdrawnReason || "").slice(0, 200); }
       if (!withdrawn && old.status === "withdrawn") { status = "active"; wAt = wBy = wWhy = null; }
+    }
+    if (old.edited_site) {                         // changed on the site after review: race control keeps its lap info only
+      await db.prepare(`UPDATE decisions SET info = ?, status = ?, withdrawn_at = ?, withdrawn_by = ?, withdrawn_reason = ? WHERE id = ?`)
+        .bind(info, status, wAt, wBy, wWhy, old.id).run();
+      if (status !== old.status && CHANGES_ORDER(old.kind)) res.changed.push(uid);
+      if (old.adj_id && status !== "active") {
+        await db.prepare(`DELETE FROM adjustments WHERE id = ?`).bind(old.adj_id).run();
+        await db.prepare(`UPDATE decisions SET adj_id = NULL WHERE id = ?`).bind(old.id).run();
+      }
+      continue;
     }
     await db.prepare(`UPDATE decisions SET cust_id = ?, kind = ?, amount = ?, reason = ?, info = ?, status = ?, withdrawn_at = ?, withdrawn_by = ?, withdrawn_reason = ? WHERE id = ?`)
       .bind(cust, kind, amount, reason, info, status, wAt, wBy, wWhy, old.id).run();
