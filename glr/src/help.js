@@ -53,7 +53,7 @@ Race control stewards every series; directors steward their own series. Some ste
 - Protests in the header lists open protests and recently closed ones.
 - Decide a protest: open it (it's on the race's stewards' report) > Decide this protest: driver, decision (no action, warning, points, positions, time, disqualified, or an in-race penalty) and reason. Or Close it without a decision (filed by mistake, duplicate). Closed protests can be reopened.
 - A decision without a protest: make it on the race's stewards' report.
-- Time, positions or points penalties change that race's results and standings straight away. Decisions post to the penalties Discord channel once the race is official.
+- Time, positions or points penalties change that race's results and standings straight away. A decision made once the race is official posts to the penalties Discord channel by itself; decisions made while it was provisional (most race control calls) don't. To post them, a director or admin presses Send penalty report to Discord on the race's stewards' report: one post with every penalty on the race (decisions, race control's calls, points penalties; not withdrawn calls or no action). It needs a Penalties webhook on Edit series.
 - Race control's live calls show on the same report, marked as from race control. Withdraw one there: it stays crossed out.
 - Take back a site decision: remove it from the report.
 - Nobody judges themselves: if you raced and the protest is yours or against you, or it's about your car, the site won't let you decide it.
