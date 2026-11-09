@@ -29,6 +29,10 @@ class TrackList(unittest.TestCase):
             # the folder's number is iRacing's track id (Bristol 101, Talladega 116, Daytona 191)
             self.assertEqual(t["folder"].split("/")[1].split("-")[0], tid, t)
             self.assertTrue(t["name"])
+            self.assertIn(t.get("runs", "anticlockwise"), ("clockwise", "anticlockwise"), t)
+        # the maps whose start/finish is a single arrow, at the ovals GLR races (Nov 8, 2026)
+        for tid in ("214", "400", "418", "419"):
+            self.assertEqual(self.maps["tracks"][tid]["runs"], "anticlockwise")
 
     def test_glr_venues_are_there(self):
         names = " ".join(t["name"] for t in self.maps["tracks"].values())
@@ -84,6 +88,16 @@ PIT = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080">
 <g id="Mergeline">%s</g><g id="Pitroad">%s<polygon points="640,830 690,850 640,870" fill="#d82520"/></g></svg>""" % (
     "".join('<rect x="%d" y="848" width="30" height="5" fill="#0089ba"/>' % x for x in range(1300, 1520, 50)),
     "".join('<rect x="%d" y="848" width="30" height="5" fill="#d82520"/>' % x for x in range(700, 1220, 50)))
+# a second pit lane inside the top straight (y=230), like Bristol's dual pit roads
+PIT2 = PIT.replace("</g></svg>", "%s</g></svg>" % "".join(
+    '<rect x="%d" y="228" width="30" height="5" fill="#d82520"/>' % x for x in range(700, 1220, 50)))
+# the same pit lane drawn as one shape, all the dashes in a single path (Nashville, Atlanta 2022, Spielberg)
+PIT_ONE_SHAPE = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080">
+<g id="Pitroad"><path fill="#d82520" d="%s"/><polygon points="640,830 690,850 640,870" fill="#d82520"/></g></svg>""" % " ".join(
+    "M%d,848 h30 v5 h-30 Z" % x for x in range(700, 1220, 50))
+# start/finish drawn as a single arrow beside the track, with no line (Phoenix 2021, Kansas, Nashville)
+SF_ONE_ARROW = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1920 1080">
+<polygon points="900,1000 1000,1000 1000,990 1030,1005 1000,1020 1000,1010 900,1010" fill="red"/></svg>"""
 
 
 @unittest.skipUnless(__import__("importlib").util.find_spec("playwright"), "Playwright isn't installed here")
@@ -144,22 +158,64 @@ class Placing(unittest.TestCase):
         finally:
             page.close()
 
-    def pit(self, positions):
-        return self.page.evaluate("""([active, sf, pit, positions]) => {
-            const g = RCMap.geometry({active, 'start-finish': sf, pitroad: pit});
+    def pit(self, positions, pitroad=PIT, sf=None, runs=None):
+        return self.page.evaluate("""([active, sf, pit, positions, runs]) => {
+            const g = RCMap.geometry({active, 'start-finish': sf, pitroad: pit}, runs);
             return positions.map(p => ({track: RCMap.at(g, p), pit: RCMap.onPitRoad(g, p)}));
-        }""", [OVAL, SF % RIGHT, PIT, positions])
+        }""", [OVAL, sf or SF % RIGHT, pitroad, positions, runs])
 
     def test_a_car_on_pit_road_is_drawn_on_the_pit_lane_beside_where_it_is(self):
         stall, = self.pit([0.0])                                 # at the start/finish line, in its pit box
         self.assertAlmostEqual(stall["pit"]["y"], 850, delta=4)  # on the pit lane...
         self.assertAlmostEqual(stall["pit"]["x"], stall["track"]["x"], delta=30)   # ...across from where it is on the lap
 
+    def test_a_car_driving_down_pit_road_stays_on_the_pit_lane(self):
+        # Phoenix, Nov 8, 2026 (practice): where the nearest bit of pit lane was a gap between two dashes, the car was
+        # drawn on the track instead, so a car driving down pit road flicked between the two. The made-up lane runs
+        # from about -0.07 to +0.074 of a lap; step down it a thousandth of a lap at a time.
+        steps = [k / 1000 for k in range(-65, 71)]
+        cars = self.pit(steps)
+        for lap, c in zip(steps, cars):
+            self.assertAlmostEqual(c["pit"]["y"], 850, delta=4, msg="lap position %.3f is off the pit lane" % lap)
+        for a, b in zip(cars, cars[1:]):
+            self.assertLess(abs(b["pit"]["x"] - a["pit"]["x"]), 15)    # no jumps
+
+    def test_just_past_the_end_of_the_drawn_lane_it_waits_at_the_end(self):
+        # Phoenix again: iRacing's drawing of the pit lane stops short of the last stalls past the start/finish line
+        # (a car parked at 0.0323 there was drawn on the track). The made-up lane ends at x=1230, about 0.074.
+        end, = self.pit([0.09])
+        self.assertAlmostEqual(end["pit"]["y"], 850, delta=4)
+        self.assertAlmostEqual(end["pit"]["x"], 1230, delta=8)
+
     def test_past_the_end_of_the_pit_lane_it_stays_on_the_track(self):
-        # by x=1400 the pit lane has ended (the dashes there are the merge lane, which isn't pit road) and the far end
-        # of the oval is nowhere near it
+        # by x=1400 (0.12) the pit lane is well behind (the dashes there are the merge lane, which isn't pit road),
+        # and the far end of the oval (0.25) is nowhere near it
         for p in self.pit([0.12, 0.25]):
             self.assertEqual(p["pit"], p["track"])
+
+    def test_with_two_pit_lanes_each_car_goes_to_its_own(self):
+        bottom, top = self.pit([0.0, 0.5], pitroad=PIT2)        # like Bristol's front and back pit roads
+        self.assertAlmostEqual(bottom["pit"]["y"], 850, delta=4)
+        self.assertAlmostEqual(top["pit"]["y"], 230, delta=4)
+
+    def test_a_pit_lane_drawn_as_one_shape_is_used(self):
+        # Nashville, Atlanta 2022, Spielberg: all the dashes in one shape, which isn't the (small, compact) entry arrow
+        stall, = self.pit([0.0], pitroad=PIT_ONE_SHAPE)
+        self.assertAlmostEqual(stall["pit"]["y"], 850, delta=4)
+
+    def test_a_single_arrow_start_finish_takes_its_direction_from_the_track_list(self):
+        # Phoenix 2021, Kansas, Nashville and others draw start/finish as one arrow beside the track, which doesn't show
+        # which way the cars run; the track list says ("runs"). Without it, the map isn't sure (and says so).
+        def quarter(runs):
+            return self.page.evaluate("""([active, sf, runs]) => {
+                const g = RCMap.geometry({active, 'start-finish': sf}, runs);
+                return {sure: g.sure, at: RCMap.at(g, 0.25)};
+            }""", [OVAL, SF_ONE_ARROW, runs])
+        self.assertFalse(quarter(None)["sure"])
+        anti, clock = quarter("anticlockwise"), quarter("clockwise")
+        self.assertTrue(anti["sure"] and clock["sure"])
+        self.assertGreater(anti["at"]["x"], 1600)   # along the bottom to the right, then up: anticlockwise as drawn
+        self.assertLess(clock["at"]["x"], 320)
 
     def test_a_lap_and_a_bit_lands_where_the_bit_does(self):
         a, b = self.place(RIGHT, [0.3, 12.3])["pts"]

@@ -102,15 +102,21 @@ RCMap.geometry(layers), RCMap.at and RCMap.onPitRoad are the maths on their own,
     return { i0, dir: dot >= 0 ? 1 : -1, sure: Math.abs(dot) > 1e-6 };
   }
   // Pit road. iRacing reports a car in the pits by how far round the lap it is, the same as on track, so on its own
-  // the dot sits on the front stretch beside its pit box. iRacing's pitroad layer draws the pit lane as a dashed line
-  // (older maps: each dash its own small shape; newer ones such as Charlotte 2025: one dashed line), an arrow at pit
-  // entry, and the blue merge lane at pit exit in a group named Mergeline. The pit lane is everything but the merge lane
-  // and the arrows. A car on pit road goes to the nearest point of the pit lane, but only when that point is beside it
-  // (across the track from it), not ahead or behind: past the end of the drawn lane it stays on the track rather than
-  // bunching up at the lane's end. Checked Nov 8, 2026 on Talladega, Daytona oval and road, Bristol (dual pit roads:
-  // each car goes to the one beside it), Richmond, Watkins Glen and Charlotte (pit lane 127 px from the track's centre).
-  const PIT_SNAP = 200;                 // further than this from any pit lane point (in map pixels): leave it on track
-  const PIT_ALONG = 45;                 // the pit lane point may be this far ahead or behind the car along the track
+  // the dot sits on the track beside its pit box. iRacing's pitroad layer draws the pit lane as a dashed line (older
+  // maps: each dash its own small shape; newer ones such as Charlotte 2025: one dashed line), an arrow at pit entry,
+  // and the blue merge lane at pit exit in a group named Mergeline; a few (Nashville, Atlanta 2022, Spielberg,
+  // Chicago, Coronado) draw all the dashes as one shape. The pit lane is everything but the merge lane and the arrow
+  // (a small, compact shape: under 100 map pixels across, unlike a lane drawn as one shape). Each pit lane point gets
+  // a lap position (where it is beside the track), and a car on pit road goes between the pit lane points either side
+  // of its own lap position. That covers the gaps between the dashes, and a pit lane that runs straight where the
+  // track bends away from it (Phoenix's dogleg); where two pit lanes share lap positions, the one nearer the car is
+  // used. Just past the end of the drawn lane the car waits at its end: at Phoenix (Nov 8, 2026, practice) cars park
+  // in stalls up to 0.03 of a lap beyond where iRacing's drawing stops. The first version (one nearest point, only if
+  // beside the car) left cars on the track in the gaps between dashes and past the start/finish line there, so a car
+  // driving down pit road flicked between the two.
+  const PIT_SNAP = 200;                 // a pit lane point further than this from the track (map pixels) isn't used
+  const PIT_REACH = 0.03;               // lap positions: how far before or after the car a pit lane point is looked for
+  const PIT_LANE = 60;                  // map pixels: pit lane points this much further away than the nearest are another lane
   function pitLane(pitText) {
     const { g, els } = shapes(pitText);
     let pts = [];
@@ -118,28 +124,57 @@ RCMap.geometry(layers), RCMap.at and RCMap.onPitRoad are the maths on their own,
       for (let a = el.parentElement; a && a !== g; a = a.parentElement) if (/merge/i.test(a.id || '')) return;
       const style = (el.getAttribute('style') || '').replace(/\s/g, '');
       const open = el.getAttribute('fill') === 'none' || /fill:none/.test(style);     // a drawn line, not a filled shape
-      const len = el.getTotalLength ? el.getTotalLength() : 0;
-      if (!open && len > 110) return;                                                // an arrow, not a dash
-      pts = pts.concat(pointsOf(el, open ? Math.max(12, Math.round(len / 4)) : 12));
+      const len = el.getTotalLength ? el.getTotalLength() : 0, box = el.getBBox();
+      if (!open && len > 110 && Math.max(box.width, box.height) < 100) return;           // the entry arrow, not the lane
+      pts = pts.concat(pointsOf(el, len > 110 ? Math.round(len / 4) : 12));
     });
     g.remove();
     return pts.length >= 8 ? pts : null;
   }
+  const lapDiff = (a, b) => ((a - b) % 1 + 1.5) % 1 - 0.5;         // -0.5..0.5, across the line
+  function pitLapPositions(geo) {       // each pit lane point, with where it is on the lap
+    return geo.pit.map(p => { const n = nearest(geo.line, p); return { x: p.x, y: p.y, lp: ((((n.i - geo.i0) * geo.dir) % N + N) % N) / N, d: n.d }; })
+      .filter(q => q.d <= PIT_SNAP);
+  }
   function onPitRoad(geo, lapPos) {     // a car on pit road: lap position -> a point on the pit lane beside it
     const p = at(geo, lapPos);
-    if (!geo.pit) return p;
-    const n = nearest(geo.pit, p);
-    if (n.d > PIT_SNAP) return p;
-    const q = geo.pit[n.i], ahead = at(geo, lapPos + 2 / N), behind = at(geo, lapPos - 2 / N);
-    const tx = ahead.x - behind.x, ty = ahead.y - behind.y, tl = Math.hypot(tx, ty) || 1;
-    return Math.abs((q.x - p.x) * tx + (q.y - p.y) * ty) / tl <= PIT_ALONG ? q : p;
+    if (!geo.pitLp || !geo.pitLp.length) return p;
+    const near = geo.pitLp.map(q => ({ q, dl: lapDiff(q.lp, lapPos), dd: Math.hypot(q.x - p.x, q.y - p.y) }))
+      .filter(o => Math.abs(o.dl) <= PIT_REACH);
+    if (!near.length) return p;
+    const closest = Math.min(...near.map(o => o.dd));
+    let before = null, after = null;
+    near.forEach(o => {
+      if (o.dd > closest + PIT_LANE) return;                       // another pit lane (Bristol's dual pit roads)
+      if (o.dl <= 0 && (!before || o.dl > before.dl)) before = o;
+      if (o.dl > 0 && (!after || o.dl < after.dl)) after = o;
+    });
+    if (before && after) {
+      const t = -before.dl / ((after.dl - before.dl) || 1);
+      return { x: before.q.x + (after.q.x - before.q.x) * t, y: before.q.y + (after.q.y - before.q.y) * t };
+    }
+    const end = before || after;                                   // past one end of the drawn lane: wait at its end
+    return { x: end.q.x, y: end.q.y };
   }
-  function geometry(layers) {
+  // A few maps draw the start/finish layer as a single arrow beside the track (Phoenix 2021, Kansas, Nashville,
+  // Spielberg, Hungaroring and others, Nov 8, 2026), and its shape doesn't show which way along the track it points.
+  // For those the track list says which way the cars run as seen on the map ("runs": "clockwise" or "anticlockwise").
+  function runsWay(line, i0, dir) {     // the way the cars go round, as seen on the map
+    let a = 0;
+    for (let k = 0; k < N; k++) { const p = line[((i0 + dir * k) % N + N) % N], q = line[((i0 + dir * (k + 1)) % N + N) % N]; a += p.x * q.y - q.x * p.y; }
+    return a > 0 ? 'clockwise' : 'anticlockwise';                  // the map's y runs downwards
+  }
+  function geometry(layers, runs) {
     const line = centreLine(layers.active);
     if (!line) return null;
     const sf = layers['start-finish'] ? startFinish(layers['start-finish'], line) : { i0: 0, dir: 1, sure: false };
-    const pit = layers.pitroad ? pitLane(layers.pitroad) : null;
-    return { line, i0: sf.i0, dir: sf.dir, sure: sf.sure, pit };
+    if (!sf.sure && (runs === 'clockwise' || runs === 'anticlockwise')) {
+      sf.dir = runsWay(line, sf.i0, 1) === runs ? 1 : -1;
+      sf.sure = true;
+    }
+    const geo = { line, i0: sf.i0, dir: sf.dir, sure: sf.sure, pit: layers.pitroad ? pitLane(layers.pitroad) : null };
+    geo.pitLp = geo.pit ? pitLapPositions(geo) : null;
+    return geo;
   }
   function at(geo, lapPos) {            // lap position 0..1 -> a point on the map
     const p = ((lapPos % 1) + 1) % 1;
@@ -169,7 +204,7 @@ RCMap.geometry(layers), RCMap.at and RCMap.onPitRoad are the maths on their own,
       return message(`Couldn’t load iRacing’s map of ${esc(t.name)} (${esc(e.message)}). Is this PC online?`);
     }
     if (st.trackId !== want) return;       // the track changed while it loaded
-    const geo = geometry(layers);
+    const geo = geometry(layers, t.runs);
     if (!geo) return message(`iRacing’s map of ${esc(t.name)} has no track line to put cars on.`);
     st.geo = geo; st.name = t.name;
     const svg = document.createElementNS(NS, 'svg');
@@ -184,7 +219,7 @@ RCMap.geometry(layers), RCMap.at and RCMap.onPitRoad are the maths on their own,
     st.marks = document.createElementNS(NS, 'g'); st.marks.setAttribute('class', 'rcmap-marks'); svg.appendChild(st.marks);
     st.cars = document.createElementNS(NS, 'g'); st.cars.setAttribute('class', 'rcmap-cars'); svg.appendChild(st.cars);
     st.el.innerHTML = ''; st.el.appendChild(svg); st.svg = svg; st.dots = {};
-    if (!geo.sure) console.warn('Race control map: couldn’t tell the direction of travel from the start/finish arrow at ' + t.name);
+    if (!geo.sure) console.warn('Race control map: couldn’t tell which way the cars run at ' + t.name + ' (iRacing track ' + trackId + '): add "runs" to its line in static/trackmaps.json');
   }
   function dot(c) {
     let g = st.dots[c.idx];
@@ -232,5 +267,5 @@ RCMap.geometry(layers), RCMap.at and RCMap.onPitRoad are the maths on their own,
     });
     message('Waiting for iRacing');
   }
-  window.RCMap = { mount, update, geometry: layers => geometry(layers), at, onPitRoad, N };
+  window.RCMap = { mount, update, geometry: (layers, runs) => geometry(layers, runs), at, onPitRoad, runsWay, N };
 })();

@@ -1,5 +1,5 @@
 {
- "about": "iRacing's official track maps for race control's Map tab: iRacing track id -> the map's folder at https://members-assets.iracing.com/public/track-maps/<folder>/ (layers: background, inactive, active, pitroad, start-finish, turns) and the track's name. Every layout at every venue on GLR's schedules (GLR HUB, Nov 7 2026); the folders were found from the track pages at brakinglab.com and each was checked to load from iRacing. The maps are loaded from iRacing when a race opens, never copied here. A track that's missing: add one line (its id is in the 'No map' message on the Map tab).",
+ "about": "iRacing's official track maps for race control's map: iRacing track id -> the map's folder at https://members-assets.iracing.com/public/track-maps/<folder>/ (layers: background, inactive, active, pitroad, start-finish, turns) and the track's name. Every layout at every venue on GLR's schedules (GLR HUB, Nov 7 2026); the folders were found from the track pages at brakinglab.com and each was checked to load from iRacing. The maps are loaded from iRacing when a race opens, never copied here. A track that's missing: add one line (its id is in the 'No map' message on the Map tab). \"runs\" (clockwise or anticlockwise, as seen on the map) is only for maps whose start/finish layer is a single arrow beside the track, which doesn't show the direction of travel (Nov 8, 2026); on the rest the map reads it from the start/finish line and its arrow.",
  "base": "https://members-assets.iracing.com/public/track-maps/",
  "tracks": {
   "20": {
@@ -212,7 +212,8 @@
   },
   "189": {
    "folder": "tracks_kentucky/189-kentucky-legend",
-   "name": "[Legacy] Kentucky Speedway - 2011 - Legends"
+   "name": "[Legacy] Kentucky Speedway - 2011 - Legends",
+   "runs": "anticlockwise"
   },
   "191": {
    "folder": "tracks_daytona_2011/191-daytona-2011-oval",
@@ -244,7 +245,8 @@
   },
   "214": {
    "folder": "tracks_kansas/214-kansas-oval",
-   "name": "Kansas Speedway - Oval"
+   "name": "Kansas Speedway - Oval",
+   "runs": "anticlockwise"
   },
   "215": {
    "folder": "tracks_kansas/215-kansas-full",
@@ -356,15 +358,18 @@
   },
   "400": {
    "folder": "tracks_nashvilless/400-nashvilless",
-   "name": "Nashville Superspeedway"
+   "name": "Nashville Superspeedway",
+   "runs": "anticlockwise"
   },
   "403": {
    "folder": "tracks_spielberg/403-spielberg-gp",
-   "name": "Red Bull Ring - Grand Prix"
+   "name": "Red Bull Ring - Grand Prix",
+   "runs": "clockwise"
   },
   "404": {
    "folder": "tracks_spielberg/404-spielberg-national",
-   "name": "Red Bull Ring - National"
+   "name": "Red Bull Ring - National",
+   "runs": "clockwise"
   },
   "405": {
    "folder": "tracks_chicago/405-chicago",
@@ -372,19 +377,23 @@
   },
   "407": {
    "folder": "tracks_spielberg/407-spielberg-north",
-   "name": "Red Bull Ring - North"
+   "name": "Red Bull Ring - North",
+   "runs": "clockwise"
   },
   "413": {
    "folder": "tracks_hungaroring/413-hungaroring",
-   "name": "Hungaroring"
+   "name": "Hungaroring",
+   "runs": "clockwise"
   },
   "418": {
    "folder": "tracks_phoenix_2021/418-phoenix-2021-oval",
-   "name": "Phoenix Raceway - Oval"
+   "name": "Phoenix Raceway - Oval",
+   "runs": "anticlockwise"
   },
   "419": {
    "folder": "tracks_phoenix_2021/419-phoenix-2021-ovalopen",
-   "name": "Phoenix Raceway - Oval w/open dogleg"
+   "name": "Phoenix Raceway - Oval w/open dogleg",
+   "runs": "anticlockwise"
   },
   "432": {
    "folder": "tracks_watkinsglen/432-watkinsglen-2021-classic",

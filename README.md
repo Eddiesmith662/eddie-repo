@@ -269,7 +269,8 @@ control from before v1.5.38 kept its calls in `data\race-control`; they're copie
   incident. **Pop out map** opens a bigger one in a window of its own for a second screen (clicking a mark there
   replays it). The maps load from iRacing's public map server each time (nothing is stored), so the PC needs to be
   online. A track that isn't in `static\trackmaps.json` says "No map for this track yet": add one line with its
-  iRacing track id and map folder.
+  iRacing track id and map folder. If the cars go round the wrong way (a map whose start/finish is drawn as a single
+  arrow), add "runs": "clockwise" or "anticlockwise" to its line, as seen on the map.
 - **Save diagnostics** (top right): a zip to send when something goes wrong, like the overlay's: the last 7 days of
   logs, the black box, the settings, and race control's newest race files (each race's incident queue and calls). The
   league site sign-in stays out. It downloads, and a copy stays in `data\steward\diagnostics` (the last 10).
