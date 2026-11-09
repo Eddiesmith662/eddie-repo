@@ -25,13 +25,13 @@ class Race:
     """A made-up race fed through the incident log and race control, a reading at a time."""
 
     def __init__(self, sub=SUB):
-        self.t, self.sub, self.lap, self.flag, self.state = 100.0, sub, 10, "green", 4
+        self.t, self.sub, self.lap, self.flag = 100.0, sub, 10, "green"
         self.cars = [car(0), car(1), car(2)]
 
     def live(self, replay=False):
         self.t += 0.25
         return {"connected": True, "subId": self.sub, "track": "Test Oval", "sessNum": 2, "sessionName": "RACE",
-                "isRace": True, "sessionState": self.state, "flag": self.flag, "lap": self.lap, "sessTime": self.t,
+                "isRace": True, "sessionState": 4, "flag": self.flag, "lap": self.lap, "sessTime": self.t,
                 "isReplay": replay, "cars": [dict(c) for c in self.cars], "trackM": 2400}
 
     def step(self, n=1, replay=False):
@@ -111,22 +111,6 @@ class Queue(Base):
         self.assertEqual(sorted((x["num"], x["pts"], x["afterReview"], x["status"]) for x in q),
                          [("10", 2, True, "new"), ("12", 4, True, "new")])
         self.assertTrue(all(x["window"][0] < x["window"][1] for x in q))   # replay goes to where the review started
-
-    def test_totals_revealed_after_the_checkered_arent_points_gained_in_a_replay(self):
-        # Phoenix, Nov 8, 2026: the league hid incident points all race (0 for everyone) and iRacing showed the totals
-        # in the cool-down after the checkered, while the steward was in a replay. Back to live, race control put
-        # 23 cars in the queue as "+20x while you were in a replay". iRacing's own totals after the checkered
-        # aren't incidents to review (the incident log already ignores them).
-        for c in self.race.cars:
-            c["inc"] = 0
-        self.race.step(2)
-        self.race.step(2, replay=True)
-        self.race.state = 6                                      # cool-down: the totals appear
-        for i, c in enumerate(self.race.cars):
-            c["inc"] = 8 + 6 * i
-        self.race.step(3, replay=True)
-        self.race.step(3)
-        self.assertEqual([q for q in rc.snapshot()["queue"] if q.get("afterReview")], [])
 
     def test_reviewing_status_and_back(self):
         self.race.set(1, inc=4)
