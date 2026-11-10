@@ -143,7 +143,7 @@ label.up{margin:0 0 0 10px;display:inline;color:var(--link);font-size:13px;curso
 .stw{margin:18px 0 4px;font-size:14px}tr.wd td b,tr.wd td:first-child{text-decoration:line-through;opacity:.6}textarea{width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
 input.search{width:100%;max-width:360px;margin:0 0 12px;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
 __THEME_CSS__</style></head><body><header><a class="brand" href="${BASE}/">__THEME_BRAND__</a>__THEME_SWITCH__<div class="me"><a href="${BASE}/">Series List</a><a href="${BASE}/schedule">Schedule</a><a href="${BASE}/drivers">Drivers</a>${NAV.signup ? `<a href="${BASE}/signup">Sign up</a>` : ""}${user
-  ? `${user.cust ? `<a href="${BASE}/me">My races</a>` : ""}<a href="${BASE}/protests">Protests</a>${user.producer || usesRaceControl(user) ? `<a href="${BASE}/downloads">Downloads</a>` : ""}${user.official ? `<a href="${BASE}/history">History</a>${user.admin ? `<a href="${BASE}/accounts">Accounts</a><a href="${BASE}/keys">Overlay keys</a><a href="${BASE}/settings">Settings</a>` : ""}<a href="${BASE}/upload">Upload results</a>` : ""}<span class="tag">${esc(user.name)}</span><form method="post" action="${BASE}/logout"><button class="link">Sign out</button></form>`
+  ? `${user.cust ? `<a href="${BASE}/me">My races</a>` : ""}<a href="${BASE}/protests">Protests</a>${user.producer || usesRaceControl(user) ? `<a href="${BASE}/downloads">Downloads</a>` : ""}${user.official ? `<a href="${BASE}/history">History</a>${user.admin ? `<a href="${BASE}/accounts">Accounts</a>` : ""}${user.overlord ? `<a href="${BASE}/keys">Overlay keys</a><a href="${BASE}/settings">Settings</a>` : ""}<a href="${BASE}/upload">Upload results</a>` : ""}<span class="tag">${esc(user.name)}</span><form method="post" action="${BASE}/logout"><button class="link">Sign out</button></form>`
   : `<a href="${BASE}/login">Sign in</a>`}</div></header><main>${body}</main>${user && user.help && title !== "Help" ? helpWidget(user) : ""}</body></html>`,
   { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
 
@@ -263,7 +263,7 @@ function seriesEditPage(sr, user, err = "", queue = [], note = "", { officialRol
     <label class="chk"><input type="checkbox" name="hidden"${sr.hidden ? " checked" : ""}> Hide from the Series List: off the home page, the all-series Schedule and Drivers pages and Sign up. It still works by its own link, results still arrive, and admins and its directors still see it.</label>` : ""}
     ${user && user.admin && officialRole ? `<p class="stw"><b>Series directors:</b> ${directors.length ? directors.map(d => esc(d.name || d.discord_id)).join(", ") : "none yet"}. <a href="${BASE}/accounts">Assign on the Accounts page</a>.</p>
     <p class="tag">Directors need the Series official role in Discord too. They change only their series: its rules, penalties, results uploads and this page.</p>` : ""}
-    ${user && user.admin && !officialRole ? `<p class="tag">Being replaced: once the Series official role is saved on <a href="${BASE}/settings">Settings</a>, admins assign each series' directors on the Accounts page, and this role stops working.</p><label for="rl">Discord role for this series' officials (role ID; leave empty for admins only)</label>
+    ${user && user.admin && !officialRole ? `<p class="tag">Being replaced: once the Series official role is saved on Site settings, admins assign each series' directors on the Accounts page, and this role stops working.</p><label for="rl">Discord role for this series' officials (role ID; leave empty for admins only)</label>
     <input type="text" id="rl" name="role_id" value="${esc(sr.role_id || "")}" maxlength="25" inputmode="numeric">
     <p class="tag">People with this role can sign in and change only this series: its rules, penalties, results uploads and this page. In Discord: Server Settings › Roles › right-click the role › Copy Role ID.</p>` : ""}
     <p><button class="btn">Save</button></p></form>
@@ -547,8 +547,8 @@ function accountsPage(user, { accounts = [], claims = [], all = [], msg = "", se
   };
   const linked = a => a.cust_id ? driverLink(a.cust_id, a.driver || a.cust_id) : a.cust_id === 0 ? `<span class="tag">I don't race</span>` : `<span class="tag">Not answered</span>`;
   body += `<h2>Accounts</h2><input class="search" placeholder="Find a name" data-rows="#acc tr.r">
-    <div class="wrap"><table id="acc"><tr><th>Discord</th><th>Driver</th><th>Directs</th><th>Overlay</th><th>Last signed in</th><th>Change driver</th></tr>` + accounts.map(a => `<tr class="r">
-      <td>${esc(a.name || "")}<br><span class="tag">${esc(a.discord_id)}</span></td><td>${linked(a)}</td><td style="white-space:normal">${directs(a)}</td><td style="white-space:normal">${overlayCell(a)}</td><td>${day(a.last_seen)}</td>
+    <div class="wrap"><table id="acc"><tr><th>Discord</th><th>Driver</th><th>Directs</th>${user.overlord ? "<th>Overlay</th>" : ""}<th>Last signed in</th><th>Change driver</th></tr>` + accounts.map(a => `<tr class="r">
+      <td>${esc(a.name || "")}<br><span class="tag">${esc(a.discord_id)}</span></td><td>${linked(a)}</td><td style="white-space:normal">${directs(a)}</td>${user.overlord ? `<td style="white-space:normal">${overlayCell(a)}</td>` : ""}<td>${day(a.last_seen)}</td>
       <td style="white-space:normal"><form method="post" style="display:inline"><input type="hidden" name="action" value="set"><input type="hidden" name="id" value="${esc(a.discord_id)}">
         <input type="text" name="driver" list="drl" placeholder="Driver name or iRacing ID" autocomplete="off" style="width:200px"> <button class="link">Set</button></form>
         ${a.cust_id != null ? `<form method="post" style="display:inline;margin-left:10px" onsubmit="return confirm('Unlink? They are asked which driver they are at their next sign-in.')"><input type="hidden" name="action" value="unlink"><input type="hidden" name="id" value="${esc(a.discord_id)}"><button class="link">Unlink</button></form>` : ""}</td></tr>`).join("") +
@@ -556,7 +556,7 @@ function accountsPage(user, { accounts = [], claims = [], all = [], msg = "", se
     <ul class="tag">
       <li><b>Driver:</b> the iRacing driver this person is. To change it, type a driver's name or iRacing ID under <b>Change driver</b> and press <b>Set</b>. If someone else was linked to that driver, they're unlinked, and GLR HUB asks them "Which driver are you?" the next time they sign in.</li>
       <li><b>Directs:</b> the series this person is a director of. <b>Add series…</b> adds one; <b>×</b> removes it. ${officialRole ? "It only works if they also have the Series official role in Discord." : "Not used yet: for now, each series' old role decides who its officials are (shown as \"Official now (old role)\"). This column takes over when you save the Series official role on <a href=\"" + BASE + "/settings\">Settings</a>."}</li>
-      <li><b>Overlay:</b> anyone with the Producer role can use the broadcast overlay. <b>Block</b> turns it off for one person even if they have the role, until you unblock them: their overlay stops at its next start-up and they can't sign another PC in.</li>
+      ${user.overlord ? `      <li><b>Overlay:</b> anyone with the Producer role can use the broadcast overlay. <b>Block</b> turns it off for one person even if they have the role, until you unblock them: their overlay stops at its next start-up and they can't sign another PC in.</li>` : ""}
       <li>Every change on this page is recorded in History.</li></ul>` + SORT_JS;
   return page("Accounts", body, { user });
 }
@@ -1205,7 +1205,7 @@ const KIND = { signup: "Signup", upload: "Upload", overlay: "Overlay", official:
   rules: "Rules", series: "Series", roster: "Drivers", schedule: "Schedule", webhook: "Discord", key: "Overlay key", merge: "Merge", separate: "Separate", note: "" };
 function historyPage(rows, user, only = null, choices = []) {
   const when = t => { const d = new Date(t); return isNaN(d) ? "" : d.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) + " ET"; };
-  let body = `<h1>History${only ? `: ${esc(only.short_name)}` : ""}</h1><p class="sub">Who changed what on the site, newest first${only ? `, for ${esc(only.short_name)} only` : user.admin ? "" : " (your series)"}.</p>`;
+  let body = `<h1>History${only ? `: ${esc(only.short_name)}` : ""}</h1><p class="sub">Who changed what on the site, newest first${only ? `, for ${esc(only.short_name)} only` : user.overlord ? "" : user.admin ? " (every series)" : " (your series)"}.</p>`;
   if (choices.length > 1) body += `<form method="get" class="season"><select name="series" onchange="this.form.submit()"><option value="">All ${user.admin ? "" : "your "}series</option>${choices.map(x =>
     `<option value="${esc(x.slug)}"${only && only.id === x.id ? " selected" : ""}>${esc(x.short_name)}</option>`).join("")}</select></form>`;
   body += rows.length ? `<div class="wrap"><table><tr><th>When</th><th>Who</th><th>Series</th><th>What</th></tr>` + rows.map(c => `<tr><td>${when(c.at)}</td><td>${esc(whoName(c.by))}</td>
@@ -1229,7 +1229,8 @@ function settingsPage(cur, short, user, msg = "", stewardRole = "", producerRole
   <fieldset><legend>Help chat</legend><label class="chk"><input type="checkbox" name="help_on" value="1"${help.on ? " checked" : ""}>
     <span><b>Help</b> (the bubble in the bottom-right corner) for series directors, race control and admins: an AI helper that answers questions about using the site (it can't see or change anything). <a href="${BASE}/help/log">What people asked</a></span></label>
     ${help.key ? "" : `<p class="tag"><b>Not working yet:</b> the Anthropic API key isn't in Cloudflare (the ANTHROPIC_API_KEY secret), so Help stays hidden.</p>`}</fieldset>
-  <p><button class="btn">Save</button></p></form>`;
+  <p><button class="btn">Save</button></p></form>
+  ${user.ownerSet ? `<p class="tag"><b>Overlord only.</b> Only you see this page, Overlay keys, the Help chat's question log, the Overlay block column on Accounts, and History for accounts, settings and keys. Admins keep everything else. You're the overlord because your Discord user ID is the OVERLORD_ID secret in Cloudflare.</p>` : ""}`;
   return page("Site settings", body, { user });
 }
 
@@ -1491,7 +1492,7 @@ function helpWidget(user) {
 <section id="hc-panel" class="hc-panel" hidden aria-label="Help chat"><div class="hc-top"><b>Help</b><span class="tag">Answers from the site's guides. It can't see or change anything, and it can be wrong.</span><button type="button" class="link" id="hc-close" aria-label="Close help">×</button></div>
 <div id="chat" class="help" aria-live="polite"><div class="m a">Ask how to do something on GLR HUB, like "How do I make a race official?"</div></div>
 <form id="ask" class="helpask"><textarea id="q" rows="2" maxlength="2000" placeholder="Type your question" required></textarea>
-<div class="hc-row"><button class="btn" id="go">Ask</button><button type="button" class="link" id="clear">Start over</button><span class="tag" id="left"></span>${user.admin ? `<a class="tag" href="${BASE}/help/log">What people asked</a>` : ""}</div></form></section>
+<div class="hc-row"><button class="btn" id="go">Ask</button><button type="button" class="link" id="clear">Start over</button><span class="tag" id="left"></span>${user.overlord ? `<a class="tag" href="${BASE}/help/log">What people asked</a>` : ""}</div></form></section>
 <style>.hc-open{position:fixed;right:18px;bottom:18px;z-index:50;display:flex;align-items:center;gap:8px;padding:9px 16px 9px 10px;border-radius:999px;border:0;background:var(--accent);color:#fff;font:inherit;font-size:15px;font-weight:700;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,.35)}
 .hc-open b{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:50%;background:rgba(255,255,255,.25)}.hc-open[aria-expanded=true]{display:none}
 .hc-panel{position:fixed;right:18px;bottom:18px;z-index:51;width:min(390px,calc(100vw - 24px));height:min(560px,calc(100vh - 36px));display:flex;flex-direction:column;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,.45);overflow:hidden}
@@ -1718,7 +1719,7 @@ async function signupRoutes(request, env, db, url, path, user) {
 async function helpRoute(request, env, db, url, path, user) {
   if (path === `${BASE}/help/log`) {
     if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/help/log`, 302);
-    if (!user.admin) return notFound("Only admins can see what people asked the helper.", user);
+    if (!user.overlord) return notFound("Check the link.", user);            // overlord only
     return helpLogPage(user, await listHelp(db));
   }
   if (path === `${BASE}/help`) {
@@ -1750,7 +1751,7 @@ function helpPage(user, left) {
   const body = `<h1>Help</h1><p class="sub">Ask how to do something on GLR HUB, like "How do I make a race official?" or "Why are my standings wrong?". The helper knows the site's guides. It can't see your series' data or change anything, and it can be wrong: if something doesn't look right, ask an admin in the GLR Discord.</p>
   <div id="chat" class="help" aria-live="polite"></div>
   <form id="ask" class="helpask"><textarea id="q" rows="3" maxlength="2000" placeholder="Type your question" required></textarea>
-  <p><button class="btn" id="go">Ask</button> <button type="button" class="link" id="clear">Start over</button> <span class="tag" id="left">${left > 0 ? `${left} questions left today` : "No questions left today"}</span>${user.admin ? ` · <a href="${BASE}/help/log">What people asked</a>` : ""}</p></form>
+  <p><button class="btn" id="go">Ask</button> <button type="button" class="link" id="clear">Start over</button> <span class="tag" id="left">${left > 0 ? `${left} questions left today` : "No questions left today"}</span>${user.overlord ? ` · <a href="${BASE}/help/log">What people asked</a>` : ""}</p></form>
   <style>.help{display:flex;flex-direction:column;gap:10px;margin:14px 0}.help .m{padding:10px 14px;border-radius:8px;border:1px solid var(--line);background:var(--card);white-space:normal;line-height:1.45}
   .help .u{align-self:flex-end;max-width:85%;background:transparent}.help .a{max-width:95%}.help .e{border-color:#d33}.helpask textarea{max-width:900px}</style>
   <script>${HELP_JS}</script>`;
@@ -1963,7 +1964,7 @@ const site = {
       }
       if (path === `${BASE}/keys`) {
         if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/keys`, 302);
-        if (!user.admin) return notFound("Only admins can manage overlay keys.", user);
+        if (!user.overlord) return notFound("Check the link.", user);        // overlord only: to anyone else it isn't there
         if (request.method === "POST") {
           if (!sameOrigin(request, url)) return keysPage(await listKeys(db), user, { msg: "Do this from this page." });
           const f = await request.formData();
@@ -2146,6 +2147,7 @@ const site = {
               await logChange(db, { by, seriesId: sr.id, kind: "account", summary: a === "direct" ? `Admin made ${nm} a director of ${sr.short_name}` : `Admin removed ${nm} as a director of ${sr.short_name}` });
               msg = a === "direct" ? `Set: ${nm} directs ${sr.short_name}.` : `Set: ${nm} no longer directs ${sr.short_name}.`;
             } else if (a === "block" || a === "unblock") {
+              if (!user.overlord) throw new Error("You can't change that.");
               const id = String(f.get("id")), nm = await nameOf(id);
               if (id === user.id) throw new Error("You can't block yourself.");
               await setBlock(db, id, a === "block", by);
@@ -2261,7 +2263,7 @@ const site = {
       }
       if (path === `${BASE}/settings`) {
         if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/settings`, 302);
-        if (!user.admin) return notFound("Only admins can change the site settings.", user);
+        if (!user.overlord) return notFound("Check the link.", user);        // overlord only
         let msg = "";
         if (request.method === "POST") {
           if (!sameOrigin(request, url)) return notFound("Save from this page.", user);
@@ -2302,8 +2304,9 @@ const site = {
       if (path === `${BASE}/history`) {
         if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/history`, 302);
         if (!user.official) return notFound("History is for series officials.", user);
-        const mine = user.admin ? null : user.directs;
-        const choices = (await listSeries(db)).filter(x => !mine || mine.includes(x.id));
+        // the overlord sees everything; admins see every series' changes (not accounts, settings or keys); directors their series
+        const every = await listSeries(db), mine = user.overlord ? null : user.admin ? every.map(x => x.id) : user.directs;
+        const choices = every.filter(x => !mine || mine.includes(x.id));
         const only = url.searchParams.get("series") ? choices.find(x => x.slug === url.searchParams.get("series")) || null : null;   // one series (the Director tab's link)
         return historyPage(await listChanges(db, { seriesIds: only ? [only.id] : mine }), user, only, choices);
       }

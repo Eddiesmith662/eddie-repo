@@ -293,7 +293,12 @@ export async function revokeProgramSession(env, id) {
 // what this person can do: admin, official (edits a series), steward (race control role), producer (producer role:
 // connects an overlay), and their linked driver
 async function describe(env, u) {
-  const admin = u.roles.includes(env.DISCORD_ROLE_ID);
+  // The overlord (Nov 2026): one person, above admin, named by their Discord user ID in Cloudflare (OVERLORD_ID), not by
+  // a Discord role, so nobody can be made one from Discord or from the site. They can do everything an admin can,
+  // without the admin role. Until OVERLORD_ID is set there is no overlord and admins keep the overlord-only things.
+  const ownerId = String(env.OVERLORD_ID || "").trim();
+  const owner = !!ownerId && String(u.id) === ownerId;
+  const admin = owner || u.roles.includes(env.DISCORD_ROLE_ID);
   const rc = await getSetting(env.DB, "steward_role"), pr = await getSetting(env.DB, "producer_role"), so = await getSetting(env.DB, "official_role");
   // the series they direct: with the Series official role set, the role plus an admin's assignment; before that, each
   // series' own role (the old way, until an admin saves the Series official role on Site settings)
@@ -303,7 +308,10 @@ async function describe(env, u) {
   const link = await linkedDriver(env.DB, u.id);
   const d = { ...u, admin, official, directs, steward: admin || (!!rc && u.roles.includes(rc)), producer: admin || (!!pr && u.roles.includes(pr)),
     cust: link && link.cust_id ? link.cust_id : null, driverName: link ? link.name || "" : "", noDriver: !!link && !link.cust_id,
-    overlayBlock: await getBlock(env.DB, u.id) || null };
+    overlayBlock: await getBlock(env.DB, u.id) || null,
+    // overlord: may use the overlord-only things (Settings, Overlay keys, the Help question log, overlay blocks, the
+    // whole site's History). ownerSet: an overlord is named, so admins have lost those.
+    overlord: owner || (!ownerId && admin), ownerSet: !!ownerId };
   d.perms = permsFor(d);
   return d;
 }
