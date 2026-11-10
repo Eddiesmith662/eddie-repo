@@ -44,6 +44,8 @@
  */
 import { latestRelease } from "./release.js";
 import { systemPrompt, cleanTurns, askClaude, HELP_PER_DAY } from "./help.js";
+import { roundState, currentRound, liveRounds, saveRound, closeRound, holds, listSignups, activeOf, mineIn, signUp, withdraw, decide, release,
+  changeNumber, raceFlags, entryCsv, newDriver } from "./signups.js";
 import { teamStandings, parseTeams, teamsCsv } from "./teams.js";
 import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, importEvent, setSeriesRole, seriesById, seasonsOf,
   getRules, saveRules, seasonEvents, listAdjustments, addAdjustment, deleteAdjustment,
@@ -79,6 +81,8 @@ const gap = (r, inClass) => {
 };
 const day = t => { const d = new Date(t); return isNaN(d) ? esc(t) : d.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "America/New_York" }); };
 
+// what the header shows besides the usual links: set for each request before its page is made
+const NAV = { signup: false };
 const page = (title, body, { status = 200, user = null } = {}) => new Response(`<!doctype html><html lang="en"__THEME_MODE__><head><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>${esc(title)}</title>__THEME_FONTS__<style>
 :root{__THEME_VARS__}
@@ -138,7 +142,7 @@ label.up{margin:0 0 0 10px;display:inline;color:var(--link);font-size:13px;curso
 .protest details{margin-top:6px}.protest summary{cursor:pointer;color:var(--link);font-size:14px}.dec .grid select,.dec .grid input,.dec input[type=text]{width:100%}
 .stw{margin:18px 0 4px;font-size:14px}tr.wd td b,tr.wd td:first-child{text-decoration:line-through;opacity:.6}textarea{width:100%;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
 input.search{width:100%;max-width:360px;margin:0 0 12px;padding:8px 10px;border-radius:6px;border:1px solid var(--line);background:var(--card);color:var(--text);font:inherit}
-__THEME_CSS__</style></head><body><header><a class="brand" href="${BASE}/">__THEME_BRAND__</a>__THEME_SWITCH__<div class="me"><a href="${BASE}/">Series List</a><a href="${BASE}/schedule">Schedule</a><a href="${BASE}/drivers">Drivers</a>${user
+__THEME_CSS__</style></head><body><header><a class="brand" href="${BASE}/">__THEME_BRAND__</a>__THEME_SWITCH__<div class="me"><a href="${BASE}/">Series List</a><a href="${BASE}/schedule">Schedule</a><a href="${BASE}/drivers">Drivers</a>${NAV.signup ? `<a href="${BASE}/signup">Sign up</a>` : ""}${user
   ? `${user.cust ? `<a href="${BASE}/me">My races</a>` : ""}<a href="${BASE}/protests">Protests</a>${user.producer || usesRaceControl(user) ? `<a href="${BASE}/downloads">Downloads</a>` : ""}${user.official ? `<a href="${BASE}/history">History</a>${user.admin ? `<a href="${BASE}/accounts">Accounts</a><a href="${BASE}/keys">Overlay keys</a><a href="${BASE}/settings">Settings</a>` : ""}<a href="${BASE}/upload">Upload results</a>` : ""}<span class="tag">${esc(user.name)}</span><form method="post" action="${BASE}/logout"><button class="link">Sign out</button></form>`
   : `<a href="${BASE}/login">Sign in</a>`}</div></header><main>${body}</main>${user && user.help && title !== "Help" ? helpWidget(user) : ""}</body></html>`,
   { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
@@ -595,13 +599,15 @@ function driverPage(d, user, { aliases = [], all = [], msg = "", discord = null 
 }
 
 // a series' directors' home: what needs doing, and where everything they can change is
-function directorPage(sr, seasons, user, { provisional = [], protests = [], queue = [], changes = [], missed = [] } = {}) {
+function directorPage(sr, seasons, user, { provisional = [], protests = [], queue = [], changes = [], missed = [], signup = null } = {}) {
   const S = `${BASE}/${esc(sr.slug)}`;
   let body = seriesTabs(sr, "director", seasons, null, user);
   body += `<p class="tag">Only this series' directors and admins see this tab.</p><h2>Needs attention</h2>`;
   const todo = [];
   if (missed.length) todo.push(`<li><b>${missed.length} scheduled race${missed.length === 1 ? " has" : "s have"} no results</b> on the site yet. Upload the iRacing results file (or, if the race didn't run, remove it from the <a href="${S}/schedule">schedule</a>):<ul>${missed.map(r =>
     `<li>${day(r.starts_at)} · ${esc(r.track)}</li>`).join("")}</ul></li>`);
+  if (signup && signup.waiting) todo.push(`<li><b>${signup.waiting} signup${signup.waiting === 1 ? " is" : "s are"} waiting</b> for ${esc(signup.round.name)}. <a href="${S}/signups">Approve or decline</a>.</li>`);
+  if (signup && signup.flags) todo.push(`<li><b>Car numbers in the last race</b> (${day(signup.flags.event.start_time)} · ${esc(signup.flags.event.track)}) don't match the signups. <a href="${S}/signups#flags">See who</a>.</li>`);
   if (provisional.length) todo.push(`<li><b>${provisional.length} race${provisional.length === 1 ? "" : "s"} still provisional</b> (from a broadcast overlay). Upload the iRacing results file, or open the race, check it and press Mark results official:<ul>${provisional.map(e =>
     `<li><a href="${BASE}/results/${e.subsession_id}">${day(e.start_time)} · ${esc(e.track)}</a></li>`).join("")}</ul></li>`);
   if (protests.length) todo.push(`<li><b>${protests.length} open protest${protests.length === 1 ? "" : "s"}</b>:<ul>${protests.map(p =>
@@ -616,6 +622,7 @@ function directorPage(sr, seasons, user, { provisional = [], protests = [], queu
     [`${S}/penalties`, "Penalties", "points penalties and adjustments"],
     [`${BASE}/protests`, "Protests", "open and recent protests; decide them on each race's stewards' report"],
     [`${S}/drivers`, "Drivers", "add a driver who hasn't raced yet"],
+    [`${S}/signups`, "Signups and car numbers", "open season signups, approve drivers, change or release numbers, the entry list"],
     ...(sr.teams ? [[`${S}/teams`, "Teams", "upload the team list (CSV)"]] : []),
     [`${S}/edit`, "Edit series", "the series' name and web address"],
     [`${S}/edit#discord`, "Discord posts", "webhooks for results, standings and penalties; Send test, Send latest"],
@@ -742,8 +749,9 @@ function statsPage(sr, seasons, seasonId, rows, races, user) {
   return page(`${sr.short_name} stats`, body, { user });
 }
 
-function seriesDriversPage(sr, rows, roster, user, msg = "") {
+function seriesDriversPage(sr, rows, roster, user, msg = "", entry = null) {
   let body = seriesTabs(sr, "drivers", [], null, user);
+  if (entry) body += entryList(sr, entry, user);
   const edit = canEdit(user, sr), raced = new Set(rows.map(r => r.custId)), mine = new Set(roster.map(r => r.cust_id));
   const list = [...rows.map(r => ({ ...r, added: mine.has(r.custId) })),
     ...roster.filter(r => !raced.has(r.cust_id)).map(r => ({ custId: r.cust_id, name: r.name, number: r.car_number, starts: 0, wins: 0, first: "", last: "", added: true }))]
@@ -1155,7 +1163,7 @@ async function upload(request, env, user) {
   } catch (e) { return json({ ok: false, error: e.message }, 400); }
 }
 
-const KIND = { upload: "Upload", overlay: "Overlay", official: "Official", fix: "Fix", remove: "Removed", penalty: "Penalty", unpenalty: "Penalty removed",
+const KIND = { signup: "Signup", upload: "Upload", overlay: "Overlay", official: "Official", fix: "Fix", remove: "Removed", penalty: "Penalty", unpenalty: "Penalty removed",
   rules: "Rules", series: "Series", roster: "Drivers", schedule: "Schedule", webhook: "Discord", key: "Overlay key", merge: "Merge", separate: "Separate", note: "" };
 function historyPage(rows, user, only = null, choices = []) {
   const when = t => { const d = new Date(t); return isNaN(d) ? "" : d.toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit", timeZone: "America/New_York" }) + " ET"; };
@@ -1462,6 +1470,212 @@ document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!p.hidden)show(fals
 try{if(sessionStorage.getItem('glrhelp-open'))show(true);}catch(e){}})();</script>`;
 }
 
+// ---- Season signups and car numbers (Nov 2026; the rules are in signups.js) ----
+const etParts = iso => { const d = new Date(iso); if (isNaN(d)) return { date: "", time: "" };
+  const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
+    .formatToParts(d).map(x => [x.type, x.value]));
+  return { date: `${p.year}-${p.month}-${p.day}`, time: `${p.hour}:${p.minute}` }; };
+const SIGNUP_CSS = `<style>.su{border:1px solid var(--line);border-radius:10px;background:var(--card);padding:12px 16px;margin:12px 0}.su h2{margin:0 0 2px;font-size:18px}.su p{margin:6px 0}
+.su .pick{display:flex;align-items:center;gap:10px;flex-wrap:wrap}.su input[type=text]{width:90px}.su .nums{white-space:normal;line-height:1.7}
+.pill{display:inline-block;border-radius:999px;padding:1px 9px;font-size:12px;font-weight:600;border:1px solid var(--line)}.pill.ok{border-color:#2a7;color:#2a7}.pill.wait{border-color:#b80;color:#b80}.pill.no{border-color:#a33;color:#d55}</style>`;
+const windowLine = (round, state) => state === "soon" ? `Signups start ${when(round.keep_at)}.`
+  : state === "keep" ? `<b>Keep-your-number week.</b> Drivers who raced last season can keep their number. Signups open to everyone ${when(round.open_at)}.`
+  : state === "open" ? `<b>Open to everyone:</b> first come, first served.` : `Signups are closed.`;
+const takenLine = list => { const a = activeOf(list); return a.length ? `<p class="tag nums">Taken (${a.length}): ${a.map(x => `#${esc(x.number)}`).join(", ")}</p>` : `<p class="tag">No numbers taken yet.</p>`; };
+
+// the entry list at the top of a series' Drivers tab
+function entryList(sr, { round, list }, user) {
+  const state = roundState(round);
+  let h = SIGNUP_CSS + `<h2>${esc(round.name)} entry list</h2><p class="tag">${list.length} driver${list.length === 1 ? "" : "s"} signed up. ${windowLine(round, state)}${state === "keep" || state === "open" ? ` <a href="${BASE}/signup">Sign up</a>` : ""}${canEdit(user, sr) ? ` · <a href="${BASE}/${esc(sr.slug)}/signups">Manage signups</a>` : ""}</p>`;
+  if (list.length) h += `<div class="wrap" style="margin-bottom:18px"><table><tr><th class="n">#</th><th>Driver</th><th>Signup</th></tr>${list.map(x =>
+    `<tr><td class="n"><b>${esc(x.number)}</b></td><td>${esc(x.name)}</td><td>${x.status === "approved" ? `<span class="pill ok">Approved</span>` : `<span class="pill wait">Waiting for the director</span>`}</td></tr>`).join("")}</table></div>`;
+  return h + `<h2>Everyone who has raced</h2>`;
+}
+
+// the Sign up page: every series taking signups on one form
+function signupPage(user, cards, { msgs = [], same = "" } = {}) {
+  let body = SIGNUP_CSS + `<h1>Sign up</h1><p class="sub">Sign up for the series you want to race in next season and pick your car number in each. Numbers are separate for each series. Every signup is checked by the series director before it's final.</p>`;
+  for (const m of msgs) body += `<div class="msg ${m.ok ? "ok" : "bad"}">${esc(m.text)}</div>`;
+  if (!cards.length) return page("Sign up", body + `<p class="hint">No series is taking signups right now.</p>`, { user });
+  if (!user) body += `<p class="hint"><a href="${BASE}/login?back=${BASE}/signup">Sign in with Discord</a> to sign up.</p>`;
+  else if (!user.cust) body += `<div class="su"><h2>First: which driver are you?</h2>
+    <p>If you've raced in GLR before, <a href="${BASE}/me/driver?back=${BASE}/signup"><b>pick yourself from the list</b></a>.</p>
+    <p>If you haven't raced in GLR yet, tell us who you are:</p>
+    <form method="post"><input type="hidden" name="action" value="newdriver"><div class="grid"><label>Your iRacing ID<br><input type="number" name="cust" required min="1"></label>
+    <label>Your name, as in iRacing<br><input type="text" name="name" maxlength="60" required></label></div>
+    <p class="tag">Your iRacing ID is the customer ID number on your iRacing account page.</p><p><button class="btn">That's me</button></p></form></div>`;
+  const can = !!(user && user.cust), anyOpen = cards.some(c => c.state === "open" && !(c.mine && c.mine.status === "approved"));
+  let form = "", pickable = 0;
+  if (can && anyOpen) form += `<div class="su"><div class="pick"><label for="same" style="margin:0"><b>Same number in every series I tick:</b></label>
+    <input type="text" id="same" name="same" inputmode="numeric" maxlength="4" value="${esc(same)}" placeholder="24">
+    <span class="tag">Used wherever it's free and a series' own box is empty. Where it's taken, you'll be asked for another.</span></div></div>`;
+  for (const c of cards) {
+    const { round: r, state, list, hold, mine } = c, active = mine && (mine.status === "pending" || mine.status === "approved");
+    let h = `<div class="su"><h2><a href="${BASE}/${esc(r.slug)}/drivers">${esc(r.short_name)}</a> · ${esc(r.name)}</h2><p class="tag">${windowLine(r, state)}</p>`;
+    if (active) h += `<p><b>#${esc(mine.number)}</b> ${mine.status === "approved" ? `<span class="pill ok">Approved</span> <span class="tag">To change it, ask the series director.</span>`
+      : `<span class="pill wait">Waiting for the director</span> <button class="link" form="wd" name="withdraw" value="${r.id}">Withdraw</button>`}</p>`;
+    else if (mine && mine.status === "declined") h += `<p><span class="pill no">Declined</span> #${esc(mine.number)}: ${esc(mine.note)} <span class="tag">You can sign up again.</span></p>`;
+    else if (mine && mine.status === "released") h += `<p><span class="pill no">Released</span> The director released your #${esc(mine.number)}. <span class="tag">You can sign up again.</span></p>`;
+    if (can && !(mine && mine.status === "approved")) {
+      if (state === "keep" && !active) {
+        if (hold && hold.mine) { pickable++; h += `<label class="chk"><input type="checkbox" name="s_${r.id}" value="1" checked> <span>Keep <b>#${esc(hold.number)}</b>, my number last season</span></label>`; }
+        else h += `<p class="tag">${hold ? `Last season you and ${esc(hold.holder)} both ran #${esc(hold.number)}, and it's held for ${esc(hold.holder)}, who ran it in more races.` : `You didn't race in ${esc(r.short_name)} last season, so there's no number to keep.`} You can pick a number when signups open to everyone.</p>`;
+      } else if (state === "open") {
+        pickable++;
+        h += `<div class="pick"><label class="chk" style="margin:0"><input type="checkbox" name="s_${r.id}" value="1"${c.ticked ? " checked" : ""}> <span>${active ? "Change my number to" : "Sign me up, with number"}</span></label>
+          <input type="text" name="n_${r.id}" inputmode="numeric" maxlength="4" value="${esc(c.value || "")}" placeholder="${active ? esc(mine.number) : "#"}"></div>`;
+      }
+    }
+    if (state !== "soon") h += takenLine(list);
+    form += h + `</div>`;
+  }
+  body += `<form method="post" id="wd"><input type="hidden" name="action" value="withdraw"></form><form method="post"><input type="hidden" name="action" value="signup">${form}${pickable ? `<p><button class="btn">Sign up</button> <span class="tag">A number is 1 to 3 digits. 7, 07 and 007 are different numbers, as in iRacing.</span></p>` : ""}</form>`;
+  return page("Sign up", body, { user });
+}
+
+// a series' signups, for its directors and admins: open them, approve, change, release, add
+function signupsAdminPage(sr, user, { round, list = [], held = null, flags = null, msg = "" } = {}) {
+  const S = `${BASE}/${esc(sr.slug)}`, state = roundState(round), hid = (a, id) => `<input type="hidden" name="action" value="${a}">${id ? `<input type="hidden" name="id" value="${id}">` : ""}`;
+  let body = seriesTabs(sr, "director", [], null, user) + SIGNUP_CSS + `<p class="crumb"><a href="${S}/director">Director</a> › Signups and car numbers</p>`;
+  if (msg) body += `<div class="msg ${/^(Saved|Opened|Closed|Reopened|Approved|Declined|Released|Changed|Added)/.test(msg) ? "ok" : "bad"}" id="top">${esc(msg)}</div>`;
+  const k = round && state !== "closed" ? etParts(round.keep_at) : { date: "", time: "12:00" }, o = round && state !== "closed" ? etParts(round.open_at) : { date: "", time: "12:00" };
+  body += `<h2>${!round ? "Open signups" : state === "closed" ? "Open signups for a new season" : esc(round.name)}</h2>`;
+  if (round) body += `<p class="tag">${state === "closed" ? `${esc(round.name)}: signups are closed.` : windowLine(round, state)} ${state === "closed"
+    ? `<form method="post" style="display:inline">${hid("reopen")}<button class="link">Reopen them</button></form>`
+    : `<form method="post" style="display:inline" onsubmit="return confirm('Close signups? Drivers can\\'t sign up or change after this. You still can.')">${hid("close")}<button class="link">Close signups</button></form>`}</p>`;
+  body += `<form method="post">${hid("round")}<label for="rn">Season name</label><input type="text" id="rn" name="name" maxlength="60" required placeholder="2027 Season 1" value="${round && state !== "closed" ? esc(round.name) : ""}">
+    <div class="grid"><label>Keep-your-number week starts<br><input type="date" name="keep_date" required value="${k.date}"> <input type="time" name="keep_time" value="${k.time}" style="width:120px"></label>
+    <label>Opens to everyone<br><input type="date" name="open_date" required value="${o.date}"> <input type="time" name="open_time" value="${o.time}" style="width:120px"></label></div>
+    <p class="tag">Times are Eastern. In the first window, drivers who raced last season can keep their number and nobody else can take it. After that, every number not kept is first come, first served. Every signup waits for your approval.</p>
+    <p><button class="btn">${round && state !== "closed" ? "Save" : "Open signups"}</button></p></form>`;
+  if (!round) return page(`${sr.short_name} signups`, body, { user });
+
+  if (flags) body += `<h2 id="flags">Car numbers in the last race</h2><p class="tag"><a href="${BASE}/results/${flags.event.subsession_id}">${day(flags.event.start_time)} · ${esc(flags.event.track)}</a>. Nothing is blocked: this is for you to follow up.</p><ul class="todo">
+    ${flags.different.map(x => `<li><b>${esc(x.name)}</b> ran #${esc(x.ran)}, signed up as #${esc(x.signed)}.</li>`).join("")}
+    ${flags.unsigned.map(x => `<li><b>${esc(x.name)}</b> raced${x.ran ? ` as #${esc(x.ran)}` : ""} ${x.waiting ? "with a signup still waiting for approval" : "without signing up"}.</li>`).join("")}</ul>`;
+
+  const waiting = list.filter(x => x.status === "pending"), active = activeOf(list);
+  body += `<h2>Waiting for you (${waiting.length})</h2>`;
+  body += waiting.length ? `<div class="wrap"><table><tr><th class="n">#</th><th>Driver</th><th>Signed up</th><th></th></tr>${waiting.map(x => `<tr><td class="n"><b>${esc(x.number)}</b></td>
+    <td>${driverLink(x.cust_id, x.name)}${x.kept ? ` <span class="tag">kept from last season</span>` : ""}</td><td>${when(x.created_at)}</td>
+    <td style="white-space:normal"><form method="post" style="display:inline">${hid("approve", x.id)}<button class="btn">Approve</button></form>
+      <form method="post" style="display:inline-flex;gap:6px;margin-left:10px">${hid("decline", x.id)}<input type="text" name="reason" maxlength="200" placeholder="Reason (the driver sees it)" required style="width:220px"><button class="link">Decline</button></form></td></tr>`).join("")}</table></div>`
+    : `<p class="hint">No signups waiting.</p>`;
+
+  body += `<h2>Entry list (${active.length})</h2><p class="tag"><a href="${S}/signups.csv">Download as CSV</a> to enter the numbers in the iRacing league: the site can't set them there. A number is only freed when you decline or release it.</p>`;
+  if (active.length) body += `<div class="wrap"><table><tr><th class="n">#</th><th>Driver</th><th class="n">iRacing ID</th><th>Signup</th><th>Change number</th><th></th></tr>${active.map(x => `<tr><td class="n"><b>${esc(x.number)}</b></td>
+    <td>${driverLink(x.cust_id, x.name)}</td><td class="n tag">${x.cust_id}</td><td>${x.status === "approved" ? `<span class="pill ok">Approved</span>` : `<span class="pill wait">Waiting</span>`}</td>
+    <td><form method="post" style="display:inline-flex;gap:6px">${hid("number", x.id)}<input type="text" name="number" inputmode="numeric" maxlength="4" required style="width:70px"><button class="link">Change</button></form></td>
+    <td><form method="post" onsubmit="return confirm('Release #${esc(x.number)}? ${esc(String(x.name).replace(/['"\\]/g, ""))} comes off the entry list and the number is free.')">${hid("release", x.id)}<button class="link">Release</button></form></td></tr>`).join("")}</table></div>`;
+  if (held && held.length) body += `<p class="tag nums"><b>Held for last season's drivers until ${when(round.open_at)}:</b> ${held.map(x => `#${esc(x.number)} ${esc(x.name)}`).join(", ")}</p>`;
+
+  body += `<h2>Sign a driver up yourself</h2><form method="post">${hid("add")}<div class="grid"><label>iRacing ID<br><input type="number" name="cust" required min="1"></label>
+    <label>Car number<br><input type="text" name="number" inputmode="numeric" maxlength="4" required style="width:90px"></label></div>
+    <label for="an">Name</label><input type="text" id="an" name="name" maxlength="80">
+    <p class="tag">Approved straight away. Leave the name empty for a driver the site already knows. If they're already signed up, this changes their number.</p><p><button class="btn">Sign up</button></p></form>`;
+  const gone = list.filter(x => x.status === "declined" || x.status === "released" || x.status === "withdrawn").sort((a, b) => b.id - a.id).slice(0, 30);
+  if (gone.length) body += `<h2>No longer signed up</h2><div class="wrap"><table><tr><th class="n">#</th><th>Driver</th><th>What happened</th></tr>${gone.map(x => `<tr><td class="n">${esc(x.number)}</td><td>${esc(x.name)}</td>
+    <td style="white-space:normal">${x.status === "declined" ? `Declined by ${esc(whoName(x.decided_by))}: ${esc(x.note)}` : x.status === "released" ? `Released by ${esc(whoName(x.decided_by))}` : "Withdrawn by the driver"} · ${day(x.decided_at)}</td></tr>`).join("")}</table></div>`;
+  return page(`${sr.short_name} signups`, body, { user });
+}
+
+// the routes for /signup and /<series>/signups[.csv]; null when the path is something else
+async function signupRoutes(request, env, db, url, path, user) {
+  let m;
+  if (path === `${BASE}/signup`) {
+    const rounds = await liveRounds(db), msgs = [], vals = new Map();
+    let same = "";
+    if (request.method === "POST") {
+      if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/signup`, 302);
+      if (!sameOrigin(request, url)) return notFound("Sign up from the Sign up page.", user);
+      const f = await request.formData(), by = `discord:${user.id}:${user.name}`, wd = Number(f.get("withdraw")) || 0;
+      if (f.get("action") === "newdriver" && !user.cust) {
+        try {
+          const d = await newDriver(db, f.get("cust"), f.get("name"));
+          if (d.existed) msgs.push({ text: "That iRacing ID is already on GLR HUB. Use \"pick yourself from the list\" instead." });
+          else {
+            const r = await linkDriver(db, user.id, user.name, d.cust);
+            if (r.claim) msgs.push({ text: "That iRacing ID is linked to another account. An admin has to sort that out." });
+            else { user.cust = d.cust; user.driverName = d.name; user.noDriver = false;
+              await logChange(db, { by, kind: "account", summary: `${user.name} joined as a new driver: ${d.name} (${d.cust})` });
+              msgs.push({ ok: true, text: `Welcome, ${d.name}. Now pick your series and numbers.` }); }
+          }
+        } catch (e) { msgs.push({ text: e.message }); }
+      } else if (!user.cust) msgs.push({ text: "First tell the site which driver you are." });
+      else if (wd) {
+        const r = rounds.find(x => x.id === wd);
+        try { if (!r) throw new Error("Signups aren't open for that series."); const s = await withdraw(db, r, user.cust); msgs.push({ ok: true, text: `${r.short_name}: your signup for #${s.number} is withdrawn.` }); }
+        catch (e) { msgs.push({ text: e.message }); }
+      } else {
+        same = String(f.get("same") || "").trim();
+        const h = new Map();
+        for (const r of rounds) {
+          if (!f.get(`s_${r.id}`)) continue;
+          const state = roundState(r);
+          let num = String(f.get(`n_${r.id}`) || "").trim() || same;
+          try {
+            if (state === "keep") { if (!h.has(r.id)) h.set(r.id, await holds(db, r)); const mine = h.get(r.id).byCust.get(user.cust); num = mine && mine.mine ? mine.number : ""; }
+            if (!num) throw new Error("pick a number.");
+            const res = await signUp(db, r, { cust: user.cust, discordId: user.id, name: user.driverName || user.name, number: num, by });
+            msgs.push({ ok: true, text: `${r.short_name}: #${res.number} is ${res.changed ? "your number now" : "yours"}${res.status === "approved" ? "." : ", waiting for the director's approval."}` });
+          } catch (e) { msgs.push({ text: `${r.short_name}: ${e.message}` }); vals.set(r.id, String(f.get(`n_${r.id}`) || "").trim()); }
+        }
+        if (!msgs.length) msgs.push({ text: "Tick the series you want to sign up for." });
+      }
+    }
+    const cards = [];
+    for (const r of rounds) {
+      const state = roundState(r), list = await listSignups(db, r.id);
+      const hold = user && user.cust && state === "keep" ? (await holds(db, r)).byCust.get(user.cust) || null : null;
+      cards.push({ round: r, state, list, hold, mine: user && user.cust ? mineIn(list, user.cust) : null, ticked: vals.has(r.id), value: vals.get(r.id) || "" });
+    }
+    return signupPage(user, cards, { msgs, same });
+  }
+  if ((m = path.match(/^\/([a-z0-9-]+)\/signups(\.csv)?$/))) {
+    const sr = await getSeries(db, m[1]);
+    if (!sr) return null;
+    if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/${sr.slug}/signups`, 302);
+    if (!canEdit(user, sr)) return notFound("Only this series' directors and admins manage its signups. The entry list is on the Drivers tab.", user);
+    let round = await currentRound(db, sr.id), msg = "";
+    if (m[2]) return new Response(entryCsv(round ? await listSignups(db, round.id) : []), { headers: {
+      "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="${sr.slug}-entry-list.csv"`, "cache-control": "no-store" } });
+    if (request.method === "POST") {
+      if (!sameOrigin(request, url)) return notFound("You can't change this series.", user);
+      const f = await request.formData(), a = f.get("action"), id = Number(f.get("id")) || 0, by = `discord:${user.id}:${user.name}`;
+      const log = summary => logChange(db, { by, seriesId: sr.id, kind: "signup", summary });
+      try {
+        if (a === "round") {
+          const r = await saveRound(db, sr.id, { name: f.get("name"), keepDate: f.get("keep_date"), keepTime: f.get("keep_time"), openDate: f.get("open_date"), openTime: f.get("open_time") }, by);
+          await log(`${r.created ? "Signups opened" : "Signup dates changed"} for ${r.name}: keep-your-number from ${day(r.keep)}, open to everyone from ${day(r.open)}`);
+          msg = r.created ? `Opened signups for ${r.name}.` : "Saved.";
+        } else if (!round) throw new Error("Open signups first.");
+        else if (a === "close" || a === "reopen") { await closeRound(db, round.id, a === "close"); await log(`Signups ${a === "close" ? "closed" : "reopened"} for ${round.name}`); msg = a === "close" ? "Closed signups." : "Reopened signups."; }
+        else if (a === "approve" || a === "decline") {
+          const s = await decide(db, sr.id, id, a === "approve", f.get("reason"), by);
+          await log(a === "approve" ? `Signup approved: ${s.name} #${s.number} (${round.name})` : `Signup declined: ${s.name} #${s.number} (${round.name}): ${String(f.get("reason")).trim()}`);
+          msg = a === "approve" ? `Approved ${s.name}, #${s.number}.` : `Declined ${s.name}. #${s.number} is free.`;
+        } else if (a === "release") { const s = await release(db, sr.id, id, by); await log(`Number released: #${s.number}, ${s.name} (${round.name})`); msg = `Released #${s.number}. ${s.name} is off the entry list.`; }
+        else if (a === "number") { const s = await changeNumber(db, sr.id, id, f.get("number"), by); await log(`Car number changed: ${s.name} #${s.number} → #${s.to} (${round.name})`); msg = `Changed ${s.name} to #${s.to}.`; }
+        else if (a === "add") {
+          const cust = Number(f.get("cust")) || 0, known = cust ? await getDriver(db, cust) : null, name = String(f.get("name") || "").trim() || (known && known.name) || "";
+          if (!cust) throw new Error("Enter the driver's iRacing ID.");
+          if (!name) throw new Error("Enter the driver's name: the site doesn't know that iRacing ID yet.");
+          const r = await signUp(db, round, { cust, name, number: f.get("number"), by, director: true });
+          await log(`${r.changed ? `Car number changed: ${name} #${r.was} → #${r.number}` : `Driver signed up by an official: ${name} #${r.number}`} (${round.name})`);
+          msg = `Added ${name}, #${r.number}.`;
+        }
+      } catch (e) { msg = e.message; }
+      round = await currentRound(db, sr.id);
+    }
+    const list = round ? await listSignups(db, round.id) : [], state = roundState(round);
+    let held = null;
+    if (round && (state === "soon" || state === "keep")) { const have = new Set(activeOf(list).map(x => x.number));
+      held = [...(await holds(db, round)).byNumber].filter(([n]) => !have.has(n)).map(([number, x]) => ({ number, name: x.name })).sort((a, b) => Number(a.number) - Number(b.number)); }
+    return signupsAdminPage(sr, user, { round, list, held, flags: await raceFlags(db, round), msg });
+  }
+  return null;
+}
+
 // The Help chat (directors and admins): the page, the question endpoint, and the admins' log of questions
 async function helpRoute(request, env, db, url, path, user) {
   if (path === `${BASE}/help/log`) {
@@ -1557,10 +1771,16 @@ const site = {
       }
       if (path === `${BASE}/logout` && request.method === "POST" && sameOrigin(request, url)) return logout(request, env);
       let user = await currentUser(request, env);
+      // "Sign up" in the header while any series is taking season signups (pages only, not the API or widgets)
+      NAV.signup = !/\/(api|widget)\//.test(path) && (await liveRounds(db)).length > 0;
       // the Help chat: directors, race control and admins, once the API key is in Cloudflare and an admin hasn't switched it off
       if (user && (user.official || user.steward) && env.ANTHROPIC_API_KEY && await getSetting(db, "help_off") !== "1") user.help = true;
       if (path === `${BASE}/help` || path === `${BASE}/api/help` || path === `${BASE}/help/log`) {
         const r = await helpRoute(request, env, db, url, path, user);
+        if (r) return r;
+      }
+      if (path === `${BASE}/signup` || /\/signups(\.csv)?$/.test(path)) {
+        const r = await signupRoutes(request, env, db, url, path, user);
         if (r) return r;
       }
       if (path === `${BASE}/upload`) return !user ? Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/upload`, 302) : user.official ? uploadPage(user) : notFound("Only series officials can upload results.", user);
@@ -2141,6 +2361,8 @@ const site = {
           queue: await queueFor(db, sr.id),
           changes: await listChanges(db, { seriesIds: [sr.id], limit: 10 }),
           missed: await missedResults(db, sr.id),
+          signup: await (async () => { const round = await currentRound(db, sr.id); if (!round) return null;
+            return { round, waiting: (await listSignups(db, round.id)).filter(x => x.status === "pending").length, flags: await raceFlags(db, round) }; })(),
         });
       }
       if ((m = path.match(/^\/([a-z0-9-]+)\/embed$/))) {
@@ -2191,7 +2413,8 @@ const site = {
         const [rows, roster] = await Promise.all([seriesEvents(db, sr.id).then(computeStats), listRoster(db, sr.id)]);
         if (api) return json({ ok: true, series: sr.short_name, drivers: rows.map(r => ({ custId: r.custId, name: r.name, number: r.number, starts: r.starts, wins: r.wins, first: r.first, last: r.last })),
           added: roster.map(r => ({ custId: r.cust_id, name: r.name, number: r.car_number })) });
-        return seriesDriversPage(sr, rows, roster, user, msg);
+        const round = await currentRound(db, sr.id);
+        return seriesDriversPage(sr, rows, roster, user, msg, round ? { round, list: activeOf(await listSignups(db, round.id)) } : null);
       }
       if ((m = path.match(/^\/([a-z0-9-]+)\/(standings|rules|penalties|teams)$/))) {
         const sr = await getSeries(db, m[1]);

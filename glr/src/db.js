@@ -92,6 +92,16 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS help_log (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, discord_id TEXT NOT NULL, name TEXT, question TEXT NOT NULL, answer TEXT)`,
   `CREATE INDEX IF NOT EXISTS help_log_who ON help_log (discord_id, at)`,
   `CREATE TABLE IF NOT EXISTS announcer_shows (discord_id TEXT PRIMARY KEY, show TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL)`,
+  // season signups and car numbers (Nov 2026): see signups.js. A round is one season's signup for one series; iRacing's
+  // season doesn't exist on the site until its first race, so a round has its own name and dates.
+  `CREATE TABLE IF NOT EXISTS signup_rounds (id INTEGER PRIMARY KEY AUTOINCREMENT, series_id INTEGER NOT NULL, name TEXT NOT NULL,
+     keep_at TEXT NOT NULL, open_at TEXT NOT NULL, closed_at TEXT, from_season INTEGER, created_at TEXT, created_by TEXT)`,
+  `CREATE TABLE IF NOT EXISTS signups (id INTEGER PRIMARY KEY AUTOINCREMENT, round_id INTEGER NOT NULL, series_id INTEGER NOT NULL,
+     cust_id INTEGER NOT NULL, discord_id TEXT, name TEXT NOT NULL, number TEXT NOT NULL, status TEXT NOT NULL DEFAULT 'pending',
+     kept INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, created_by TEXT, decided_at TEXT, decided_by TEXT, note TEXT NOT NULL DEFAULT '')`,
+  // a number, and a driver, only once per round among signups that still count: this is what makes "first come" safe
+  `CREATE UNIQUE INDEX IF NOT EXISTS signups_number ON signups (round_id, number) WHERE status IN ('pending', 'approved')`,
+  `CREATE UNIQUE INDEX IF NOT EXISTS signups_driver ON signups (round_id, cust_id) WHERE status IN ('pending', 'approved')`,
   `CREATE TABLE IF NOT EXISTS overlay_blocks (discord_id TEXT PRIMARY KEY, blocked_at TEXT NOT NULL, blocked_by TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS link_claims (
      id INTEGER PRIMARY KEY AUTOINCREMENT, discord_id TEXT NOT NULL, discord_name TEXT, cust_id INTEGER NOT NULL,
