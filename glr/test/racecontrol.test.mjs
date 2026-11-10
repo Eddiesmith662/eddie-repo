@@ -1,7 +1,7 @@
 // Race control and the site (phase 5c): signing in from the program, calls for a race, and what they do to results.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { makeSite, week, text } from "./helpers.mjs";
+import { makeSite, week, text, ADMIN_ROLE } from "./helpers.mjs";
 import { applyDecisions } from "../src/stewards.js";
 
 const RC_ROLE = "333333";
@@ -120,7 +120,11 @@ test("withdrawn stays withdrawn, and two stewards' calls both land", async () =>
 test("race control is turned away from series it can't steward and races that aren't GLR", async () => {
   const s = await setup();
   await s.addRace({ sub: 3000, date: week(0), league: 5555, leagueName: "GLR Other SERIES", season: 600 });
-  await s.post("/test-cup/edit", { short_name: "Test Cup", slug: "test-cup", role_id: "222222" });
+  // a director of Test Cup only: the Series official role, and an admin's assignment
+  await s.signIn({ id: "62", roles: ["222222"], nick: "Cup Steward" });
+  await s.signIn({ id: "1", roles: [ADMIN_ROLE], nick: "Test Admin" });
+  await s.post("/settings", { theme: "glr", short: "GLR", steward_role: RC_ROLE, official_role: "222222" });
+  await s.post("/accounts", { action: "direct", id: "62", series: "4242" });
   const token = await signedIn(s, { id: "62", roles: ["222222"], nick: "Cup Steward" });
   assert.deepEqual((await rc(s, token, "GET", "/api/rc/check")).body.series, [4242]);
   assert.equal((await rc(s, token, "PUT", "/api/rc/races/3000", file(3000, [call(1)], { leagueId: 5555 }))).status, 403);

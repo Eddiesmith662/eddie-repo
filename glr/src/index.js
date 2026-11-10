@@ -47,7 +47,7 @@ import { systemPrompt, cleanTurns, askClaude, HELP_PER_DAY } from "./help.js";
 import { roundState, currentRound, liveRounds, saveRound, closeRound, holds, listSignups, activeOf, mineIn, signUp, withdraw, decide, release,
   changeNumber, raceFlags, entryCsv, newDriver } from "./signups.js";
 import { teamStandings, parseTeams, teamsCsv } from "./teams.js";
-import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, importEvent, setSeriesRole, seriesById, seasonsOf,
+import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, importEvent, seriesById, seasonsOf,
   getRules, saveRules, seasonEvents, listAdjustments, addAdjustment, deleteAdjustment,
   importOverlay, listKeys, createKey, revokeKey, checkKey, deleteEvent, listFixes, fixResult, FIX_FIELDS, markOfficial, setHook, HOOKS,
   logChange, listChanges, whoName, mergeDrivers, separateDriver, aliasesOf, findDrivers,
@@ -63,7 +63,7 @@ import { THEMES, themeOf } from "./themes.js";
 import { ASSETS } from "./assets.js";
 import { parseExport, parseOverlay } from "./parse.js";
 import { configured, login, callback, currentUser, logout, canEdit, canSteward, cookies,
-  raceControlUser, overlayUser, BLOCK_MSG, PROGRAMS, linkStart, linkPoll, linkFind, linkAllow, programSignOut, listProgramSessions, revokeProgramSession } from "./auth.js";
+  raceControlUser, overlayUser, recheckRoles, BLOCK_MSG, PROGRAMS, linkStart, linkPoll, linkFind, linkAllow, programSignOut, listProgramSessions, revokeProgramSession } from "./auth.js";
 
 // the site sits at the front of its own domain (glrhub.app, Nov 7 2026); it was vspeedlivetiming.app/glr before
 const BASE = "";
@@ -261,11 +261,8 @@ function seriesEditPage(sr, user, err = "", queue = [], note = "", { officialRol
     <p class="tag">Changing the address breaks old links to this series. Race and driver links aren't affected.</p>
     ${user && user.admin ? `<input type="hidden" name="teams_form" value="1"><label class="chk"><input type="checkbox" name="teams"${sr.teams ? " checked" : ""}> Team points (the Warrior points system): a Teams tab with team standings</label>
     <label class="chk"><input type="checkbox" name="hidden"${sr.hidden ? " checked" : ""}> Hide from the Series List: off the home page, the all-series Schedule and Drivers pages and Sign up. It still works by its own link, results still arrive, and admins and its directors still see it.</label>` : ""}
-    ${user && user.admin && officialRole ? `<p class="stw"><b>Series directors:</b> ${directors.length ? directors.map(d => esc(d.name || d.discord_id)).join(", ") : "none yet"}. <a href="${BASE}/accounts">Assign on the Accounts page</a>.</p>
+    ${user && user.admin ? `<p class="stw"><b>Series directors:</b> ${directors.length ? directors.map(d => esc(d.name || d.discord_id)).join(", ") : "none yet"}. <a href="${BASE}/accounts">Assign on the Accounts page</a>.</p>
     <p class="tag">Directors need the Series official role in Discord too. They change only their series: its rules, penalties, results uploads and this page.</p>` : ""}
-    ${user && user.admin && !officialRole ? `<p class="tag">Being replaced: once the Series official role is saved on Site settings, admins assign each series' directors on the Accounts page, and this role stops working.</p><label for="rl">Discord role for this series' officials (role ID; leave empty for admins only)</label>
-    <input type="text" id="rl" name="role_id" value="${esc(sr.role_id || "")}" maxlength="25" inputmode="numeric">
-    <p class="tag">People with this role can sign in and change only this series: its rules, penalties, results uploads and this page. In Discord: Server Settings › Roles › right-click the role › Copy Role ID.</p>` : ""}
     <p><button class="btn">Save</button></p></form>
     <h2 id="logo">Logo</h2>${logoUrl(sr) ? `<p><img src="${logoUrl(sr)}" alt="${esc(sr.short_name)} logo" style="max-height:110px;max-width:320px"></p>` : `<p class="tag">No logo yet.</p>`}
     <form method="post" action="#logo" enctype="multipart/form-data"><input type="hidden" name="action" value="logo"><input type="file" name="file" accept="image/png,image/jpeg,image/webp" required> <button class="btn">Upload logo</button></form>
@@ -524,17 +521,14 @@ function accountsPage(user, { accounts = [], claims = [], all = [], msg = "", se
       <form method="post" style="display:inline;margin-left:10px"><input type="hidden" name="claim" value="${c.id}"><input type="hidden" name="action" value="reject"><button class="link">Reject</button></form></td></tr>`).join("") + `</table></div>`
     : `<p class="hint">None. If someone picks a driver who is already linked to another account, their request waits here for an admin to approve or reject.</p>`);
   const short = id => (series.find(x => x.id === id) || {}).short_name || id;
-  // the series each account runs: assigned (with the role), or, before the switch, through each series' old role
+  // the series each account runs: assigned here, and active with the Series official role
   const directs = a => {
-    if (!officialRole) {
-      const r = roles.get(a.discord_id) || [], old = series.filter(x => x.role_id && r.includes(x.role_id));
-      const mine = directors.filter(d => d.discord_id === a.discord_id);
-      return (old.length ? `<span class="tag">Official now (old role): ${old.map(x => esc(x.short_name)).join(", ")}</span><br>` : "") + dirForm(a, mine);
-    }
+    if (!officialRole) return dirForm(a, directors.filter(d => d.discord_id === a.discord_id));
     const has = roles.has(a.discord_id) ? roles.get(a.discord_id).includes(officialRole) : null;
     const mine = directors.filter(d => d.discord_id === a.discord_id);
     return dirForm(a, mine) + (mine.length && has === false ? `<br><span class="tag" style="color:#d33">No Series official role when the site last checked${roles.seen && roles.seen.get(a.discord_id) ? ` (${when(new Date(roles.seen.get(a.discord_id)).toISOString())})` : ""}: not active.</span>
-      <span class="tag">The site reads their roles again the next time they use it. If they have the role now, ask them to open the site, or sign out and in.</span>` : "");
+      <form method="post" style="display:inline"><input type="hidden" name="action" value="recheck"><input type="hidden" name="id" value="${esc(a.discord_id)}"><button class="link">Check now</button></form>
+      <span class="tag">The site reads their roles again whenever they use it. Check now asks Discord straight away.</span>` : "");
   };
   const dirForm = (a, mine) => mine.map(d => `<form method="post" style="display:inline;margin-right:8px"><input type="hidden" name="action" value="undirect"><input type="hidden" name="id" value="${esc(a.discord_id)}"><input type="hidden" name="series" value="${d.series_id}">${esc(short(d.series_id))} <button class="link" title="Remove">×</button></form>`).join("")
     + (series.length > mine.length ? `<form method="post" style="display:inline"><input type="hidden" name="action" value="direct"><input type="hidden" name="id" value="${esc(a.discord_id)}"><select name="series" onchange="this.form.submit()"><option value="">Add series…</option>${series.filter(x => !mine.some(d => d.series_id === x.id)).map(x => `<option value="${x.id}">${esc(x.short_name)}</option>`).join("")}</select></form>` : "");
@@ -555,7 +549,7 @@ function accountsPage(user, { accounts = [], claims = [], all = [], msg = "", se
     `</table></div><datalist id="drl"><option value="I don't race">${all.map(x => `<option value="${esc(x.name)} (${x.cust_id})">`).join("")}</datalist>
     <ul class="tag">
       <li><b>Driver:</b> the iRacing driver this person is. To change it, type a driver's name or iRacing ID under <b>Change driver</b> and press <b>Set</b>. If someone else was linked to that driver, they're unlinked, and GLR HUB asks them "Which driver are you?" the next time they sign in.</li>
-      <li><b>Directs:</b> the series this person is a director of. <b>Add series…</b> adds one; <b>×</b> removes it. ${officialRole ? "It only works if they also have the Series official role in Discord." : "Not used yet: for now, each series' old role decides who its officials are (shown as \"Official now (old role)\"). This column takes over when you save the Series official role on <a href=\"" + BASE + "/settings\">Settings</a>."}</li>
+      <li><b>Directs:</b> the series this person is a director of. <b>Add series…</b> adds one; <b>×</b> removes it. ${officialRole ? "It only works if they also have the Series official role in Discord." : "<b>Not active yet:</b> the Series official role hasn't been saved on Site settings, so nobody is a director."}</li>
       ${user.overlord ? `      <li><b>Overlay:</b> anyone with the Producer role can use the broadcast overlay. <b>Block</b> turns it off for one person even if they have the role, until you unblock them: their overlay stops at its next start-up and they can't sign another PC in.</li>` : ""}
       <li>Every change on this page is recorded in History.</li></ul>` + SORT_JS;
   return page("Accounts", body, { user });
@@ -1225,7 +1219,7 @@ function settingsPage(cur, short, user, msg = "", stewardRole = "", producerRole
   <label for="pr">Producer role (Discord role ID; its members can sign a broadcast overlay in to the site)</label><input type="text" id="pr" name="producer_role" value="${esc(producerRole)}" maxlength="25" inputmode="numeric">
   <p class="tag">A signed-in overlay sends race results and shows race control's calls in the penalty box, as that producer. Admins count as producers. Overlay keys still work too.</p>
   <label for="so">Series official role (Discord role ID; its members run the series an admin assigns them)</label><input type="text" id="so" name="official_role" value="${esc(officialRole)}" maxlength="25" inputmode="numeric">
-  <p class="tag">Assign each director their series on the <a href="${BASE}/accounts">Accounts</a> page. ${officialRole ? "" : "<b>Saving this switches off each series' own role</b> (on its Edit page): assign everyone on the Accounts page first, where you can see who is an official now. "}Taking the role away in Discord removes all their series within 15 minutes.</p>
+  <p class="tag">Assign each director their series on the <a href="${BASE}/accounts">Accounts</a> page. ${officialRole ? "" : "<b>Until this is saved, nobody is a series director.</b> "}Taking the role away in Discord removes all their series within 15 minutes.</p>
   <fieldset><legend>Help chat</legend><label class="chk"><input type="checkbox" name="help_on" value="1"${help.on ? " checked" : ""}>
     <span><b>Help</b> (the bubble in the bottom-right corner) for series directors, race control and admins: an AI helper that answers questions about using the site (it can't see or change anything). <a href="${BASE}/help/log">What people asked</a></span></label>
     ${help.key ? "" : `<p class="tag"><b>Not working yet:</b> the Anthropic API key isn't in Cloudflare (the ANTHROPIC_API_KEY secret), so Help stays hidden.</p>`}</fieldset>
@@ -2146,6 +2140,13 @@ const site = {
               await setDirector(db, id, sr.id, a === "direct", by);
               await logChange(db, { by, seriesId: sr.id, kind: "account", summary: a === "direct" ? `Admin made ${nm} a director of ${sr.short_name}` : `Admin removed ${nm} as a director of ${sr.short_name}` });
               msg = a === "direct" ? `Set: ${nm} directs ${sr.short_name}.` : `Set: ${nm} no longer directs ${sr.short_name}.`;
+            } else if (a === "recheck") {
+              const id = String(f.get("id")), nm = await nameOf(id), r = await recheckRoles(env, request, id), so = await getSetting(db, "official_role");
+              msg = r.status === "ok" ? (r.roles.includes(so) ? `Set: Discord says ${nm} has the Series official role now.` : `${nm} doesn't have the Series official role in Discord right now. Check the role in Discord, and the role ID on Site settings.`)
+                : r.status === "none" ? `${nm} isn't signed in to the site right now, so it can't ask Discord about them. It checks when they next sign in.`
+                : r.status === "left" ? `${nm} isn't in the league's Discord server any more.`
+                : r.status === "revoked" ? `${nm} disconnected GLR HUB in Discord. They need to sign in again.`
+                : "Discord didn't answer. Try again in a minute.";
             } else if (a === "block" || a === "unblock") {
               if (!user.overlord) throw new Error("You can't change that.");
               const id = String(f.get("id")), nm = await nameOf(id);
@@ -2631,10 +2632,6 @@ const site = {
           }
           try {
             const who = `discord:${user.id}:${user.name}`;
-            if (user.admin && f.has("role_id") && String(f.get("role_id")).trim() !== (sr.role_id || "")) {
-              await setSeriesRole(db, sr.id, f.get("role_id"));
-              await logChange(db, { by: who, seriesId: sr.id, kind: "series", summary: String(f.get("role_id")).trim() ? `Officials' Discord role set (${String(f.get("role_id")).trim()})` : "Officials' Discord role removed" });
-            }
             if (user.admin && f.has("teams_form") && f.has("hidden") !== !!sr.hidden) {
               await setSeriesHidden(db, sr.id, f.has("hidden"));
               await logChange(db, { by: who, seriesId: sr.id, kind: "series", summary: f.has("hidden") ? "Hidden from the Series List" : "Shown on the Series List again" });

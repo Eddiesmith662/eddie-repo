@@ -123,22 +123,18 @@ test("series directors: one Discord role, and an admin assigns each director the
   const s = await site();
   await s.addRace({ sub: 9100, date: week(0), league: 5555, leagueName: "GLR Other SERIES", season: 600 });
   const OFFICIAL = "333333", dir = { id: "70", roles: [OFFICIAL], nick: "Cup Director" };
-  // the old way still works until the role is saved: a series' own role
-  await s.post("/test-cup/edit", { short_name: "Test Cup", slug: "test-cup", role_id: "222222" });
-  await signInTo(s, { id: "71", roles: ["222222"], nick: "Old Official" });
-  await s.post("/me/driver", { cust: "0", back: "/" });
-  assert.ok((await s.page("/test-cup/rules")).html.includes("Save rules"));
+  // until the Series official role is saved on Settings, nobody is a director, even assigned
   await signInTo(s, dir);
   await s.post("/me/driver", { cust: "0", back: "/" });
   await s.signIn(ADMIN);
-  assert.match(text((await s.page("/accounts")).html), /Old Official .*Official now \(old role\): Test Cup/);
-
-  // the admin assigns the director, then saves the role: the old series role stops working
   assert.match(text((await s.post("/accounts", { action: "direct", id: "70", series: "4242" })).html), /Set: Cup Director directs Test Cup/);
+  assert.match(text((await s.page("/accounts")).html), /Not active yet: the Series official role hasn.{1,6}t been saved/);
+  await signInTo(s, dir);
+  assert.ok(!(await s.page("/test-cup/rules")).html.includes("Save rules"));
+  await s.signIn(ADMIN);
   assert.equal((await s.post("/settings", { theme: "glr", short: "GLR", steward_role: "", producer_role: "", official_role: OFFICIAL })).html.includes("Saved"), true);
   assert.match(text((await s.page("/test-cup/edit")).html), /Series directors: Cup Director/);
-  await signInTo(s, { id: "71", roles: ["222222"], nick: "Old Official" });
-  assert.ok(!(await s.page("/test-cup/rules")).html.includes("Save rules"));
+  assert.doesNotMatch((await s.page("/test-cup/edit")).html, /role_id|old role/);                 // the old per-series role box is gone
   await signInTo(s, dir);
   assert.ok((await s.page("/test-cup/rules")).html.includes("Save rules"));          // their series
   assert.ok(!(await s.page("/other/rules")).html.includes("Save rules"));            // not another
@@ -148,7 +144,18 @@ test("series directors: one Discord role, and an admin assigns each director the
   await signInTo(s, { id: "70", roles: [], nick: "Cup Director" });
   assert.ok(!(await s.page("/test-cup/rules")).html.includes("Save rules"));
   await s.signIn(ADMIN);
-  assert.match(text((await s.page("/accounts")).html), /No Series official role when the site last checked \(.*ET ?\): not active\. The site reads their roles again the next time they use it/);
+  assert.match(text((await s.page("/accounts")).html), /No Series official role when the site last checked \(.*ET ?\): not active\. Check now/);
+  // Check now asks Discord straight away, with that person's own sign-in: still no role, then the role is given
+  assert.match(text((await s.post("/accounts", { action: "recheck", id: "70" })).html), /Cup Director doesn.{1,6}t have the Series official role in Discord right now/);
+  const adminWho = s.who; s.who = dir;                                    // Discord now says they have the role
+  const ok = await s.post("/accounts", { action: "recheck", id: "70" });
+  s.who = adminWho;
+  assert.match(text(ok.html), /Set: Discord says Cup Director has the Series official role now/);
+  assert.doesNotMatch(text((await s.page("/accounts")).html), /not active/);
+  s.DB.raw.prepare("DELETE FROM sessions WHERE discord_id = '70'").run();
+  assert.match(text((await s.post("/accounts", { action: "recheck", id: "70" })).html), /isn.{1,6}t signed in to the site right now/);
+  await signInTo(s, { id: "70", roles: [], nick: "Cup Director" });
+  await s.signIn(ADMIN);
   await s.post("/accounts", { action: "undirect", id: "70", series: "4242" });
   await signInTo(s, dir);
   assert.ok(!(await s.page("/test-cup/rules")).html.includes("Save rules"));

@@ -12,7 +12,7 @@ const SCHEMA = [
      id INTEGER PRIMARY KEY,            -- iRacing league id
      name TEXT NOT NULL DEFAULT '',     -- iRacing's league name
      short_name TEXT NOT NULL DEFAULT '', slug TEXT NOT NULL DEFAULT '',
-     role_id TEXT NOT NULL DEFAULT '',  -- Discord role whose members can edit this series
+     role_id TEXT NOT NULL DEFAULT '',  -- not used any more (each series' own Discord role, removed Nov 10 2026)
      hook_results TEXT NOT NULL DEFAULT '', hook_standings TEXT NOT NULL DEFAULT '', hook_penalties TEXT NOT NULL DEFAULT '')`,
   `CREATE TABLE IF NOT EXISTS seasons (
      id INTEGER PRIMARY KEY,            -- iRacing league season id
@@ -319,18 +319,6 @@ export async function getSeries(db, key) {
   }
   sr.seasons = [...seasons.values()];
   return sr;
-}
-
-export async function setSeriesRole(db, id, role) {
-  await ensureSchema(db);
-  const r = String(role || "").trim();
-  if (r && !/^\d{5,25}$/.test(r)) throw new Error("A Discord role ID is a long number. In Discord: Server Settings > Roles > right-click the role > Copy Role ID.");
-  await db.prepare(`UPDATE series SET role_id = ? WHERE id = ?`).bind(r, id).run();
-}
-
-export async function seriesRoles(db) {
-  await ensureSchema(db);
-  return (await db.prepare(`SELECT id, role_id FROM series WHERE role_id <> ''`).all()).results;
 }
 
 export async function seriesById(db, id) {

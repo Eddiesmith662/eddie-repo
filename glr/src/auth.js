@@ -21,7 +21,7 @@
  *   race control (stewards)      token "vsrc_...", session kind 'rc', link page /rc/link
  *   broadcast overlay (producers) token "vsov_...", session kind 'ov', link page /overlay/link
  */
-import { ensureSchema, seriesRoles, getSetting, linkedDriver, noteAccount, directorOf, getBlock } from "./db.js";
+import { ensureSchema, getSetting, linkedDriver, noteAccount, directorOf, getBlock } from "./db.js";
 
 const API = "https://discord.com/api/v10";
 const COOKIE = "glr_session", STATE = "glr_state";
@@ -55,11 +55,10 @@ async function schema(db) {
   return ready;
 }
 
-// the roles that matter here: the admin role, the Series official role (and each series' old role, until that's set),
-// the race control role and the producer role
+// the roles that matter here: the admin role, the Series official role, the race control role and the producer role
 async function relevant(env, roles) {
-  const series = await seriesRoles(env.DB), rc = await getSetting(env.DB, "steward_role"), pr = await getSetting(env.DB, "producer_role"), so = await getSetting(env.DB, "official_role");
-  return roles.filter(r => r === env.DISCORD_ROLE_ID || (rc && r === rc) || (pr && r === pr) || (so && r === so) || series.some(s => s.role_id === r));
+  const rc = await getSetting(env.DB, "steward_role"), pr = await getSetting(env.DB, "producer_role"), so = await getSetting(env.DB, "official_role");
+  return roles.filter(r => r === env.DISCORD_ROLE_ID || (rc && r === rc) || (pr && r === pr) || (so && r === so));
 }
 
 const hex = buf => [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, "0")).join("");
@@ -300,10 +299,9 @@ async function describe(env, u) {
   const owner = !!ownerId && String(u.id) === ownerId;
   const admin = owner || u.roles.includes(env.DISCORD_ROLE_ID);
   const rc = await getSetting(env.DB, "steward_role"), pr = await getSetting(env.DB, "producer_role"), so = await getSetting(env.DB, "official_role");
-  // the series they direct: with the Series official role set, the role plus an admin's assignment; before that, each
-  // series' own role (the old way, until an admin saves the Series official role on Site settings)
-  const directs = so ? (u.roles.includes(so) ? await directorOf(env.DB, u.id) : [])
-    : (await seriesRoles(env.DB)).filter(x => x.role_id && u.roles.includes(x.role_id)).map(x => x.id);
+  // the series they direct: the Series official role (Site settings) plus an admin's assignment on Accounts. (Each
+  // series used to have its own Discord role; that old way was removed Nov 10 2026.)
+  const directs = so && u.roles.includes(so) ? await directorOf(env.DB, u.id) : [];
   const official = admin || directs.length > 0;
   const link = await linkedDriver(env.DB, u.id);
   const d = { ...u, admin, official, directs, steward: admin || (!!rc && u.roles.includes(rc)), producer: admin || (!!pr && u.roles.includes(pr)),
@@ -314,6 +312,36 @@ async function describe(env, u) {
     overlord: owner || (!ownerId && admin), ownerSet: !!ownerId };
   d.perms = permsFor(d);
   return d;
+}
+
+// An admin's "Check now" on the Accounts page: read one person's Discord roles now, with their own sign-in (the site
+// can only ask Discord about someone through a sign-in of theirs). Returns { status, roles }:
+// "ok" (roles are fresh), "none" (they aren't signed in anywhere), "left" (no longer in the server),
+// "busy" (Discord didn't answer), "revoked" (they disconnected the app; their sign-ins are ended).
+export async function recheckRoles(env, request, discordId) {
+  await schema(env.DB);
+  const now = Date.now();
+  const s = await env.DB.prepare(`SELECT * FROM sessions WHERE discord_id = ? AND expires > ? ORDER BY checked DESC LIMIT 1`).bind(discordId, now).first();
+  if (!s) return { status: "none" };
+  let access = s.access_token;
+  try {
+    if (s.token_expires < now + 60000 && s.refresh_token) {
+      const t = await discordToken(env, new URL(request.url), { grant_type: "refresh_token", refresh_token: s.refresh_token });
+      access = t.access_token;
+      await env.DB.prepare(`UPDATE sessions SET access_token = ?, refresh_token = ?, token_expires = ? WHERE discord_id = ? AND refresh_token = ?`)
+        .bind(t.access_token, t.refresh_token || s.refresh_token, now + (t.expires_in || 0) * 1000, discordId, s.refresh_token).run();
+    }
+  } catch (e) {
+    if (e.transient) return { status: "busy" };
+    await env.DB.prepare(`DELETE FROM sessions WHERE discord_id = ? AND refresh_token = ?`).bind(discordId, s.refresh_token).run();
+    return { status: "revoked" };
+  }
+  const mem = await memberRoles(env, access);
+  if (mem === false) return { status: "busy" };
+  if (mem === null) { await env.DB.prepare(`DELETE FROM sessions WHERE discord_id = ?`).bind(discordId).run(); return { status: "left" }; }
+  const roles = await relevant(env, mem.roles);
+  await env.DB.prepare(`UPDATE sessions SET checked = ?, roles = ?, name = COALESCE(NULLIF(?, ''), name) WHERE discord_id = ?`).bind(now, JSON.stringify(roles), mem.nick, discordId).run();
+  return { status: "ok", roles };
 }
 
 // POST /logout

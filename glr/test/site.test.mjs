@@ -1,7 +1,7 @@
 // The site end to end: pages, sign-in and roles, uploads, overlay results, officials' tools, schedules and widgets.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { makeSite, raceExport, week, text } from "./helpers.mjs";
+import { makeSite, raceExport, week, text, ADMIN_ROLE } from "./helpers.mjs";
 
 const seeded = async (n = 3) => { const s = makeSite(); for (let i = 0; i < n; i++) await s.addRace({ sub: 1000 + i, date: week(i) }); return s; };
 const overlayRace = (sub, extra = {}) => ({
@@ -53,8 +53,10 @@ test("league members without a role sign in as drivers, not officials", async ()
 test("a series official can only change their own series", async () => {
   const s = await seeded(1);
   await s.addRace({ sub: 2000, date: week(0), league: 5555, leagueName: "GLR Other SERIES", season: 600 });
-  await s.signIn();
-  assert.equal((await s.post("/test-cup/edit", { short_name: "Test Cup", slug: "test-cup", role_id: "222222" })).status, 303);
+  await s.signIn({ id: "2", roles: ["222222"], nick: "Cup Official" });     // signs in once, so an admin can assign them
+  await s.signIn({ id: "1", roles: [ADMIN_ROLE], nick: "Test Admin" });
+  await s.post("/settings", { theme: "glr", short: "GLR", official_role: "222222" });
+  await s.post("/accounts", { action: "direct", id: "2", series: "4242" });
   await s.signIn({ id: "2", roles: ["222222"], nick: "Cup Official" });
   assert.ok((await s.page("/test-cup/rules")).html.includes("Save rules"));
   assert.ok(!(await s.page("/other/rules")).html.includes("Save rules"));
