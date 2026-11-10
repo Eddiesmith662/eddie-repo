@@ -204,10 +204,16 @@ export async function importEvent(db, ev, by = "") {
       ON CONFLICT(id) DO UPDATE SET series_id = COALESCE(?2, series_id), name = CASE WHEN ?3 <> '' THEN ?3 ELSE name END`)
       .bind(ev.season.id, ev.league.id, ev.season.name));
   // a series added before its first race has a "first season" holding its rules and teams: this season takes them over
-  if (ev.season.id && ev.league.id) {
-    const ph = firstSeasonId(ev.league.id);
+  // The same goes for a season a Series Director added ahead of time (Rules tab, Add season). Only a season the site
+  // hasn't seen takes it over, and only with a race newer than the series' latest: a late upload from the season that
+  // just ended, or an old season's file, must not swallow the upcoming one.
+  const ph = ev.season.id && ev.league.id ? firstSeasonId(ev.league.id) : 0;
+  const adopt = ph && !(await db.prepare(`SELECT 1 AS x FROM seasons WHERE id = ?`).bind(ev.season.id).first())
+    && !(await db.prepare(`SELECT 1 AS x FROM events WHERE series_id = ? AND start_time > ? LIMIT 1`).bind(ev.league.id, when).first());
+  if (adopt) {
     st.push(db.prepare(`UPDATE season_rules SET season_id = ?1 WHERE season_id = ?2 AND NOT EXISTS (SELECT 1 FROM season_rules WHERE season_id = ?1)`).bind(ev.season.id, ph));
     st.push(db.prepare(`UPDATE teams SET season_id = ?1 WHERE season_id = ?2`).bind(ev.season.id, ph));
+    st.push(db.prepare(`UPDATE events SET season_id = ?1 WHERE season_id = ?2`).bind(ev.season.id, ph));   // a race put in it by hand (Add to a season)
     st.push(db.prepare(`DELETE FROM season_rules WHERE season_id = ?`).bind(ph));
     st.push(db.prepare(`DELETE FROM seasons WHERE id = ?`).bind(ph));
   }
@@ -337,10 +343,47 @@ export async function setEventSeason(db, sub, seasonId) {
   return ok.name;
 }
 
+// The upcoming season (added ahead of time, no races yet) comes last and is marked, so pages open on the season being raced.
 export async function seasonsOf(db, seriesId) {
   await ensureSchema(db);
   return (await db.prepare(`SELECT se.id, se.name, COUNT(e.subsession_id) AS races, MAX(e.start_time) AS last
-      FROM seasons se LEFT JOIN events e ON e.season_id = se.id WHERE se.series_id = ? GROUP BY se.id ORDER BY last DESC`).bind(seriesId).all()).results;
+      FROM seasons se LEFT JOIN events e ON e.season_id = se.id WHERE se.series_id = ? GROUP BY se.id ORDER BY (se.id < 0), last DESC`).bind(seriesId).all()).results
+    .map(se => se.id < 0 ? { ...se, upcoming: true } : se);
+}
+
+// A series' upcoming season: one a Series Director adds before its first race, to set its rules, teams and signups
+// ahead of time. It's a stand-in (id = minus the league id, the same one a new series' "First season" uses): the first
+// race of a new iRacing season takes it over, with iRacing's season name. One per series.
+export async function upcomingSeason(db, seriesId) {
+  await ensureSchema(db);
+  return db.prepare(`SELECT id, name FROM seasons WHERE id = ? AND series_id = ?`).bind(firstSeasonId(seriesId), seriesId).first();
+}
+// add it, or rename it. Open signups named after it follow the new name.
+export async function setUpcomingSeason(db, seriesId, name) {
+  await ensureSchema(db);
+  const nm = String(name || "").trim().slice(0, 60);
+  if (!nm) throw new Error("Name the season, like 2027 Season 1.");
+  const dup = await db.prepare(`SELECT 1 AS x FROM seasons WHERE series_id = ? AND id <> ? AND name = ? COLLATE NOCASE`).bind(seriesId, firstSeasonId(seriesId), nm).first();
+  if (dup) throw new Error(`This series already has a season called ${nm}.`);
+  const had = await upcomingSeason(db, seriesId);
+  await db.prepare(`INSERT INTO seasons (id, series_id, name) VALUES (?1, ?2, ?3) ON CONFLICT(id) DO UPDATE SET name = ?3`).bind(firstSeasonId(seriesId), seriesId, nm).run();
+  if (had && had.name !== nm) await db.prepare(`UPDATE signup_rounds SET name = ?1 WHERE series_id = ?2 AND closed_at IS NULL AND name = ?3
+      AND id = (SELECT MAX(id) FROM signup_rounds WHERE series_id = ?2)`).bind(nm, seriesId, had.name).run();
+  return { id: firstSeasonId(seriesId), name: nm, created: !had, was: had ? had.name : "" };
+}
+// take it away again, with the rules and teams set for it. A series with no races keeps it: it's where its rules live.
+export async function removeUpcomingSeason(db, seriesId) {
+  await ensureSchema(db);
+  const had = await upcomingSeason(db, seriesId);
+  if (!had) throw new Error("This series has no upcoming season.");
+  const other = await db.prepare(`SELECT 1 AS x FROM seasons WHERE series_id = ? AND id <> ? LIMIT 1`).bind(seriesId, had.id).first();
+  if (!other) throw new Error("This is the series' only season, so it stays. You can rename it.");
+  await db.batch([
+    db.prepare(`DELETE FROM season_rules WHERE season_id = ?`).bind(had.id),
+    db.prepare(`DELETE FROM teams WHERE season_id = ?`).bind(had.id),
+    db.prepare(`DELETE FROM seasons WHERE id = ?`).bind(had.id),
+  ]);
+  return had.name;
 }
 
 // a season's rules: its own, else the latest earlier season's in the same series, else none (null)
@@ -349,8 +392,8 @@ export async function getRules(db, seasonId, seriesId) {
   const own = await db.prepare(`SELECT * FROM season_rules WHERE season_id = ?`).bind(seasonId).first();
   if (own) return { rules: JSON.parse(own.rules), own: true, updatedAt: own.updated_at, updatedBy: own.updated_by };
   const prev = await db.prepare(`SELECT sr.*, se.name FROM season_rules sr JOIN seasons se ON se.id = sr.season_id
-      WHERE se.series_id = ? AND se.id <> ? ORDER BY (SELECT MAX(start_time) FROM events e WHERE e.season_id = se.id) DESC LIMIT 1`).bind(seriesId, seasonId).first();
-  if (prev) return { rules: JSON.parse(prev.rules), own: false, from: prev.name };
+      WHERE se.series_id = ? AND se.id <> ? AND se.id > 0 ORDER BY (SELECT MAX(start_time) FROM events e WHERE e.season_id = se.id) DESC LIMIT 1`).bind(seriesId, seasonId).first();
+  if (prev) return { rules: JSON.parse(prev.rules), own: false, from: prev.name };   // (se.id > 0: never from the upcoming season)
   return { rules: null, own: false };
 }
 

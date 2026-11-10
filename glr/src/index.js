@@ -47,7 +47,7 @@ import { systemPrompt, cleanTurns, askClaude, HELP_PER_DAY } from "./help.js";
 import { roundState, currentRound, liveRounds, saveRound, closeRound, holds, listSignups, activeOf, mineIn, signUp, withdraw, decide, release,
   changeNumber, raceFlags, entryCsv, newDriver } from "./signups.js";
 import { teamStandings, parseTeams, teamsCsv } from "./teams.js";
-import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, importEvent, seriesById, seasonsOf,
+import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, importEvent, seriesById, seasonsOf, upcomingSeason, setUpcomingSeason, removeUpcomingSeason,
   getRules, saveRules, seasonEvents, listAdjustments, addAdjustment, deleteAdjustment,
   importOverlay, listKeys, createKey, revokeKey, checkKey, deleteEvent, listFixes, fixResult, FIX_FIELDS, markOfficial, setHook, HOOKS,
   logChange, listChanges, whoName, mergeDrivers, separateDriver, aliasesOf, findDrivers,
@@ -650,6 +650,7 @@ function directorPage(sr, seasons, user, { provisional = [], protests = [], queu
     [`${BASE}/upload`, "Upload results", "the iRacing results file after each race (it makes the race official)"],
     [`${S}/schedule`, "Schedule", "add, change or remove races"],
     [`${S}/rules`, "Rules", "points, bonus points, drop weeks, playoffs (Change the rules)"],
+    [`${S}/rules#season`, "Add the next season", "before its first race, to set its rules and signups ahead of time"],
     [`${S}/penalties`, "Penalties", "points penalties and adjustments"],
     [`${BASE}/protests`, "Protests", "open and recent protests; decide them on each race's stewards' report"],
     [`${S}/drivers`, "Drivers", "add a driver who hasn't raced yet"],
@@ -672,7 +673,7 @@ function seriesTabs(sr, on, seasons, seasonId, user) {
   const t = (k, label, href) => `<a class="${on === k ? "on" : ""}" href="${BASE}/${esc(sr.slug)}${href}${["results", "drivers", "schedule", "director"].includes(k) ? "" : q}">${label}</a>`;
   const opts = on === "stats" && seasons.length > 1 ? [...seasons, { id: "all", name: "All seasons" }] : seasons;
   const pick = !["results", "drivers", "schedule", "director"].includes(on) && opts.length > 1 ? `<form class="season" method="get"><select name="season" onchange="this.form.submit()">${opts.map(se =>
-    `<option value="${se.id}"${se.id === seasonId ? " selected" : ""}>${esc(se.name)}</option>`).join("")}</select></form>` : "";
+    `<option value="${se.id}"${se.id === seasonId ? " selected" : ""}>${esc(se.name)}${se.upcoming && seasons.length > 1 ? " (upcoming)" : ""}</option>`).join("")}</select></form>` : "";
   const logo = logoUrl(sr) ? `<img class="shlogo" src="${logoUrl(sr)}" alt="${esc(sr.short_name)} logo">` : "";
   return `<p class="crumb"><a href="${BASE}/">GLR</a></p><div class="shead">${logo}<div><h1>${esc(sr.short_name)}${sr.hidden ? ` <span class="cls">Hidden</span>` : ""}</h1><p class="sub">${esc(sr.name)}${canEdit(user, sr) ? ` · <a href="${BASE}/${esc(sr.slug)}/edit">Edit series</a> · <a href="${BASE}/${esc(sr.slug)}/embed">Embed on a website</a>` : ""}</p></div></div>
     <nav class="tabs">${t("results", "Results", "")}${t("schedule", "Schedule", "/schedule")}${t("standings", "Standings", "/standings")}${t("stats", "Stats", "/stats")}${t("drivers", "Drivers", "/drivers")}${sr.teams ? t("teams", "Teams", "/teams") : ""}${t("rules", "Rules", "/rules")}${t("penalties", "Penalties", "/penalties")}${canEdit(user, sr) ? t("director", "Director", "/director") : ""}${pick}</nav>`;
@@ -1112,11 +1113,23 @@ function rulesPage(sr, seasons, season, info, rules, events, user, msg = "") {
   body += `<p class="tag">${esc(season.name)}${info.own && info.updatedAt ? ` · last changed ${day(info.updatedAt)}` : ""}</p>`;
   if (!info.rules) body += `<p class="hint">No rules set for this season yet, so standings use iRacing's league points.</p>`;
   else if (!info.own) body += `<p class="hint">Carried over from ${esc(info.from)}. Saving below makes them this season's own.</p>`;
-  if (msg) body += `<div class="msg ${/^(Saved|Taken out|Put back)/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>`;
+  if (msg) body += `<div class="msg ${/^(Saved|Taken out|Put back|Added|Renamed|Removed)/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>`;
   body += rulesSummary(rules, events);
   if (rules.playoffs.enabled) body += outList(rules, events, canEdit(user, sr));
-  if (canEdit(user, sr)) body += `<h2>Change the rules</h2>` + rulesForm(rules, events);
+  if (canEdit(user, sr)) body += `<h2>Change the rules</h2>` + rulesForm(rules, events) + nextSeasonForm(sr, seasons);
   return page(`${sr.short_name} rules`, body, { user });
+}
+
+// Add the next season before its first race (Series Directors and Admins, Rules tab). One upcoming season per series.
+function nextSeasonForm(sr, seasons) {
+  const up = seasons.find(se => se.upcoming), S = `${BASE}/${esc(sr.slug)}`, only = seasons.length < 2;
+  const note = `When the first race of a new iRacing season arrives, it takes over this season with its rules${sr.teams ? " and teams" : ""}, and the season takes iRacing's name.`;
+  if (!up) return `<h2 id="season">Next season</h2><p class="tag">Add the next season before its first race, to set its rules${sr.teams ? ", teams" : ""} and signups ahead of time. It starts with this series' latest rules. ${note}</p>
+    <form method="post" action="${S}/rules#season"><input type="hidden" name="action" value="season_add"><label for="sn">Season name</label><input type="text" id="sn" name="name" maxlength="60" required placeholder="2027 Season 1">
+    <button class="primary">Add season</button></form>`;
+  return `<h2 id="season">${only ? "This season" : "Next season"}</h2><p class="tag"><b>${esc(up.name)}</b> has no races yet. ${only ? "" : `Pick it at the top of this tab to set its rules${sr.teams ? ", and on the Teams tab to set its teams" : ""}. `}${note}</p>
+    <form method="post" action="${S}/rules#season"><input type="hidden" name="action" value="season_add"><label for="sn">Season name</label><input type="text" id="sn" name="name" maxlength="60" required value="${esc(up.name)}">
+    <button>Rename</button></form>${only ? "" : `<form method="post" action="${S}/rules#season" onsubmit="return confirm('Remove ${esc(up.name).replace(/'/g, "\\'")}? The rules and teams set for it go too.')"><input type="hidden" name="action" value="season_remove"><button class="link">Remove this season</button></form>`}`;
 }
 
 function penaltiesPage(sr, seasons, season, list, events, user, msg = "") {
@@ -1567,7 +1580,7 @@ function signupPage(user, cards, { msgs = [], same = "" } = {}) {
 }
 
 // a series' signups, for its directors and admins: open them, approve, change, release, add
-function signupsAdminPage(sr, user, { round, list = [], held = null, flags = null, msg = "" } = {}) {
+function signupsAdminPage(sr, user, { round, list = [], held = null, flags = null, msg = "", upcoming = null } = {}) {
   const S = `${BASE}/${esc(sr.slug)}`, state = roundState(round), hid = (a, id) => `<input type="hidden" name="action" value="${a}">${id ? `<input type="hidden" name="id" value="${id}">` : ""}`;
   let body = seriesTabs(sr, "director", [], null, user) + SIGNUP_CSS + `<p class="crumb"><a href="${S}/director">Director</a> › Signups and car numbers</p>`;
   if (msg) body += `<div class="msg ${/^(Saved|Opened|Closed|Reopened|Approved|Declined|Released|Changed|Added)/.test(msg) ? "ok" : "bad"}" id="top">${esc(msg)}</div>`;
@@ -1576,7 +1589,7 @@ function signupsAdminPage(sr, user, { round, list = [], held = null, flags = nul
   if (round) body += `<p class="tag">${state === "closed" ? `${esc(round.name)}: signups are closed.` : windowLine(round, state)} ${state === "closed"
     ? `<form method="post" style="display:inline">${hid("reopen")}<button class="link">Reopen them</button></form>`
     : `<form method="post" style="display:inline" onsubmit="return confirm('Close signups? Drivers can\\'t sign up or change after this. You still can.')">${hid("close")}<button class="link">Close signups</button></form>`}</p>`;
-  body += `<form method="post">${hid("round")}<label for="rn">Season name</label><input type="text" id="rn" name="name" maxlength="60" required placeholder="2027 Season 1" value="${round && state !== "closed" ? esc(round.name) : ""}">
+  body += `<form method="post">${hid("round")}<label for="rn">Season name</label><input type="text" id="rn" name="name" maxlength="60" required placeholder="2027 Season 1" value="${round && state !== "closed" ? esc(round.name) : upcoming ? esc(upcoming.name) : ""}">
     <div class="grid"><label>Keep-your-number week starts<br><input type="date" name="keep_date" required value="${k.date}"> <input type="time" name="keep_time" value="${k.time}" style="width:120px"></label>
     <label>Opens to everyone<br><input type="date" name="open_date" required value="${o.date}"> <input type="time" name="open_time" value="${o.time}" style="width:120px"></label></div>
     <p class="tag">Times are Eastern. In the first window, drivers who raced last season can keep their number and nobody else can take it. After that, every number not kept is first come, first served. Every signup waits for your approval.</p>
@@ -1679,6 +1692,9 @@ async function signupRoutes(request, env, db, url, path, user) {
       try {
         if (a === "round") {
           const r = await saveRound(db, sr.id, { name: f.get("name"), keepDate: f.get("keep_date"), keepTime: f.get("keep_time"), openDate: f.get("open_date"), openTime: f.get("open_time") }, by);
+          // signups are for the upcoming season: opening them adds it if it isn't there, and the two share one name
+          const up = await upcomingSeason(db, sr.id);
+          if (r.created || (up && round && up.name === round.name)) await setUpcomingSeason(db, sr.id, r.name).catch(() => {});
           await log(`${r.created ? "Signups opened" : "Signup dates changed"} for ${r.name}: keep-your-number from ${day(r.keep)}, open to everyone from ${day(r.open)}`);
           msg = r.created ? `Opened signups for ${r.name}.` : "Saved.";
         } else if (!round) throw new Error("Open signups first.");
@@ -1704,7 +1720,7 @@ async function signupRoutes(request, env, db, url, path, user) {
     let held = null;
     if (round && (state === "soon" || state === "keep")) { const have = new Set(activeOf(list).map(x => x.number));
       held = [...(await holds(db, round)).byNumber].filter(([n]) => !have.has(n)).map(([number, x]) => ({ number, name: x.name })).sort((a, b) => Number(a.number) - Number(b.number)); }
-    return signupsAdminPage(sr, user, { round, list, held, flags: await raceFlags(db, round), msg });
+    return signupsAdminPage(sr, user, { round, list, held, flags: await raceFlags(db, round), msg, upcoming: await upcomingSeason(db, sr.id) });
   }
   return null;
 }
@@ -2523,6 +2539,23 @@ const site = {
           let rules = cleanRules(info.rules || DEFAULT_RULES);
           if (request.method === "POST") {
             const f = await request.formData(), by = `discord:${user.id}:${user.name}`, a = f.get("action");
+            if (a === "season_add" || a === "season_remove") {
+              let note;
+              try {
+                if (a === "season_add") {
+                  const r = await setUpcomingSeason(db, sr.id, f.get("name"));
+                  note = r.created ? `Added ${r.name}. Pick it at the top of this tab to set its rules.` : r.was === r.name ? "Saved." : `Renamed ${r.was} to ${r.name}.`;
+                  if (r.created || r.was !== r.name) await logChange(db, { by, seriesId: sr.id, kind: "rules", summary: r.created ? `Season added: ${r.name}` : `Season renamed: ${r.was} to ${r.name}` });
+                } else {
+                  const nm = await removeUpcomingSeason(db, sr.id);
+                  note = `Removed ${nm}.`;
+                  await logChange(db, { by, seriesId: sr.id, kind: "rules", summary: `Season removed: ${nm}` });
+                }
+              } catch (e) { note = e.message; }
+              const list = await seasonsOf(db, sr.id), cur = list.find(se => se.id === season.id) || list[0];
+              const inf = await getRules(db, cur.id, sr.id);
+              return rulesPage(sr, list, cur, inf, cleanRules(inf.rules || DEFAULT_RULES), await seasonEvents(db, cur.id), user, note);
+            }
             if (a === "out_add" || a === "out_remove") {
               const cust = Number(f.get("cust")), reason = String(f.get("reason") || "").trim().slice(0, 120);
               const name = (events.flatMap(e => e.results).find(r => r.cust_id === cust) || {}).name || String(cust);
