@@ -123,12 +123,12 @@ test("series directors: one Discord role, and an admin assigns each director the
   const s = await site();
   await s.addRace({ sub: 9100, date: week(0), league: 5555, leagueName: "GLR Other SERIES", season: 600 });
   const OFFICIAL = "333333", dir = { id: "70", roles: [OFFICIAL], nick: "Cup Director" };
-  // until the Series official role is saved on Settings, nobody is a director, even assigned
+  // until the Series Director role is saved on Settings, nobody is a director, even assigned
   await signInTo(s, dir);
   await s.post("/me/driver", { cust: "0", back: "/" });
   await s.signIn(ADMIN);
   assert.match(text((await s.post("/accounts", { action: "direct", id: "70", series: "4242" })).html), /Set: Cup Director directs Test Cup/);
-  assert.match(text((await s.page("/accounts")).html), /Not active yet: the Series official role hasn.{1,6}t been saved/);
+  assert.match(text((await s.page("/accounts")).html), /Not active yet: the Series Director role hasn.{1,6}t been saved/);
   await signInTo(s, dir);
   assert.ok(!(await s.page("/test-cup/rules")).html.includes("Save rules"));
   await s.signIn(ADMIN);
@@ -144,13 +144,13 @@ test("series directors: one Discord role, and an admin assigns each director the
   await signInTo(s, { id: "70", roles: [], nick: "Cup Director" });
   assert.ok(!(await s.page("/test-cup/rules")).html.includes("Save rules"));
   await s.signIn(ADMIN);
-  assert.match(text((await s.page("/accounts")).html), /No Series official role when the site last checked \(.*ET ?\): not active\. Check now/);
+  assert.match(text((await s.page("/accounts")).html), /No Series Director role when the site last checked \(.*ET ?\): not active\. Check now/);
   // Check now asks Discord straight away, with that person's own sign-in: still no role, then the role is given
-  assert.match(text((await s.post("/accounts", { action: "recheck", id: "70" })).html), /Cup Director doesn.{1,6}t have the Series official role in Discord right now/);
+  assert.match(text((await s.post("/accounts", { action: "recheck", id: "70" })).html), /Cup Director doesn.{1,6}t have the Series Director role in Discord right now/);
   const adminWho = s.who; s.who = dir;                                    // Discord now says they have the role
   const ok = await s.post("/accounts", { action: "recheck", id: "70" });
   s.who = adminWho;
-  assert.match(text(ok.html), /Set: Discord says Cup Director has the Series official role now/);
+  assert.match(text(ok.html), /Set: Discord says Cup Director has the Series Director role now/);
   assert.doesNotMatch(text((await s.page("/accounts")).html), /not active/);
   s.DB.raw.prepare("DELETE FROM sessions WHERE discord_id = '70'").run();
   assert.match(text((await s.post("/accounts", { action: "recheck", id: "70" })).html), /isn.{1,6}t signed in to the site right now/);
@@ -161,18 +161,18 @@ test("series directors: one Discord role, and an admin assigns each director the
   assert.ok(!(await s.page("/test-cup/rules")).html.includes("Save rules"));
   assert.doesNotMatch((await s.page("/")).html, /History/);
   await s.signIn(ADMIN);
-  assert.match(text((await s.page("/history")).html), /Admin removed Cup Director as a director of Test Cup/);
+  assert.match(text((await s.page("/history")).html), /Admin removed Cup Director as a Series Director of Test Cup/);
 });
 
 test("the race control Allow page explains the roles in today's words, and says it isn't the overlay", async () => {
   const s = await site();
   const code = (await (await s.go("/api/rc/link", { method: "POST", body: "{}", headers: { "content-type": "application/json", authorization: "x" } })).json()).code;
   await signInTo(s, member("80", "No Roles"));
-  assert.match(text((await s.page("/rc/link?code=" + code)).html), /Race control needs the race control role, or the Series official role with a series assigned to you\. Ask an admin\./);
+  assert.match(text((await s.page("/rc/link?code=" + code)).html), /Race control needs the Race Control role, or the Series Director role with a series assigned to you\. Ask an Admin\./);
   await s.signIn(ADMIN);
   const t = text((await s.page("/rc/link?code=" + code)).html);
   assert.match(t, /Race control \(stewarding, not the broadcast overlay\)/);
-  assert.match(t, /keeps working while you have the race control role in the league.s Discord, or the Series official role there with a series an admin has assigned you\./);
+  assert.match(t, /keeps working while you have the Race Control role in the league.s Discord, or the Series Director role there with a series an Admin has assigned you\./);
 });
 
 test("driver info: the linked driver writes it, everyone sees it, the API has it, only allowed people can change it", async () => {

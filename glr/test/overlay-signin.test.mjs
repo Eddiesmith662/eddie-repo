@@ -144,12 +144,12 @@ test("a blocked producer gets 403 with text the overlay shows as it is, can't al
   for (const [m, p, b] of [["GET", "/api/overlay/check"], ["POST", "/api/overlay/results", results(2003)], ["GET", "/api/overlay/calls/1000"]]) {
     const res = await call(s, token, m, p, b);
     assert.equal(res.status, 403, p);
-    assert.equal(res.body.error, "Your overlay access was turned off by a GLR HUB admin. Ask an admin to turn it back on.");
+    assert.equal(res.body.error, "Your overlay access was turned off by a GLR HUB Admin. Ask an Admin to turn it back on.");
     assert.equal(res.body.blocked, true);
   }
   const again = await signIn(s, producer, "ovpc03");                     // the block wins over the Producer role
   assert.equal(again.token, undefined);
-  assert.match(again.page, /turned off by a GLR HUB admin/);
+  assert.match(again.page, /turned off by a GLR HUB Admin/);
   await block(s, "80", false);
   assert.equal((await call(s, token, "GET", "/api/overlay/check")).status, 200);
   assert.match(text((await s.page("/history")).html), /Admin unblocked Producer Pat/);

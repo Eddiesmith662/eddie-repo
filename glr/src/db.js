@@ -78,7 +78,7 @@ const SCHEMA = [
      discord_id TEXT PRIMARY KEY, cust_id INTEGER NOT NULL, discord_name TEXT, linked_at TEXT)`,
   // everyone who has signed in with Discord (the admins' Accounts page), and claims on a driver someone else already has
   `CREATE TABLE IF NOT EXISTS accounts (discord_id TEXT PRIMARY KEY, name TEXT, first_seen TEXT, last_seen TEXT)`,
-  // series directors: which series each official runs (with the Series official role from Site settings)
+  // series directors: which series each official runs (with the Series Director role from Site settings)
   `CREATE TABLE IF NOT EXISTS series_directors (
      discord_id TEXT NOT NULL, series_id INTEGER NOT NULL, assigned_at TEXT, assigned_by TEXT, PRIMARY KEY (discord_id, series_id))`,
   // team points (the Warrior points system): each season's teams and their drivers
@@ -537,7 +537,7 @@ export async function listKeys(db) {
 export async function createKey(db, name, by, kind = "overlay") {
   await ensureSchema(db);
   const n = String(name || "").trim().slice(0, 60);
-  if (!n) throw new Error("Give the key a name, like the producer's name.");
+  if (!n) throw new Error("Give the key a name, like the Producer's name.");
   const key = "vsglr_" + hex(crypto.getRandomValues(new Uint8Array(24)));
   await db.prepare(`INSERT INTO overlay_keys (name, key_hash, created_at, created_by, kind) VALUES (?, ?, ?, ?, ?)`).bind(n, await sha(key), new Date().toISOString(), by, kind === "import" ? "import" : "overlay").run();
   return key;

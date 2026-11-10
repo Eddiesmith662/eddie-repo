@@ -1,4 +1,4 @@
-// The Help chat for series directors and admins: who sees it, what it's told, limits, the log, the off switch.
+// The Help chat for series Series Directors and Admins: who sees it, what it's told, limits, the log, the off switch.
 // Made-up people; Claude's API is faked.
 import { test } from "node:test";
 import assert from "node:assert/strict";
@@ -15,7 +15,7 @@ async function setup({ key = true } = {}) {
   await s.addRace({ sub: 1000, date: week(0) });
   await s.signIn(ADMIN);
   await s.post("/accounts", { action: "direct", id: "1", series: "1" });       // harmless; makes sure Accounts works
-  // the Series official role, and Director Dee directing Test Cup
+  // the Series Director role, and Director Dee directing Test Cup
   await s.signIn(director); await s.signIn(ADMIN);
   const sid = s.DB.raw.prepare("SELECT id FROM series LIMIT 1").get().id;
   await s.post("/accounts", { action: "direct", id: "70", series: String(sid) });
@@ -67,9 +67,9 @@ test("a director's question goes to Claude with the guides and who they are, and
   const { headers, req } = s.claude[0];
   assert.equal(headers["x-api-key"], "sk-test");
   assert.equal(req.model, "claude-haiku-5-5");
-  assert.match(req.system, /Director Dee, the series director of GLR Test Cup SERIES \(not an admin\)/);
+  assert.match(req.system, /Director Dee, the Series Director of GLR Test Cup SERIES \(not an Admin\)/);
   assert.match(req.system, /Mark results official/);                         // the guides are in
-  assert.match(req.system, /say so and tell them to ask an admin/);           // told what a director can't do
+  assert.match(req.system, /say so and tell them to ask an Admin/);           // told what a director can't do
   assert.deepEqual(req.messages, q("How do I make a race official?"));
 });
 
@@ -77,8 +77,8 @@ test("an admin is told they're an admin; a conversation keeps its earlier turns"
   const s = await setup();
   const r = await ask(s, [{ role: "user", content: "Where are the role IDs?" }, { role: "assistant", content: "On Settings." }, { role: "user", content: "And directors?" }]);
   assert.equal(r.status, 200);
-  assert.match(s.claude[0].req.system, /Test Admin, an admin/);
-  assert.doesNotMatch(s.claude[0].req.system, /tell them to ask an admin/);
+  assert.match(s.claude[0].req.system, /Test Admin, an Admin/);
+  assert.doesNotMatch(s.claude[0].req.system, /tell them to ask an Admin/);
   assert.equal(s.claude[0].req.messages.length, 3);
 });
 
@@ -148,10 +148,10 @@ test("race control is told they're race control, and that running a series is fo
   await s.signIn({ id: "71", roles: [RC], nick: "Steward Sam" });
   assert.equal((await ask(s, q("Why don't I see incident points?"))).status, 200);
   const sys = s.claude[0].req.system;
-  assert.match(sys, /Steward Sam, race control: a steward for every series/);
-  assert.match(sys, /running a series .* is for the series director or an admin/);
+  assert.match(sys, /Steward Sam, Race Control: a steward for every series/);
+  assert.match(sys, /running a series .* is for the Series Director or an Admin/);
   assert.match(sys, /No incident points: you're not a session admin/);         // the race control guide is in
   await s.signIn(director);
   await ask(s, q("hi"));
-  assert.doesNotMatch(s.claude[1].req.system, /They're not a series director/);
+  assert.doesNotMatch(s.claude[1].req.system, /They're not a Series Director/);
 });

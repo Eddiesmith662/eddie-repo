@@ -50,13 +50,13 @@ test("one post with every penalty on the race; withdrawn and no action left out"
   assert.match(text((await s.page("/history")).html), /Penalty report for Test Oval posted to Discord by hand \(3\)/);
 });
 
-test("only directors and admins see the button; without a webhook it says where to add one", async () => {
+test("only Series Directors and Admins see the button; without a webhook it says where to add one", async () => {
   const { s, race } = await setup({ hook: false });
   await s.post("/results/9001/stewards", { action: "decide", cust: String(race[1].cust_id), kind: "time", amount: "5", reason: "x" });
   assert.match(text((await s.page("/results/9001/stewards")).html), /add a Penalties webhook on Edit series/);
   await s.signIn({ id: "71", roles: [RC], nick: "Steward Sam" });              // race control: steward, not a director
   assert.doesNotMatch((await s.page("/results/9001/stewards")).html, /penalty report/);
-  assert.match(text((await s.post("/results/9001/stewards", { action: "report" })).html), /Only the series.{1,6} directors and admins/);
+  assert.match(text((await s.post("/results/9001/stewards", { action: "report" })).html), /Only the series.{1,6} Series Directors and Admins/);
 });
 
 test("nothing to send says so", async () => {

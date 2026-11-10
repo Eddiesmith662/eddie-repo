@@ -38,7 +38,7 @@ test("keep-your-number week: last season's drivers keep theirs with one click; n
   assert.match(text(page), /Keep-your-number week/);
   assert.match(text(page), /Keep #2 ?, my number last season/);
   const rid = s.rid("test-cup");
-  assert.match(text((await s.post("/signup", { action: "signup", [`s_${rid}`]: "1", [`n_${rid}`]: "99" })).html), /Test Cup: #2 is yours, waiting for the director/);
+  assert.match(text((await s.post("/signup", { action: "signup", [`s_${rid}`]: "1", [`n_${rid}`]: "99" })).html), /Test Cup: #2 is yours, waiting for the Series Director/);
   // someone who didn't race last season waits for the open window, even with a number typed in
   await s.signIn(who(2, "Newcomer Ned"));
   const nd = await s.post("/signup", { action: "newdriver", cust: "777001", name: "Newcomer Ned" });
@@ -118,8 +118,8 @@ test("the director approves, declines with a reason, changes and releases; a num
   assert.match(text((await s.page("/signup")).html), /Declined #88: Reserved for the pace car/);
   await s.post("/signup", { action: "signup", [`s_${rid}`]: "1", [`n_${rid}`]: "3" });
   await s.signIn(who(1, "Racer B"));
-  assert.match(text((await s.page("/signup")).html), /#24 Approved To change it, ask the series director/);
-  assert.match(text((await s.post("/signup", { action: "withdraw", withdraw: String(rid) })).html), /Your #24 is approved\. Ask the series director to release it/);
+  assert.match(text((await s.page("/signup")).html), /#24 Approved To change it, ask the Series Director/);
+  assert.match(text((await s.post("/signup", { action: "withdraw", withdraw: String(rid) })).html), /Your #24 is approved\. Ask the Series Director to release it/);
   // the director changes a number, signs a driver up, and releases one
   await s.signIn(ADMIN);
   assert.match(text((await s.post(P, { action: "number", id: id("24"), number: "3" })).html), /#3 is taken by Racer C/);
@@ -131,16 +131,16 @@ test("the director approves, declines with a reason, changes and releases; a num
   // the public entry list, the CSV and History
   s.cookie = "";
   const drivers = text((await s.page("/test-cup/drivers")).html);
-  assert.match(drivers, /2027 Season 1 entry list 2 drivers signed up.*1 Racer A Approved 3 Racer C Waiting for the director/);
+  assert.match(drivers, /2027 Season 1 entry list 2 drivers signed up.*1 Racer A Approved 3 Racer C Waiting for the Series Director/);
   assert.equal((await s.page(P + ".csv")).status, 302);
   await s.signIn(ADMIN);
   assert.equal((await s.page(P + ".csv")).html, "Number,Driver,iRacing ID,Status\r\n1,Racer A,100,Approved\r\n3,Racer C,102,Waiting\r\n");
   const hist = text((await s.page("/history")).html);
   for (const x of [/Signups opened for 2027 Season 1/, /Signup approved: Racer B #24/, /Signup declined: Racer C #88 \(2027 Season 1\): Reserved for the pace car/,
-    /Car number changed: Racer B #24 → #42/, /Driver signed up by an official: Racer A #1/, /Number released: #42, Racer B/]) assert.match(hist, x);
+    /Car number changed: Racer B #24 → #42/, /Driver signed up by a Series Director or Admin: Racer A #1/, /Number released: #42, Racer B/]) assert.match(hist, x);
 });
 
-test("only the series' directors and admins manage signups; closing stops drivers, not the director", async () => {
+test("only the series' Series Directors and Admins manage signups; closing stops drivers, not the director", async () => {
   const s = await setup({ keep: -5, open: -1 });
   await s.open();
   const rid = s.rid("test-cup");

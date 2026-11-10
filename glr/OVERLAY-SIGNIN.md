@@ -100,7 +100,7 @@ The reason is always in `error`.
 | --- | --- | --- |
 | **401** | The site doesn't know this key or token: it was signed out, turned off on the Keys page, its year ran out, or the person left the league's Discord. | Show "Signed out of the league site", and offer Sign in again (or a key). Results keep waiting in the queue, as now. |
 | **403** | The token is fine, but the person doesn't have the **Producer role** any more. `check` reads the roles fresh; results and calls re-check them at most every 15 minutes. | Show the `error` text. Retrying won't help until an admin gives the role back. |
-| **403** with `"blocked": true` | An admin turned this person's overlay access off with **Block** on the Accounts page. The block wins over their Discord roles until an admin unblocks them. `error` is always `Your overlay access was turned off by a GLR HUB admin. Ask an admin to turn it back on.` | Show the `error` text as it is. Don't offer Sign in again: they can't allow a new PC either while blocked. Results stay in the queue. |
+| **403** with `"blocked": true` | An admin turned this person's overlay access off with **Block** on the Accounts page. The block wins over their Discord roles until an admin unblocks them. `error` is always `Your overlay access was turned off by a GLR HUB Admin. Ask an Admin to turn it back on.` | Show the `error` text as it is. Don't offer Sign in again: they can't allow a new PC either while blocked. Results stay in the queue. |
 | 400 | Something is wrong in the results file (as now). | As now. |
 | 405 | Results sent without POST. | n/a |
 

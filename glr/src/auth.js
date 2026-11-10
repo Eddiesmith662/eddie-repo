@@ -2,9 +2,9 @@
  * Sign in with Discord. Any member of the league's Discord server can sign in (drivers do, to file protests). What
  * they can do comes from their roles there:
  *   admin role (DISCORD_ROLE_ID)      edits every series, and is a steward everywhere
- *   Series official role (Site settings) + an admin's assignment (Accounts)   edits those series, and stewards them
+ *   Series Director role (Site settings) + an admin's assignment (Accounts)   edits those series, and stewards them
  *   (before that role is set: each series' own role, from Edit series)
- *   race control role (Site settings) steward for every series: reviews protests and makes decisions
+ *   Race Control role (Site settings) steward for every series: reviews protests and makes decisions
  * Roles are checked again every 15 minutes, so taking one away takes effect within that.
  *
  * Cloudflare secrets on the vspeed-glr worker (never in the repo):
@@ -55,7 +55,7 @@ async function schema(db) {
   return ready;
 }
 
-// the roles that matter here: the admin role, the Series official role, the race control role and the producer role
+// the roles that matter here: the admin role, the Series Director role, the Race Control role and the producer role
 async function relevant(env, roles) {
   const rc = await getSetting(env.DB, "steward_role"), pr = await getSetting(env.DB, "producer_role"), so = await getSetting(env.DB, "official_role");
   return roles.filter(r => r === env.DISCORD_ROLE_ID || (rc && r === rc) || (pr && r === pr) || (so && r === so));
@@ -173,7 +173,7 @@ export const overlayUser = (request, env, fresh = false) => programUser(request,
 
 // what a signed-in overlay may do, from Discord roles: the Producer role (or admin) gives the overlay and results uploads.
 // Later site features add more names. A block from an admin wins over the roles.
-export const BLOCK_MSG = "Your overlay access was turned off by a GLR HUB admin. Ask an admin to turn it back on.";
+export const BLOCK_MSG = "Your overlay access was turned off by a GLR HUB Admin. Ask an Admin to turn it back on.";
 const permsFor = u => u.overlayBlock ? [] : u.producer ? ["overlay", "upload"] : [];
 
 async function userFor(request, env, token, kind, fresh = false) {
@@ -289,7 +289,7 @@ export async function revokeProgramSession(env, id) {
   return s;
 }
 
-// what this person can do: admin, official (edits a series), steward (race control role), producer (producer role:
+// what this person can do: admin, official (edits a series), steward (Race Control role), producer (producer role:
 // connects an overlay), and their linked driver
 async function describe(env, u) {
   // The overlord (Nov 2026): one person, above admin, named by their Discord user ID in Cloudflare (OVERLORD_ID), not by
@@ -299,7 +299,7 @@ async function describe(env, u) {
   const owner = !!ownerId && String(u.id) === ownerId;
   const admin = owner || u.roles.includes(env.DISCORD_ROLE_ID);
   const rc = await getSetting(env.DB, "steward_role"), pr = await getSetting(env.DB, "producer_role"), so = await getSetting(env.DB, "official_role");
-  // the series they direct: the Series official role (Site settings) plus an admin's assignment on Accounts. (Each
+  // the series they direct: the Series Director role (Site settings) plus an admin's assignment on Accounts. (Each
   // series used to have its own Discord role; that old way was removed Nov 10 2026.)
   const directs = so && u.roles.includes(so) ? await directorOf(env.DB, u.id) : [];
   const official = admin || directs.length > 0;
@@ -353,5 +353,5 @@ export async function logout(request, env) {
 
 // may this signed-in person edit this series? (admins: every series)
 export const canEdit = (user, series) => !!user && (user.admin || (!!series && (user.directs || []).includes(series.id)));
-// may they review protests and make decisions for this series? (race control role, or the series' officials)
+// may they review protests and make decisions for this series? (Race Control role, or the series' officials)
 export const canSteward = (user, series) => !!user && (user.steward || canEdit(user, series));

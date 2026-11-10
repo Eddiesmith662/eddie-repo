@@ -25,7 +25,7 @@
  *         /<series>/widget/standings|teams|schedule|results   small pages (teams: a series with team points) to embed on a website or use in OBS/vMix
  *                                 (?rows=10&bg=transparent|page&theme=glr|vspeed&class=GT3&refresh=60)
  *         /<series>/embed     the widgets with options, a preview and the code to paste
- *         /settings           admins: the site's theme, the league's short name and the race control role
+ *         /settings           admins: the site's theme, the league's short name and the Race Control role
  *         /theme/<file>       the themes' images (the GLR logo)
  *         /history            officials: who changed what (admins: every series; series officials: their own)
  *         /api/overlay/results  POST from an overlay (Authorization: Bearer <key>): provisional results
@@ -157,7 +157,7 @@ const driverLink = (id, name) => `<a href="${BASE}/drivers/${id}">${esc(name)}</
 const seriesLink = e => e.slug ? `<a href="${BASE}/${esc(e.slug)}">${esc(e.short_name)}</a>` : esc(e.series_name || "");
 const crumb = e => e.slug ? `<p class="crumb"><a href="${BASE}/">GLR</a> › <a href="${BASE}/${esc(e.slug)}">${esc(e.short_name)}</a></p>` : "";
 const cls = c => c ? `<span class="cls">${esc(c)}</span>` : "";
-const prov = e => e.status === "provisional" ? `<span class="prov" title="Sent by a producer's overlay. Replaced by the iRacing results file when it's uploaded.">Provisional</span>` : "";
+const prov = e => e.status === "provisional" ? `<span class="prov" title="Sent by a Producer's overlay. Replaced by the iRacing results file when it's uploaded.">Provisional</span>` : "";
 // "Name" for one winner; "[LMP2] Name · [GT3] Name" for a multi-class race
 const winnersHtml = ws => ws.map(w => (ws.length > 1 ? cls(w.carClass) : "") + driverLink(w.custId, w.name)).join(" · ");
 
@@ -190,11 +190,11 @@ function homePage(series, recent, user, next = new Map()) {
 function seriesPage(sr, user) {
   let body = seriesTabs(sr, "results", [], null, user);
   if (!sr.seasons.length) body += `<p class="hint">No races uploaded yet.</p>`;
-  for (const se of sr.seasons) body += `<h2>${esc(se.name)}</h2>` + (!se.id && canEdit(user, sr) ? `<p class="tag">Run outside a season in iRacing, so they don't count in the standings. Open a race and use <b>Add to a season</b> (Officials, at the bottom) to count it.</p>` : "") + raceTable(se.events);
+  for (const se of sr.seasons) body += `<h2>${esc(se.name)}</h2>` + (!se.id && canEdit(user, sr) ? `<p class="tag">Run outside a season in iRacing, so they don't count in the standings. Open a race and use <b>Add to a season</b> (Manage this race, at the bottom) to count it.</p>` : "") + raceTable(se.events);
   return page(`${sr.short_name} results`, body, { user });
 }
 
-const HOOK_LABEL = { results: "Results (when a race is official: podium, class winners, top 10)", standings: "Standings (after each official race)", teams: "Team standings (after each official race)", penalties: "Penalties and result fixes (when an official adds one)" };
+const HOOK_LABEL = { results: "Results (when a race is official: podium, class winners, top 10)", standings: "Standings (after each official race)", teams: "Team standings (after each official race)", penalties: "Penalties and result fixes (when a Series Director or Admin adds one)" };
 // posts that can be sent again by hand for the latest official race (Send latest): a missed post, or one on demand
 const LATEST = ["results", "standings", "teams"];
 async function postLatest(db, sr, kind, origin) {
@@ -226,7 +226,7 @@ function hooksHtml(sr, queue, note) {
     <form method="post" action="#discord" style="display:inline"><input type="hidden" name="action" value="discard"><input type="hidden" name="id" value="${q.id}"><button class="link">Discard</button></form></td></tr>`).join("") + `</table></div>` : ""}`;
 }
 
-// the series edit page's directors list (admins), once the Series official role is set
+// the series edit page's directors list (admins), once the Series Director role is set
 const dirOpts = async (db, seriesId) => ({ officialRole: await getSetting(db, "official_role"), directors: (await listDirectors(db)).filter(d => d.series_id === seriesId) });
 
 // what kind of image these bytes are, by their first bytes (not the file's name): PNG, JPG or WebP, else ""
@@ -240,7 +240,7 @@ function logoType(b) {
 function addSeriesPage(user, err = "", v = {}) {
   const val = k => esc(String(v[k] || ""));
   return page("Add series", `<p class="crumb"><a href="${BASE}/">GLR</a></p><h1>Add series</h1>
-    <p class="sub">Add a series before its first race, so its directors, schedule, rules, signups and Discord posts can be set up. A series that has already raced can be added the same way: then upload its old results files.</p>
+    <p class="sub">Add a series before its first race, so its Series Directors, schedule, rules, signups and Discord posts can be set up. A series that has already raced can be added the same way: then upload its old results files.</p>
     ${err ? `<div class="msg bad">${esc(err)}</div>` : ""}
     <form method="post"><label for="lid">iRacing league ID</label><input type="number" id="lid" name="id" required min="1" value="${val("id")}" style="max-width:200px">
     <p class="tag">The number in the league's address on the iRacing members site. Each series is one iRacing league: results from the overlay, race control and uploaded files find the series by this number, so it has to be right. It can't be changed later.</p>
@@ -250,7 +250,7 @@ function addSeriesPage(user, err = "", v = {}) {
     <label for="fn">Full league name (optional)</label><input type="text" id="fn" name="name" maxlength="120" value="${val("name")}">
     <p class="tag">The first results file fills this in from iRacing.</p>
     <p><button class="btn">Add series</button></p></form>
-    <p class="tag">Next, on the series' Edit page: its logo, Discord posts, and Hide from the Series List until it's ready. Assign its directors on Accounts.</p>`, { user });
+    <p class="tag">Next, on the series' Edit page: its logo, Discord posts, and Hide from the Series List until it's ready. Assign its Series Directors on Accounts.</p>`, { user });
 }
 
 function seriesEditPage(sr, user, err = "", queue = [], note = "", { officialRole = "", directors = [] } = {}) {
@@ -260,9 +260,9 @@ function seriesEditPage(sr, user, err = "", queue = [], note = "", { officialRol
     <label for="sl">Address: glrhub.app/…</label><input type="text" id="sl" name="slug" value="${esc(sr.slug)}" maxlength="40">
     <p class="tag">Changing the address breaks old links to this series. Race and driver links aren't affected.</p>
     ${user && user.admin ? `<input type="hidden" name="teams_form" value="1"><label class="chk"><input type="checkbox" name="teams"${sr.teams ? " checked" : ""}> Team points (the Warrior points system): a Teams tab with team standings</label>
-    <label class="chk"><input type="checkbox" name="hidden"${sr.hidden ? " checked" : ""}> Hide from the Series List: off the home page, the all-series Schedule and Drivers pages and Sign up. It still works by its own link, results still arrive, and admins and its directors still see it.</label>` : ""}
+    <label class="chk"><input type="checkbox" name="hidden"${sr.hidden ? " checked" : ""}> Hide from the Series List: off the home page, the all-series Schedule and Drivers pages and Sign up. It still works by its own link, results still arrive, and Admins and its Series Directors still see it.</label>` : ""}
     ${user && user.admin ? `<p class="stw"><b>Series directors:</b> ${directors.length ? directors.map(d => esc(d.name || d.discord_id)).join(", ") : "none yet"}. <a href="${BASE}/accounts">Assign on the Accounts page</a>.</p>
-    <p class="tag">Directors need the Series official role in Discord too. They change only their series: its rules, penalties, results uploads and this page.</p>` : ""}
+    <p class="tag">Series Directors need the Series Director role in Discord too. They change only their series: its rules, penalties, results uploads and this page.</p>` : ""}
     <p><button class="btn">Save</button></p></form>
     <h2 id="logo">Logo</h2>${logoUrl(sr) ? `<p><img src="${logoUrl(sr)}" alt="${esc(sr.short_name)} logo" style="max-height:110px;max-width:320px"></p>` : `<p class="tag">No logo yet.</p>`}
     <form method="post" action="#logo" enctype="multipart/form-data"><input type="hidden" name="action" value="logo"><input type="file" name="file" accept="image/png,image/jpeg,image/webp" required> <button class="btn">Upload logo</button></form>
@@ -302,7 +302,7 @@ function officialsPanel(ev, msg, seasons = []) {
   if (!race.length) return "";
   const D = race.map(r => ({ id: r.cust_id, t: `P${r.finish_pos} #${r.car_number} ${r.name}`, pos: r.finish_pos, laps: r.laps, led: r.laps_led, inc: r.incidents, st: r.reason_out, pts: r.league_points }));
   const n = (name, label, extra = "") => `<label>${label}<br><input type="number" name="${name}" id="fx_${name}" ${extra}></label>`;
-  return `<h2 id="fix">Officials</h2>${msg ? `<div class="msg ${/^(Fixed|Marked|Added)/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>` : ""}
+  return `<h2 id="fix">Manage this race</h2>${msg ? `<div class="msg ${/^(Fixed|Marked|Added)/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>` : ""}
   ${ev.series_id && !ev.season_id && seasons.length ? `<fieldset><legend>Add to a season</legend><form method="post" action="#fix"><input type="hidden" name="action" value="season">
     <p class="tag">This race was run outside the series' season in iRacing, so it's listed under Other races and doesn't count in the standings. Add it to a season to count it like any other race. Uploading the results file again won't take it back out.</p>
     <label for="se_id">Season</label><select id="se_id" name="season">${seasons.map(x => `<option value="${x.id}">${esc(x.name)}</option>`).join("")}</select>
@@ -454,7 +454,7 @@ function protestsPage(user, { open = [], recent = [], mine = [], steward = false
   return page("Protests", body, { user });
 }
 
-// who can sign race control in: the race control role, a series director (role + an assigned series), an admin
+// who can sign race control in: the Race Control role, a series director (role + an assigned series), an admin
 const usesRaceControl = user => !!user && (user.steward || (user.directs || []).length > 0);
 
 // the programs, for the accounts that use them: producers the broadcast overlay, stewards race control
@@ -465,7 +465,7 @@ function downloadsPage(user, rel) {
     <li>Extract it to a folder that isn't synced by OneDrive, for example <code>C:\\VSPEED</code>.</li>
     <li>Double-click <b>${start}</b>. The first start sets itself up in about a minute; leave the window open.${after}</li>
     <li>${signin}</li></ol>`;
-  let body = `<h1>Downloads</h1><p class="sub">One program with two start files: the broadcast overlay for producers, race control for stewards. Once it's installed, it keeps itself up to date.</p>`;
+  let body = `<h1>Downloads</h1><p class="sub">One program with two start files: the broadcast overlay for Producers, race control for stewards. Once it's installed, it keeps itself up to date.</p>`;
   if (user.producer) body += `<h2>Broadcast overlay</h2>` + link("Download the VSPEED broadcast overlay")
     + steps("start.bat", "", "In the control panel: <b>Setup &gt; League site upload &gt; Sign in with Discord</b>, then press Allow on this site.");
   if (usesRaceControl(user)) body += `<h2>Race control</h2>` + link("Download VSPEED race control")
@@ -482,12 +482,12 @@ function whichDriverPage(user, { q = "", found = [], back = "/", first = false, 
   body += `<p class="sub">${first ? "One quick question, only this once. " : ""}Linking your Discord account to your iRacing driver lets you file protests and see your races, protests and the stewards' decisions about you in one place.</p>`;
   if (user.cust) body += `<p class="hint">You're linked to ${driverLink(user.cust, user.driverName || user.cust)}. Pick another driver below only if that's wrong.</p>`;
   else if (user.noDriver) body += `<p class="hint">You said you don't race. If you do now, find yourself below.</p>`;
-  for (const c of claims) body += `<div class="msg">Waiting for an admin: you said you're ${esc(c.driver || c.cust_id)}, who is linked to another Discord account. An admin will sort it out; nothing changes until then.</div>`;
+  for (const c of claims) body += `<div class="msg">Waiting for an admin: you said you're ${esc(c.driver || c.cust_id)}, who is linked to another Discord account. An Admin will sort it out; nothing changes until then.</div>`;
   body += `<form method="get" class="dec"><input type="hidden" name="back" value="${esc(back)}"><label for="q">Your name in iRacing</label>
     <input type="text" id="q" name="q" value="${esc(q)}" maxlength="60" autocomplete="off" class="search"> <button class="btn ghost">Search</button></form>`;
   if (q && !found.length) body += `<p class="hint">No driver by that name has raced here. Try your last name, or your iRacing ID.</p>`;
   if (found.length) body += `<div class="wrap"><table><tr><th>Driver</th><th class="n">iRacing ID</th><th></th></tr>` + found.map(d => `<tr><td>${driverLink(d.cust_id, d.name)}${d.also ? ` <span class="tag">raced as ${esc(d.also)}</span>` : ""}</td>
-      <td class="n">${d.cust_id}</td><td><form method="post">${b}<input type="hidden" name="cust" value="${d.cust_id}"><button class="btn ghost">${d.cust_id === user.cust ? "That's me (now)" : "That's me"}</button></form>${d.taken && d.cust_id !== user.cust ? ` <span class="tag">already linked: goes to an admin</span>` : ""}</td></tr>`).join("") + `</table></div>`;
+      <td class="n">${d.cust_id}</td><td><form method="post">${b}<input type="hidden" name="cust" value="${d.cust_id}"><button class="btn ghost">${d.cust_id === user.cust ? "That's me (now)" : "That's me"}</button></form>${d.taken && d.cust_id !== user.cust ? ` <span class="tag">already linked: goes to an Admin</span>` : ""}</td></tr>`).join("") + `</table></div>`;
   body += `<form method="post" style="margin-top:18px">${b}<input type="hidden" name="cust" value="0"><button class="btn ghost">I don't race</button>
     <a class="tag" style="margin-left:12px" href="${esc(back)}">Ask me later</a></form>`;
   return page("Which driver are you?", body, { user });
@@ -513,20 +513,20 @@ function myRacesPage(user, d, { protests = [], decisions = [] } = {}) {
 
 // admins: every Discord account that has signed in, its driver, and claims on a driver someone else has
 function accountsPage(user, { accounts = [], claims = [], all = [], msg = "", series = [], directors = [], roles = new Map(), officialRole = "", blocks = new Map() } = {}) {
-  let body = `<h1>Accounts</h1><p class="sub">Everyone who has signed in to GLR HUB with Discord. Only officials can see which driver each person is.</p>`;
+  let body = `<h1>Accounts</h1><p class="sub">Everyone who has signed in to GLR HUB with Discord. Only Series Directors and Admins can see which driver each person is.</p>`;
   if (msg) body += `<div class="msg ${/^(Linked|Unlinked|Approved|Rejected|Set)/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>`;
   body += `<h2>Disputes</h2>` + (claims.length ? `<div class="wrap"><table><tr><th>Who</th><th>Says they're</th><th>Linked now to</th><th>Asked</th><th></th></tr>` + claims.map(c => `<tr>
       <td>${esc(c.discord_name || c.discord_id)}</td><td>${driverLink(c.cust_id, c.driver || c.cust_id)}</td><td>${esc(c.holder || "nobody now")}</td><td>${day(c.created_at)}</td>
       <td><form method="post" style="display:inline" onsubmit="return confirm('Give ${esc(String(c.driver || "").replace(/['"\\]/g, ""))} to ${esc(String(c.discord_name || "").replace(/['"\\]/g, ""))}?${c.holder ? " The account linked now is unlinked and asked again." : ""}')"><input type="hidden" name="claim" value="${c.id}"><input type="hidden" name="action" value="approve"><button class="link">Approve</button></form>
       <form method="post" style="display:inline;margin-left:10px"><input type="hidden" name="claim" value="${c.id}"><input type="hidden" name="action" value="reject"><button class="link">Reject</button></form></td></tr>`).join("") + `</table></div>`
-    : `<p class="hint">None. If someone picks a driver who is already linked to another account, their request waits here for an admin to approve or reject.</p>`);
+    : `<p class="hint">None. If someone picks a driver who is already linked to another account, their request waits here for an Admin to approve or reject.</p>`);
   const short = id => (series.find(x => x.id === id) || {}).short_name || id;
-  // the series each account runs: assigned here, and active with the Series official role
+  // the series each account runs: assigned here, and active with the Series Director role
   const directs = a => {
     if (!officialRole) return dirForm(a, directors.filter(d => d.discord_id === a.discord_id));
     const has = roles.has(a.discord_id) ? roles.get(a.discord_id).includes(officialRole) : null;
     const mine = directors.filter(d => d.discord_id === a.discord_id);
-    return dirForm(a, mine) + (mine.length && has === false ? `<br><span class="tag" style="color:#d33">No Series official role when the site last checked${roles.seen && roles.seen.get(a.discord_id) ? ` (${when(new Date(roles.seen.get(a.discord_id)).toISOString())})` : ""}: not active.</span>
+    return dirForm(a, mine) + (mine.length && has === false ? `<br><span class="tag" style="color:#d33">No Series Director role when the site last checked${roles.seen && roles.seen.get(a.discord_id) ? ` (${when(new Date(roles.seen.get(a.discord_id)).toISOString())})` : ""}: not active.</span>
       <form method="post" style="display:inline"><input type="hidden" name="action" value="recheck"><input type="hidden" name="id" value="${esc(a.discord_id)}"><button class="link">Check now</button></form>
       <span class="tag">The site reads their roles again whenever they use it. Check now asks Discord straight away.</span>` : "");
   };
@@ -549,7 +549,7 @@ function accountsPage(user, { accounts = [], claims = [], all = [], msg = "", se
     `</table></div><datalist id="drl"><option value="I don't race">${all.map(x => `<option value="${esc(x.name)} (${x.cust_id})">`).join("")}</datalist>
     <ul class="tag">
       <li><b>Driver:</b> the iRacing driver this person is. To change it, type a driver's name or iRacing ID under <b>Change driver</b> and press <b>Set</b>. If someone else was linked to that driver, they're unlinked, and GLR HUB asks them "Which driver are you?" the next time they sign in.</li>
-      <li><b>Directs:</b> the series this person is a director of. <b>Add series…</b> adds one; <b>×</b> removes it. ${officialRole ? "It only works if they also have the Series official role in Discord." : "<b>Not active yet:</b> the Series official role hasn't been saved on Site settings, so nobody is a director."}</li>
+      <li><b>Directs:</b> the series this person is a Series Director of. <b>Add series…</b> adds one; <b>×</b> removes it. ${officialRole ? "It only works if they also have the Series Director role in Discord." : "<b>Not active yet:</b> the Series Director role hasn't been saved on Site settings, so nobody is a Series Director."}</li>
       ${user.overlord ? `      <li><b>Overlay:</b> anyone with the Producer role can use the broadcast overlay. <b>Block</b> turns it off for one person even if they have the role, until you unblock them: their overlay stops at its next start-up and they can't sign another PC in.</li>` : ""}
       <li>Every change on this page is recorded in History.</li></ul>` + SORT_JS;
   return page("Accounts", body, { user });
@@ -612,8 +612,8 @@ function driverPage(d, user, { aliases = [], all = [], msg = "", discord = null 
   for (const x of d.races) { const k = x.series_id || 0; if (!bySeries.has(k)) bySeries.set(k, []); bySeries.get(k).push(x); }
   let body = `<h1>${esc(d.name)}</h1><p class="sub">iRacing ID ${d.cust_id}${other.length ? " · also raced as " + other.join(", ") : ""}</p>`;
   body += profileHtml(d, user);
-  if (user && user.official) body += `<p class="tag">Discord: ${discord ? esc(discord.name || discord.discord_id) : "not linked"}${user.admin ? ` · <a href="${BASE}/accounts">Accounts</a>` : ""} <span class="tag">(only officials see this)</span></p>`;
-  if (!d.races.length) body += `<p class="hint">Hasn't raced yet. Added to a series' driver list by its officials.</p>`;
+  if (user && user.official) body += `<p class="tag">Discord: ${discord ? esc(discord.name || discord.discord_id) : "not linked"}${user.admin ? ` · <a href="${BASE}/accounts">Accounts</a>` : ""} <span class="tag">(only Series Directors and Admins see this)</span></p>`;
+  if (!d.races.length) body += `<p class="hint">Hasn't raced yet. Added to a series' driver list by its Series Director or an Admin.</p>`;
   if (bySeries.size > 1) body += `<h2>Career</h2>` + statCards(d.races);
   for (const races of bySeries.values()) {
     const x0 = races[0];
@@ -633,7 +633,7 @@ function driverPage(d, user, { aliases = [], all = [], msg = "", discord = null 
 function directorPage(sr, seasons, user, { provisional = [], protests = [], queue = [], changes = [], missed = [], signup = null } = {}) {
   const S = `${BASE}/${esc(sr.slug)}`;
   let body = seriesTabs(sr, "director", seasons, null, user);
-  body += `<p class="tag">Only this series' directors and admins see this tab.</p><h2>Needs attention</h2>`;
+  body += `<p class="tag">Only this series' Series Directors and Admins see this tab.</p><h2>Needs attention</h2>`;
   const todo = [];
   if (missed.length) todo.push(`<li><b>${missed.length} scheduled race${missed.length === 1 ? " has" : "s have"} no results</b> on the site yet. Upload the iRacing results file (or, if the race didn't run, remove it from the <a href="${S}/schedule">schedule</a>):<ul>${missed.map(r =>
     `<li>${day(r.starts_at)} · ${esc(r.track)}</li>`).join("")}</ul></li>`);
@@ -661,7 +661,7 @@ function directorPage(sr, seasons, user, { provisional = [], protests = [], queu
     [`${BASE}/history?series=${esc(sr.slug)}`, "History", "every change to this series, and who made it"],
   ];
   body += `<h2>Manage the series</h2><table class="manage">${L.map(([h, n, w]) => `<tr><td><a href="${h}"><b>${n}</b></a></td><td class="tag" style="white-space:normal">${w}</td></tr>`).join("")}</table>
-    <p class="tag">Fixing one driver's result, and removing a race uploaded by mistake, are at the bottom of that race's page (Officials).</p>`;
+    <p class="tag">Fixing one driver's result, and removing a race uploaded by mistake, are at the bottom of that race's page (Manage this race).</p>`;
   if (changes.length) body += `<h2>Recent changes</h2><div class="wrap"><table><tr><th>When</th><th>Who</th><th>What</th></tr>${changes.map(c =>
     `<tr><td>${day(c.at)}</td><td>${esc(whoName(c.by))}</td><td style="white-space:normal">${esc(c.summary)}</td></tr>`).join("")}</table></div><p><a class="tag" href="${BASE}/history?series=${esc(sr.slug)}">All of this series' History</a></p>`;
   return page(`${sr.short_name} director`, body, { user });
@@ -787,7 +787,7 @@ function seriesDriversPage(sr, rows, roster, user, msg = "", entry = null) {
   const list = [...rows.map(r => ({ ...r, added: mine.has(r.custId) })),
     ...roster.filter(r => !raced.has(r.cust_id)).map(r => ({ custId: r.cust_id, name: r.name, number: r.car_number, starts: 0, wins: 0, first: "", last: "", added: true }))]
     .sort((a, b) => b.starts - a.starts || a.name.localeCompare(b.name));
-  body += `<p class="tag">${list.length} driver${list.length === 1 ? "" : "s"}: everyone who has raced in ${esc(sr.short_name)}${roster.length ? ", plus drivers the officials have added" : ""}.</p>`;
+  body += `<p class="tag">${list.length} driver${list.length === 1 ? "" : "s"}: everyone who has raced in ${esc(sr.short_name)}${roster.length ? ", plus drivers its Series Director or an Admin has added" : ""}.</p>`;
   if (msg) body += `<div class="msg ${/^(Added|Removed)/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>`;
   body += `<input type="search" class="search" placeholder="Find a driver" data-rows="#dl tr.d">`;
   body += `<div class="wrap"><table class="sortable" id="dl"><tr><th class="n sort" data-dir="asc">#</th><th class="sort" data-dir="asc">Driver</th><th class="n">iRacing ID</th>
@@ -795,7 +795,7 @@ function seriesDriversPage(sr, rows, roster, user, msg = "", entry = null) {
     list.map(r => `<tr class="d"><td class="n" data-v="${esc(r.number) === "" ? "" : Number(r.number)}">${esc(r.number)}</td><td data-v="${esc(r.name)}">${r.starts ? driverLink(r.custId, r.name) : esc(r.name)}</td>
       <td class="n tag">${r.custId}</td><td class="n" data-v="${r.starts}">${r.starts || `<span class="tag">Hasn't raced yet</span>`}</td><td class="n" data-v="${r.wins}">${r.wins || ""}</td>
       <td data-v="${esc(r.first)}">${r.first ? day(r.first) : ""}</td><td data-v="${esc(r.last)}">${r.last ? day(r.last) : ""}</td>
-      ${edit ? `<td>${r.added ? `<form method="post"><input type="hidden" name="remove" value="${r.custId}"><button class="link" title="Added by an official">Remove</button></form>` : ""}</td>` : ""}</tr>`).join("") + `</table></div>`;
+      ${edit ? `<td>${r.added ? `<form method="post"><input type="hidden" name="remove" value="${r.custId}"><button class="link" title="Added by a Series Director or Admin">Remove</button></form>` : ""}</td>` : ""}</tr>`).join("") + `</table></div>`;
   if (edit) body += `<h2>Add a driver</h2><form method="post"><div class="grid"><label>iRacing ID<br><input type="number" name="cust" required></label>
     <label>Car number<br><input type="text" name="number" maxlength="4" style="width:90px"></label></div>
     <label for="dn">Name</label><input type="text" id="dn" name="name" maxlength="80">
@@ -933,7 +933,7 @@ function roundTable(rd) {
 function standingsBody(st) {
   const { rules } = st, po = rules.playoffs;
   let body = "";
-  if (!st.info.rules) body += `<p class="hint">Using iRacing's league points. This series' officials can set its own rules on the Rules tab.</p>`;
+  if (!st.info.rules) body += `<p class="hint">Using iRacing's league points. This series' Series Director can set its own rules on the Rules tab.</p>`;
   else if (!st.info.own) body += `<p class="hint">Using the rules from ${esc(st.info.from)}.</p>`;
   if (!st.events.length) return body + `<p class="hint">No races uploaded for this season yet.</p>`;
   if (st.skipped) body += `<p class="tag">${st.skipped} race${st.skipped === 1 ? "" : "s"} not counted (see Rules).</p>`;
@@ -944,7 +944,7 @@ function standingsBody(st) {
       const cur = p.current;
       const champ = cur.finale && cur.complete;
       body += `<h2>${esc(cur.name)}${champ ? " (final)" : ` · race ${Math.min(cur.ran + (cur.complete ? 0 : 1), cur.races)} of ${cur.races}`}</h2>`;
-      if (!cur.finale) body += `<p class="tag">${cur.spots} go through to the next round${cur.winAdvances ? "; a win in this round guarantees a spot" : ""}${cur.missMustWin ? "; a driver who misses a race must win to go through" : ""}.${cur.tieAtCut ? " <b>Drivers are tied on points at the cut</b> — officials settle it." : ""}</p>`;
+      if (!cur.finale) body += `<p class="tag">${cur.spots} go through to the next round${cur.winAdvances ? "; a win in this round guarantees a spot" : ""}${cur.missMustWin ? "; a driver who misses a race must win to go through" : ""}.${cur.tieAtCut ? " <b>Drivers are tied on points at the cut</b> — the Series Director settles it." : ""}</p>`;
       body += roundTable(cur);
       for (const rd of [...p.rounds].reverse().slice(1)) {
         const out = p.eliminated.filter(x => x.outIn === rd.name);
@@ -1176,7 +1176,7 @@ async function upload(request, env, user) {
     const want = await seriesById(env.DB, sched.series_id);
     return json({ ok: false, error: `That file is ${sr ? `a ${sr.short_name} race` : `from iRacing league ${ev.league.id}`}, not ${want ? want.short_name : "this series"}. Nothing was uploaded.` }, 400);
   }
-  if (!user.admin && !canEdit(user, sr)) return json({ ok: false, error: sr ? `You can't upload ${sr.short_name} results. Ask an admin to assign you that series.` : "Only admins can upload the first race of a new series." }, 403);
+  if (!user.admin && !canEdit(user, sr)) return json({ ok: false, error: sr ? `You can't upload ${sr.short_name} results. Ask an Admin to assign you that series.` : "Only Admins can upload the first race of a new series." }, 403);
   const had = await getEvent(env.DB, ev.subsessionId || 0);
   try {
     const r = await importEvent(env.DB, ev, `discord:${user.id}:${user.name}`);
@@ -1214,14 +1214,14 @@ function settingsPage(cur, short, user, msg = "", stewardRole = "", producerRole
   <form method="post"><fieldset><legend>Theme</legend>${Object.entries(THEMES).map(([k, t]) => `<label class="chk"><input type="radio" name="theme" value="${k}"${k === cur ? " checked" : ""}>
     <span><b>${esc(t.label)}</b> <span class="tag">${esc(t.note)}</span> <a href="${BASE}?theme=${k}" target="_blank">Preview</a></span></label>`).join("")}</fieldset>
   <label for="ls">League short name (in the VSPEED theme's header, e.g. GLR)</label><input type="text" id="ls" name="short" value="${esc(short)}" maxlength="20">
-  <label for="sr">Race control role (Discord role ID; its members are stewards for every series)</label><input type="text" id="sr" name="steward_role" value="${esc(stewardRole)}" maxlength="25" inputmode="numeric">
-  <p class="tag">Stewards review protests and make decisions on each race's stewards' report. Each series' officials can steward their own series too. In Discord: Server Settings › Roles › right-click the role › Copy Role ID.</p>
+  <label for="sr">Race Control role (Discord role ID; its members are stewards for every series)</label><input type="text" id="sr" name="steward_role" value="${esc(stewardRole)}" maxlength="25" inputmode="numeric">
+  <p class="tag">Stewards review protests and make decisions on each race's stewards' report. Each Series Director can steward their own series too. In Discord: Server Settings › Roles › right-click the role › Copy Role ID.</p>
   <label for="pr">Producer role (Discord role ID; its members can sign a broadcast overlay in to the site)</label><input type="text" id="pr" name="producer_role" value="${esc(producerRole)}" maxlength="25" inputmode="numeric">
-  <p class="tag">A signed-in overlay sends race results and shows race control's calls in the penalty box, as that producer. Admins count as producers. Overlay keys still work too.</p>
-  <label for="so">Series official role (Discord role ID; its members run the series an admin assigns them)</label><input type="text" id="so" name="official_role" value="${esc(officialRole)}" maxlength="25" inputmode="numeric">
-  <p class="tag">Assign each director their series on the <a href="${BASE}/accounts">Accounts</a> page. ${officialRole ? "" : "<b>Until this is saved, nobody is a series director.</b> "}Taking the role away in Discord removes all their series within 15 minutes.</p>
+  <p class="tag">A signed-in overlay sends race results and shows race control's calls in the penalty box, as that Producer. Admins count as Producers. Overlay keys still work too.</p>
+  <label for="so">Series Director role (Discord role ID; its members run the series an Admin assigns them)</label><input type="text" id="so" name="official_role" value="${esc(officialRole)}" maxlength="25" inputmode="numeric">
+  <p class="tag">Assign each Series Director their series on the <a href="${BASE}/accounts">Accounts</a> page. ${officialRole ? "" : "<b>Until this is saved, nobody is a Series Director.</b> "}Taking the role away in Discord removes all their series within 15 minutes.</p>
   <fieldset><legend>Help chat</legend><label class="chk"><input type="checkbox" name="help_on" value="1"${help.on ? " checked" : ""}>
-    <span><b>Help</b> (the bubble in the bottom-right corner) for series directors, race control and admins: an AI helper that answers questions about using the site (it can't see or change anything). <a href="${BASE}/help/log">What people asked</a></span></label>
+    <span><b>Help</b> (the bubble in the bottom-right corner) for Series Directors, Race Control and Admins: an AI helper that answers questions about using the site (it can't see or change anything). <a href="${BASE}/help/log">What people asked</a></span></label>
     ${help.key ? "" : `<p class="tag"><b>Not working yet:</b> the Anthropic API key isn't in Cloudflare (the ANTHROPIC_API_KEY secret), so Help stays hidden.</p>`}</fieldset>
   <p><button class="btn">Save</button></p></form>
   ${user.ownerSet ? `<p class="tag"><b>Overlord only.</b> Only you see this page, Overlay keys, the Help chat's question log, the Overlay block column on Accounts, and History for accounts, settings and keys. Admins keep everything else. You're the overlord because your Discord user ID is the OVERLORD_ID secret in Cloudflare.</p>` : ""}`;
@@ -1389,7 +1389,7 @@ const sameOrigin = (request, url) => request.headers.get("origin") === url.origi
 const bearer = request => (/^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") || "") || [])[1] || "";
 
 function keysPage(keys, user, { newKey = "", newKind = "overlay", msg = "", rc = [], ov = [] } = {}) {
-  let body = `<h1>Overlay keys</h1><p class="sub">A key lets a producer's overlay send its race results here when a race ends. They arrive as Provisional and the official iRacing results file replaces them when it's uploaded. A key can only send results: it can't change rules, penalties or anything else.</p>`;
+  let body = `<h1>Overlay keys</h1><p class="sub">A key lets a Producer's overlay send its race results here when a race ends. They arrive as Provisional and the official iRacing results file replaces them when it's uploaded. A key can only send results: it can't change rules, penalties or anything else.</p>`;
   if (newKey) body += `<div class="msg ok"><b>New key, shown only this once.</b> ${newKind === "import" ? "Use it for the backfill, then turn it off below." : "Paste it into the overlay: control panel › Setup › League site upload."}<code class="key">${esc(newKey)}</code></div>`;
   if (msg) body += `<div class="msg bad">${esc(msg)}</div>`;
   body += `<form method="post"><label for="kn">Name (whose overlay is it?)</label><input type="text" id="kn" name="name" maxlength="60" required>
@@ -1402,7 +1402,7 @@ function keysPage(keys, user, { newKey = "", newKind = "overlay", msg = "", rc =
       <td>${day(new Date(r.created).toISOString())}</td><td>${r.last_used ? day(new Date(r.last_used).toISOString()) : ""}</td>
       <td><form method="post"><input type="hidden" name="rc_revoke" value="${esc(r.id)}"><button class="link" onclick="return confirm('Sign this PC out of ${prog}?')">Sign out</button></form></td></tr>`).join("") + `</table></div>`
       : `<p class="hint">None yet.</p>`;
-  body += `<h2>Overlay sign-ins</h2><p class="sub">Producers' PCs whose broadcast overlay is signed in with Discord (instead of an overlay key). Each acts as that producer, with their Discord roles. They sign in from the overlay; turn one off here if a PC is lost or shouldn't send results any more.</p>`
+  body += `<h2>Overlay sign-ins</h2><p class="sub">Producers' PCs whose broadcast overlay is signed in with Discord (instead of an overlay key). Each acts as that Producer, with their Discord roles. They sign in from the overlay; turn one off here if a PC is lost or shouldn't send results any more.</p>`
     + signedIn(ov, "Producer", "the overlay");
   body += `<h2>Race control sign-ins</h2><p class="sub">Stewards' PCs signed in to race control. Each acts as that steward, with their Discord roles. They sign in from race control; turn one off here if a PC is lost or shouldn't send calls any more.</p>`
     + signedIn(rc, "Steward", "race control");
@@ -1412,8 +1412,8 @@ function keysPage(keys, user, { newKey = "", newKind = "overlay", msg = "", rc =
 // the page a person opens from race control or the broadcast overlay to let it act as them
 const LINK_TEXT = {
   rc: { title: "Race control sign-in", what: "<b>Race control</b> (stewarding, not the broadcast overlay) on a PC is asking to send calls to this site as you",
-    keep: "the race control role in the league's Discord, or the Series official role there with a series an admin has assigned you", where: "race control" },
-  ov: { title: "Broadcast overlay sign-in", what: "The <b>broadcast overlay</b> (the graphics program a producer runs, not race control) on a PC is asking to send race results to this site and read race control's calls, as you",
+    keep: "the Race Control role in the league's Discord, or the Series Director role there with a series an Admin has assigned you", where: "race control" },
+  ov: { title: "Broadcast overlay sign-in", what: "The <b>broadcast overlay</b> (the graphics program a Producer runs, not race control) on a PC is asking to send race results to this site and read race control's calls, as you",
     keep: "the Producer role in the league's Discord", where: "the overlay" },
 };
 function linkPage(kind, code, user, { done = false, msg = "" } = {}) {   // msg: a problem, so no Allow button
@@ -1451,7 +1451,7 @@ async function overlayCaller(request, env, db, count, fresh = false) {
   const prod = await overlayUser(request, env, fresh);
   if (prod) {
     if (prod.overlayBlock) return { error: BLOCK_MSG, status: 403, blocked: true };
-    if (!prod.producer) return { error: "You don't have the Producer role in the league's Discord any more. Ask an admin.", status: 403 };
+    if (!prod.producer) return { error: "You don't have the Producer role in the league's Discord any more. Ask an Admin.", status: 403 };
     return { key: { id: 0, name: `overlay (${prod.name})`, via: "ov", user: prod } };
   }
   const rcu = await raceControlUser(request, env);
@@ -1521,13 +1521,13 @@ function entryList(sr, { round, list }, user) {
   const state = roundState(round);
   let h = SIGNUP_CSS + `<h2>${esc(round.name)} entry list</h2><p class="tag">${list.length} driver${list.length === 1 ? "" : "s"} signed up. ${windowLine(round, state)}${state === "keep" || state === "open" ? ` <a href="${BASE}/signup">Sign up</a>` : ""}${canEdit(user, sr) ? ` · <a href="${BASE}/${esc(sr.slug)}/signups">Manage signups</a>` : ""}</p>`;
   if (list.length) h += `<div class="wrap" style="margin-bottom:18px"><table><tr><th class="n">#</th><th>Driver</th><th>Signup</th></tr>${list.map(x =>
-    `<tr><td class="n"><b>${esc(x.number)}</b></td><td>${esc(x.name)}</td><td>${x.status === "approved" ? `<span class="pill ok">Approved</span>` : `<span class="pill wait">Waiting for the director</span>`}</td></tr>`).join("")}</table></div>`;
+    `<tr><td class="n"><b>${esc(x.number)}</b></td><td>${esc(x.name)}</td><td>${x.status === "approved" ? `<span class="pill ok">Approved</span>` : `<span class="pill wait">Waiting for the Series Director</span>`}</td></tr>`).join("")}</table></div>`;
   return h + `<h2>Everyone who has raced</h2>`;
 }
 
 // the Sign up page: every series taking signups on one form
 function signupPage(user, cards, { msgs = [], same = "" } = {}) {
-  let body = SIGNUP_CSS + `<h1>Sign up</h1><p class="sub">Sign up for the series you want to race in next season and pick your car number in each. Numbers are separate for each series. Every signup is checked by the series director before it's final.</p>`;
+  let body = SIGNUP_CSS + `<h1>Sign up</h1><p class="sub">Sign up for the series you want to race in next season and pick your car number in each. Numbers are separate for each series. Every signup is checked by the Series Director before it's final.</p>`;
   for (const m of msgs) body += `<div class="msg ${m.ok ? "ok" : "bad"}">${esc(m.text)}</div>`;
   if (!cards.length) return page("Sign up", body + `<p class="hint">No series is taking signups right now.</p>`, { user });
   if (!user) body += `<p class="hint"><a href="${BASE}/login?back=${BASE}/signup">Sign in with Discord</a> to sign up.</p>`;
@@ -1545,10 +1545,10 @@ function signupPage(user, cards, { msgs = [], same = "" } = {}) {
   for (const c of cards) {
     const { round: r, state, list, hold, mine } = c, active = mine && (mine.status === "pending" || mine.status === "approved");
     let h = `<div class="su"><h2><a href="${BASE}/${esc(r.slug)}/drivers">${esc(r.short_name)}</a> · ${esc(r.name)}</h2><p class="tag">${windowLine(r, state)}</p>`;
-    if (active) h += `<p><b>#${esc(mine.number)}</b> ${mine.status === "approved" ? `<span class="pill ok">Approved</span> <span class="tag">To change it, ask the series director.</span>`
-      : `<span class="pill wait">Waiting for the director</span> <button class="link" form="wd" name="withdraw" value="${r.id}">Withdraw</button>`}</p>`;
+    if (active) h += `<p><b>#${esc(mine.number)}</b> ${mine.status === "approved" ? `<span class="pill ok">Approved</span> <span class="tag">To change it, ask the Series Director.</span>`
+      : `<span class="pill wait">Waiting for the Series Director</span> <button class="link" form="wd" name="withdraw" value="${r.id}">Withdraw</button>`}</p>`;
     else if (mine && mine.status === "declined") h += `<p><span class="pill no">Declined</span> #${esc(mine.number)}: ${esc(mine.note)} <span class="tag">You can sign up again.</span></p>`;
-    else if (mine && mine.status === "released") h += `<p><span class="pill no">Released</span> The director released your #${esc(mine.number)}. <span class="tag">You can sign up again.</span></p>`;
+    else if (mine && mine.status === "released") h += `<p><span class="pill no">Released</span> The Series Director released your #${esc(mine.number)}. <span class="tag">You can sign up again.</span></p>`;
     if (can && !(mine && mine.status === "approved")) {
       if (state === "keep" && !active) {
         if (hold && hold.mine) { pickable++; h += `<label class="chk"><input type="checkbox" name="s_${r.id}" value="1" checked> <span>Keep <b>#${esc(hold.number)}</b>, my number last season</span></label>`; }
@@ -1628,7 +1628,7 @@ async function signupRoutes(request, env, db, url, path, user) {
           if (d.existed) msgs.push({ text: "That iRacing ID is already on GLR HUB. Use \"pick yourself from the list\" instead." });
           else {
             const r = await linkDriver(db, user.id, user.name, d.cust);
-            if (r.claim) msgs.push({ text: "That iRacing ID is linked to another account. An admin has to sort that out." });
+            if (r.claim) msgs.push({ text: "That iRacing ID is linked to another account. An Admin has to sort that out." });
             else { user.cust = d.cust; user.driverName = d.name; user.noDriver = false;
               await logChange(db, { by, kind: "account", summary: `${user.name} joined as a new driver: ${d.name} (${d.cust})` });
               msgs.push({ ok: true, text: `Welcome, ${d.name}. Now pick your series and numbers.` }); }
@@ -1650,7 +1650,7 @@ async function signupRoutes(request, env, db, url, path, user) {
             if (state === "keep") { if (!h.has(r.id)) h.set(r.id, await holds(db, r)); const mine = h.get(r.id).byCust.get(user.cust); num = mine && mine.mine ? mine.number : ""; }
             if (!num) throw new Error("pick a number.");
             const res = await signUp(db, r, { cust: user.cust, discordId: user.id, name: user.driverName || user.name, number: num, by });
-            msgs.push({ ok: true, text: `${r.short_name}: #${res.number} is ${res.changed ? "your number now" : "yours"}${res.status === "approved" ? "." : ", waiting for the director's approval."}` });
+            msgs.push({ ok: true, text: `${r.short_name}: #${res.number} is ${res.changed ? "your number now" : "yours"}${res.status === "approved" ? "." : ", waiting for the Series Director's approval."}` });
           } catch (e) { msgs.push({ text: `${r.short_name}: ${e.message}` }); vals.set(r.id, String(f.get(`n_${r.id}`) || "").trim()); }
         }
         if (!msgs.length) msgs.push({ text: "Tick the series you want to sign up for." });
@@ -1668,7 +1668,7 @@ async function signupRoutes(request, env, db, url, path, user) {
     const sr = await getSeries(db, m[1]);
     if (!sr) return null;
     if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/${sr.slug}/signups`, 302);
-    if (!canEdit(user, sr)) return notFound("Only this series' directors and admins manage its signups. The entry list is on the Drivers tab.", user);
+    if (!canEdit(user, sr)) return notFound("Only this series' Series Directors and Admins manage its signups. The entry list is on the Drivers tab.", user);
     let round = await currentRound(db, sr.id), msg = "";
     if (m[2]) return new Response(entryCsv(round ? await listSignups(db, round.id) : []), { headers: {
       "content-type": "text/csv; charset=utf-8", "content-disposition": `attachment; filename="${sr.slug}-entry-list.csv"`, "cache-control": "no-store" } });
@@ -1694,7 +1694,7 @@ async function signupRoutes(request, env, db, url, path, user) {
           if (!cust) throw new Error("Enter the driver's iRacing ID.");
           if (!name) throw new Error("Enter the driver's name: the site doesn't know that iRacing ID yet.");
           const r = await signUp(db, round, { cust, name, number: f.get("number"), by, director: true });
-          await log(`${r.changed ? `Car number changed: ${name} #${r.was} → #${r.number}` : `Driver signed up by an official: ${name} #${r.number}`} (${round.name})`);
+          await log(`${r.changed ? `Car number changed: ${name} #${r.was} → #${r.number}` : `Driver signed up by a Series Director or Admin: ${name} #${r.number}`} (${round.name})`);
           msg = `Added ${name}, #${r.number}.`;
         }
       } catch (e) { msg = e.message; }
@@ -1718,20 +1718,20 @@ async function helpRoute(request, env, db, url, path, user) {
   }
   if (path === `${BASE}/help`) {
     if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/help`, 302);
-    if (!user.help) return notFound(user.official || user.steward ? "The Help chat is switched off right now." : "Help is for series directors, race control and admins.", user);
+    if (!user.help) return notFound(user.official || user.steward ? "The Help chat is switched off right now." : "Help is for Series Directors, Race Control and Admins.", user);
     return helpPage(user, HELP_PER_DAY - await helpToday(db, user.id));
   }
   // POST /api/help {messages: [{role, content}]}: the question is the last user message
   if (request.method !== "POST") return json({ ok: false, error: "Use POST." }, 405);
   if (!sameOrigin(request, url)) return json({ ok: false, error: "Ask from the Help page." }, 403);
   if (!user) return json({ ok: false, error: "Sign in again." }, 401);
-  if (!user.help) return json({ ok: false, error: user.official || user.steward ? "The Help chat is switched off right now." : "Help is for series directors, race control and admins." }, 403);
+  if (!user.help) return json({ ok: false, error: user.official || user.steward ? "The Help chat is switched off right now." : "Help is for Series Directors, Race Control and Admins." }, 403);
   let body = null;
   try { body = await request.json(); } catch (e) { /* handled below */ }
   const turns = cleanTurns(body && body.messages);
   if (!turns) return json({ ok: false, error: "Type a question first." }, 400);
   const used = await helpToday(db, user.id);
-  if (used >= HELP_PER_DAY) return json({ ok: false, error: `That's today's ${HELP_PER_DAY} questions. Ask again tomorrow, or ask an admin in the GLR Discord.`, left: 0 }, 429);
+  if (used >= HELP_PER_DAY) return json({ ok: false, error: `That's today's ${HELP_PER_DAY} questions. Ask again tomorrow, or ask an Admin in the GLR Discord.`, left: 0 }, 429);
   const names = user.admin ? [] : (await listSeries(db)).filter(x => (user.directs || []).includes(x.id)).map(x => x.name);
   const question = turns[turns.length - 1].content;
   let answer;
@@ -1742,7 +1742,7 @@ async function helpRoute(request, env, db, url, path, user) {
 }
 
 function helpPage(user, left) {
-  const body = `<h1>Help</h1><p class="sub">Ask how to do something on GLR HUB, like "How do I make a race official?" or "Why are my standings wrong?". The helper knows the site's guides. It can't see your series' data or change anything, and it can be wrong: if something doesn't look right, ask an admin in the GLR Discord.</p>
+  const body = `<h1>Help</h1><p class="sub">Ask how to do something on GLR HUB, like "How do I make a race official?" or "Why are my standings wrong?". The helper knows the site's guides. It can't see your series' data or change anything, and it can be wrong: if something doesn't look right, ask an Admin in the GLR Discord.</p>
   <div id="chat" class="help" aria-live="polite"></div>
   <form id="ask" class="helpask"><textarea id="q" rows="3" maxlength="2000" placeholder="Type your question" required></textarea>
   <p><button class="btn" id="go">Ask</button> <button type="button" class="link" id="clear">Start over</button> <span class="tag" id="left">${left > 0 ? `${left} questions left today` : "No questions left today"}</span>${user.overlord ? ` · <a href="${BASE}/help/log">What people asked</a>` : ""}</p></form>
@@ -1753,7 +1753,7 @@ function helpPage(user, left) {
 }
 
 function helpLogPage(user, rows) {
-  const body = `<h1>What people asked the helper</h1><p class="sub">The latest ${rows.length} questions to the Help chat, newest first. Questions that come up often are a sign a page or guide needs to be clearer. Only admins see this.</p>
+  const body = `<h1>What people asked the helper</h1><p class="sub">The latest ${rows.length} questions to the Help chat, newest first. Questions that come up often are a sign a page or guide needs to be clearer. Only Admins see this.</p>
   ${rows.length ? `<table><tr><th>When</th><th>Who</th><th>Question</th><th>Answer</th></tr>${rows.map(r => `<tr class="r"><td>${day(r.at)}</td><td>${esc(r.name || r.discord_id)}</td>
     <td style="white-space:pre-wrap;min-width:220px">${esc(r.question)}</td><td style="white-space:pre-wrap;min-width:320px;font-size:14px">${esc(r.answer || "")}</td></tr>`).join("")}</table>` : `<p class="hint">Nobody has asked anything yet.</p>`}`;
   return page("Help questions", body, { user });
@@ -1817,11 +1817,11 @@ const site = {
         const r = await signupRoutes(request, env, db, url, path, user);
         if (r) return r;
       }
-      if (path === `${BASE}/upload`) return !user ? Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/upload`, 302) : user.official ? uploadPage(user) : notFound("Only series officials can upload results.", user);
+      if (path === `${BASE}/upload`) return !user ? Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/upload`, 302) : user.official ? uploadPage(user) : notFound("Only Series Directors and Admins can upload results.", user);
       if (path === `${BASE}/api/upload`) {
         if (request.method !== "POST") return json({ ok: false, error: "Use POST." }, 405);
-        if (!user) return json({ ok: false, error: "Sign in as an official first." }, 401);
-        if (!user.official) return json({ ok: false, error: "Only series officials can upload results." }, 403);
+        if (!user) return json({ ok: false, error: "Sign in as a Series Director or Admin first." }, 401);
+        if (!user.official) return json({ ok: false, error: "Only Series Directors and Admins can upload results." }, 403);
         if (!sameOrigin(request, url)) return json({ ok: false, error: "Upload from the site's upload page." }, 403);
         const res = await upload(request, env, user);
         kick();
@@ -1902,8 +1902,8 @@ const site = {
         if (kind === "ov" && user.overlayBlock) return linkPage(kind, code, user, { msg: BLOCK_MSG });
         const allowed = kind === "ov" ? user.producer : (await listSeries(db)).some(x => canSteward(user, x));
         if (!allowed) return linkPage(kind, code, user, { msg: kind === "ov"
-          ? "The overlay needs the Producer role in the league's Discord. Ask an admin."
-          : "Race control needs the race control role, or the Series official role with a series assigned to you. Ask an admin." });
+          ? "The overlay needs the Producer role in the league's Discord. Ask an Admin."
+          : "Race control needs the Race Control role, or the Series Director role with a series assigned to you. Ask an Admin." });
         if (request.method === "POST" && sameOrigin(request, url)) {
           const f = await request.formData();
           if (!await linkAllow(request, env, String(f.get("code") || ""), user)) return linkPage(kind, code, user, { msg: `That code has expired. Press Sign in in ${t.where} again.` });
@@ -1918,7 +1918,7 @@ const site = {
         if (!rcu) return json({ ok: false, error: "Race control isn't signed in to the site (or the sign-in was turned off). Sign in again from race control." }, 401);
         const all = await listSeries(db), mine = all.filter(x => canSteward(rcu, x));
         if (path === `${BASE}/api/rc/check`) {
-          if (!mine.length) return json({ ok: false, error: "You can't steward any series now: no race control role, and no series assigned to you with the Series official role. Ask an admin." }, 403);
+          if (!mine.length) return json({ ok: false, error: "You can't steward any series now: no Race Control role, and no series assigned to you with the Series Director role. Ask an Admin." }, 403);
           return json({ ok: true, user: { id: rcu.id, name: rcu.name }, series: rcu.steward ? "all" : mine.map(x => x.id) });
         }
         if ((m = path.match(/^\/api\/rc\/races\/(\d+)$/))) {
@@ -2011,8 +2011,8 @@ const site = {
               const r = await linkDriver(db, user.id, user.name, Number(f.get("cust")));
               if (r.claim) {
                 const dn = ev.sessions.race.find(x => x.cust_id === Number(f.get("cust")));
-                await logChange(db, { by, kind: "account", summary: `${user.name} says they're ${dn ? dn.name : f.get("cust")}, who is linked to ${r.holder}: waiting for an admin` });
-                throw new Error("That driver is already linked to another Discord account, so an admin will check it. You can file your protest once they've sorted it out.");
+                await logChange(db, { by, kind: "account", summary: `${user.name} says they're ${dn ? dn.name : f.get("cust")}, who is linked to ${r.holder}: waiting for an Admin` });
+                throw new Error("That driver is already linked to another Discord account, so an Admin will check it. You can file your protest once they've sorted it out.");
               }
               user = await currentUser(request, env);
               await logChange(db, { by, kind: "account", summary: `${user.name} linked to driver ${user.driverName}` });
@@ -2065,7 +2065,7 @@ const site = {
               }
               msg = d && d.withdrawn ? "Withdrawn." : "Removed.";
             } else if (a === "report") {
-              if (!canEdit(user, sr)) throw new Error("Only the series' directors and admins can send the penalty report.");
+              if (!canEdit(user, sr)) throw new Error("Only the series' Series Directors and Admins can send the penalty report.");
               if (!sr.hook_penalties) throw new Error("Add a Penalties webhook on Edit series first.");
               const items = await penaltyItems(db, ev);
               if (!items.length) throw new Error("No penalties to send for this race.");
@@ -2086,7 +2086,7 @@ const site = {
       }
       if (path === `${BASE}/downloads`) {
         if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/downloads`, 302);
-        if (!user.producer && !usesRaceControl(user)) return notFound("Downloads are for producers and race control.", user);
+        if (!user.producer && !usesRaceControl(user)) return notFound("Downloads are for Producers and Race Control.", user);
         return downloadsPage(user, await latestRelease(db));
       }
       if (path === `${BASE}/me/driver`) {
@@ -2101,7 +2101,7 @@ const site = {
             const r = await linkDriver(db, user.id, user.name, cust);
             const dn = cust ? (await getDriver(db, cust) || {}).name || String(cust) : "";
             if (r.claim) {
-              await logChange(db, { by, kind: "account", summary: `${user.name} says they're ${dn}, who is linked to ${r.holder}: waiting for an admin` });
+              await logChange(db, { by, kind: "account", summary: `${user.name} says they're ${dn}, who is linked to ${r.holder}: waiting for an Admin` });
             } else {
               await logChange(db, { by, kind: "account", summary: cust ? `${user.name} linked to driver ${dn}` : `${user.name} said they don't race` });
               return Response.redirect(`${url.origin}${/^\/(?!\/)/.test(back) ? back : "/"}`, 303);
@@ -2122,7 +2122,7 @@ const site = {
       }
       if (path === `${BASE}/accounts`) {
         if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/accounts`, 302);
-        if (!user.admin) return notFound("Only admins can see accounts.", user);
+        if (!user.admin) return notFound("Only Admins can see accounts.", user);
         let msg = "";
         if (request.method === "POST" && sameOrigin(request, url)) {
           const f = await request.formData(), a = f.get("action"), by = `discord:${user.id}:${user.name}`;
@@ -2138,11 +2138,11 @@ const site = {
               const id = String(f.get("id")), nm = await nameOf(id), sr = await seriesById(db, Number(f.get("series")));
               if (!sr) throw new Error("Pick a series.");
               await setDirector(db, id, sr.id, a === "direct", by);
-              await logChange(db, { by, seriesId: sr.id, kind: "account", summary: a === "direct" ? `Admin made ${nm} a director of ${sr.short_name}` : `Admin removed ${nm} as a director of ${sr.short_name}` });
+              await logChange(db, { by, seriesId: sr.id, kind: "account", summary: a === "direct" ? `Admin made ${nm} a Series Director of ${sr.short_name}` : `Admin removed ${nm} as a Series Director of ${sr.short_name}` });
               msg = a === "direct" ? `Set: ${nm} directs ${sr.short_name}.` : `Set: ${nm} no longer directs ${sr.short_name}.`;
             } else if (a === "recheck") {
               const id = String(f.get("id")), nm = await nameOf(id), r = await recheckRoles(env, request, id), so = await getSetting(db, "official_role");
-              msg = r.status === "ok" ? (r.roles.includes(so) ? `Set: Discord says ${nm} has the Series official role now.` : `${nm} doesn't have the Series official role in Discord right now. Check the role in Discord, and the role ID on Site settings.`)
+              msg = r.status === "ok" ? (r.roles.includes(so) ? `Set: Discord says ${nm} has the Series Director role now.` : `${nm} doesn't have the Series Director role in Discord right now. Check the role in Discord, and the role ID on Site settings.`)
                 : r.status === "none" ? `${nm} isn't signed in to the site right now, so it can't ask Discord about them. It checks when they next sign in.`
                 : r.status === "left" ? `${nm} isn't in the league's Discord server any more.`
                 : r.status === "revoked" ? `${nm} disconnected GLR HUB in Discord. They need to sign in again.`
@@ -2243,7 +2243,7 @@ const site = {
       // Add series (admins): a series by its iRacing league ID, before its first race
       if (path === `${BASE}/series/add`) {
         if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/series/add`, 302);
-        if (!user.admin) return notFound("Only admins can add a series.", user);
+        if (!user.admin) return notFound("Only Admins can add a series.", user);
         let err = "", v = {};
         if (request.method === "POST") {
           if (!sameOrigin(request, url)) return notFound("Add the series from this page.", user);
@@ -2271,14 +2271,14 @@ const site = {
           const f = await request.formData(), theme = String(f.get("theme") || ""), short = String(f.get("short") || "").trim().slice(0, 20);
           const rc = String(f.get("steward_role") || "").trim(), pr = String(f.get("producer_role") || "").trim(), so = String(f.get("official_role") || "").trim();
           if (!THEMES[theme]) msg = "Pick a theme.";
-          else if (rc && !/^\d{5,25}$/.test(rc)) msg = "The race control role should be a Discord role ID (numbers only), or empty.";
-          else if (pr && !/^\d{5,25}$/.test(pr)) msg = "The producer role should be a Discord role ID (numbers only), or empty.";
-          else if (so && !/^\d{5,25}$/.test(so)) msg = "The series official role should be a Discord role ID (numbers only), or empty.";
+          else if (rc && !/^\d{5,25}$/.test(rc)) msg = "The Race Control role should be a Discord role ID (numbers only), or empty.";
+          else if (pr && !/^\d{5,25}$/.test(pr)) msg = "The Producer role should be a Discord role ID (numbers only), or empty.";
+          else if (so && !/^\d{5,25}$/.test(so)) msg = "The Series Director role should be a Discord role ID (numbers only), or empty.";
           else {
             await setSetting(db, "theme", theme); await setSetting(db, "league_short", short || "GLR");
             if (rc !== await getSetting(db, "steward_role")) {
               await setSetting(db, "steward_role", rc);
-              await logChange(db, { by: `discord:${user.id}:${user.name}`, kind: "series", summary: rc ? `Race control role set to ${rc}` : "Race control role removed" });
+              await logChange(db, { by: `discord:${user.id}:${user.name}`, kind: "series", summary: rc ? `Race Control role set to ${rc}` : "Race Control role removed" });
             }
             if (pr !== (await getSetting(db, "producer_role") || "")) {
               await setSetting(db, "producer_role", pr);
@@ -2286,7 +2286,7 @@ const site = {
             }
             if (so !== (await getSetting(db, "official_role") || "")) {
               await setSetting(db, "official_role", so);
-              await logChange(db, { by: `discord:${user.id}:${user.name}`, kind: "series", summary: so ? `Series official role set to ${so}: directors are now assigned on the Accounts page` : "Series official role removed: each series' own role is used again" });
+              await logChange(db, { by: `discord:${user.id}:${user.name}`, kind: "series", summary: so ? `Series Director role set to ${so}: Series Directors are now assigned on the Accounts page` : "Series Director role removed: nobody is a Series Director until it's saved again" });
             }
             const helpOff = f.get("help_on") ? "" : "1";
             if (helpOff !== (await getSetting(db, "help_off") || "")) {
@@ -2304,7 +2304,7 @@ const site = {
       }
       if (path === `${BASE}/history`) {
         if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/history`, 302);
-        if (!user.official) return notFound("History is for series officials.", user);
+        if (!user.official) return notFound("History is for Series Directors and Admins.", user);
         // the overlord sees everything; admins see every series' changes (not accounts, settings or keys); directors their series
         const every = await listSeries(db), mine = user.overlord ? null : user.admin ? every.map(x => x.id) : user.directs;
         const choices = every.filter(x => !mine || mine.includes(x.id));
@@ -2315,7 +2315,7 @@ const site = {
         const d = await getDriver(db, Number(m[1]));
         if (!d) return notFound("No such driver.", user);
         if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${encodeURIComponent(path)}`, 302);
-        if (!canEditDriver(user, d)) return notFound("Only the driver (signed in and linked to this driver), an admin or their series' director can change this.", user);
+        if (!canEditDriver(user, d)) return notFound("Only the driver (signed in and linked to this driver), an Admin or their series' Series Director can change this.", user);
         let msg = "";
         if (request.method === "POST" && sameOrigin(request, url)) {
           const f = await request.formData();
@@ -2330,7 +2330,7 @@ const site = {
         const cust = Number(m[1]);
         let msg = "";
         if (request.method === "POST") {
-          if (!user || !user.admin || !sameOrigin(request, url)) return notFound("Only admins can merge drivers.", user);
+          if (!user || !user.admin || !sameOrigin(request, url)) return notFound("Only Admins can merge drivers.", user);
           const f = await request.formData(), who = `discord:${user.id}:${user.name}`;
           try {
             if (f.get("action") === "separate") {
@@ -2421,7 +2421,7 @@ const site = {
         const sr = await getSeries(db, m[1]);
         if (!sr) return notFound("No such series.", user);
         if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${encodeURIComponent(path)}`, 302);
-        if (!canEdit(user, sr)) return notFound("This page is for the series' directors.", user);
+        if (!canEdit(user, sr)) return notFound("This page is for the series' Series Directors.", user);
         return directorPage(sr, await seasonsOf(db, sr.id), user, {
           provisional: (await listEvents(db, { series: sr.id })).filter(e => e.status !== "official"),
           protests: await listProtests(db, { seriesIds: [sr.id], open: true }),

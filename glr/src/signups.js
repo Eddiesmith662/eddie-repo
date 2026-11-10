@@ -109,7 +109,7 @@ export async function signUp(db, round, { cust, discordId = null, name, number, 
   if (state === "none") throw new Error("Signups aren't open for this series.");
   if (!director) {
     if (state === "soon") throw new Error("Signups haven't opened yet.");
-    if (state === "closed") throw new Error("Signups are closed. Ask the series director.");
+    if (state === "closed") throw new Error("Signups are closed. Ask the Series Director.");
   }
   if (state === "soon" || state === "keep") {
     const h = await holds(db, round), held = h.byNumber.get(num), mine = h.byCust.get(cust);
@@ -124,7 +124,7 @@ export async function signUp(db, round, { cust, discordId = null, name, number, 
   try {
     if (have) {
       if (have.number === num && (!director || have.status === "approved")) return { number: num, status: have.status, changed: false };
-      if (!director && have.status === "approved") throw new Error(`Your #${have.number} is approved. Ask the series director to change it.`);
+      if (!director && have.status === "approved") throw new Error(`Your #${have.number} is approved. Ask the Series Director to change it.`);
       await db.prepare(`UPDATE signups SET number = ?, status = ?, decided_at = ?, decided_by = ? WHERE id = ?`)
         .bind(num, director ? "approved" : "pending", director ? at : null, director ? by : null, have.id).run();
       return { number: num, status: director ? "approved" : "pending", changed: true, was: have.number };
@@ -140,7 +140,7 @@ export async function signUp(db, round, { cust, discordId = null, name, number, 
 export async function withdraw(db, round, cust) {
   const have = await db.prepare(`SELECT * FROM signups WHERE round_id = ? AND cust_id = ? AND ${ACTIVE}`).bind(round.id, cust).first();
   if (!have) throw new Error("You're not signed up for that series.");
-  if (have.status === "approved") throw new Error(`Your #${have.number} is approved. Ask the series director to release it.`);
+  if (have.status === "approved") throw new Error(`Your #${have.number} is approved. Ask the Series Director to release it.`);
   await db.prepare(`UPDATE signups SET status = 'withdrawn', decided_at = ? WHERE id = ?`).bind(nowIso(), have.id).run();
   return have;
 }

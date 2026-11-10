@@ -1,4 +1,4 @@
-// Changing a decision after further review (Nov 2026): race control, the series' directors and admins.
+// Changing a decision after further review (Nov 2026): race control, the series' Series Directors and Admins.
 // Made-up drivers.
 import { test } from "node:test";
 import assert from "node:assert/strict";

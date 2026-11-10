@@ -57,7 +57,7 @@ test("signing out from the program ends the token; a driver can't allow race con
   assert.equal((await rc(s, token, "GET", "/api/rc/check")).status, 401);
   const start = await (await s.go("/api/rc/link", { method: "POST" })).json();
   await s.signIn({ id: "70", roles: [], nick: "Just A Driver" });
-  assert.match(text((await s.page(`/rc/link?code=${start.code}`)).html), /needs the race control role/);
+  assert.match(text((await s.page(`/rc/link?code=${start.code}`)).html), /needs the Race Control role/);
 });
 
 test("calls arrive before the results, become decisions, and change the results once they're in", async () => {
@@ -120,7 +120,7 @@ test("withdrawn stays withdrawn, and two stewards' calls both land", async () =>
 test("race control is turned away from series it can't steward and races that aren't GLR", async () => {
   const s = await setup();
   await s.addRace({ sub: 3000, date: week(0), league: 5555, leagueName: "GLR Other SERIES", season: 600 });
-  // a director of Test Cup only: the Series official role, and an admin's assignment
+  // a director of Test Cup only: the Series Director role, and an admin's assignment
   await s.signIn({ id: "62", roles: ["222222"], nick: "Cup Steward" });
   await s.signIn({ id: "1", roles: [ADMIN_ROLE], nick: "Test Admin" });
   await s.post("/settings", { theme: "glr", short: "GLR", steward_role: RC_ROLE, official_role: "222222" });
