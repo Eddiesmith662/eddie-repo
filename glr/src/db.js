@@ -1214,8 +1214,11 @@ export async function setDirector(db, discordId, seriesId, on, by) {
 // each account's Discord roles, as of their last sign-in check (the Accounts page shows who has the role)
 export async function accountRoles(db) {
   try {
-    const rows = (await db.prepare(`SELECT discord_id, roles FROM sessions WHERE kind = 'web' ORDER BY checked`).all()).results;
-    return new Map(rows.map(r => [r.discord_id, JSON.parse(r.roles || "[]")]));
+    const rows = (await db.prepare(`SELECT discord_id, roles, checked FROM sessions WHERE kind = 'web' ORDER BY checked`).all()).results;
+    const m = new Map(rows.map(r => [r.discord_id, JSON.parse(r.roles || "[]")]));
+    // .seen: when the site last read each person's roles from Discord (only when they use the site, so it can be old)
+    m.seen = new Map(rows.map(r => [r.discord_id, r.checked]));
+    return m;
   } catch { return new Map(); }
 }
 

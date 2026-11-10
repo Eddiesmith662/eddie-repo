@@ -533,7 +533,8 @@ function accountsPage(user, { accounts = [], claims = [], all = [], msg = "", se
     }
     const has = roles.has(a.discord_id) ? roles.get(a.discord_id).includes(officialRole) : null;
     const mine = directors.filter(d => d.discord_id === a.discord_id);
-    return dirForm(a, mine) + (mine.length && has === false ? `<br><span class="tag" style="color:#d33">No Series official role in Discord: not active</span>` : "");
+    return dirForm(a, mine) + (mine.length && has === false ? `<br><span class="tag" style="color:#d33">No Series official role when the site last checked${roles.seen && roles.seen.get(a.discord_id) ? ` (${when(new Date(roles.seen.get(a.discord_id)).toISOString())})` : ""}: not active.</span>
+      <span class="tag">The site reads their roles again the next time they use it. If they have the role now, ask them to open the site, or sign out and in.</span>` : "");
   };
   const dirForm = (a, mine) => mine.map(d => `<form method="post" style="display:inline;margin-right:8px"><input type="hidden" name="action" value="undirect"><input type="hidden" name="id" value="${esc(a.discord_id)}"><input type="hidden" name="series" value="${d.series_id}">${esc(short(d.series_id))} <button class="link" title="Remove">×</button></form>`).join("")
     + (series.length > mine.length ? `<form method="post" style="display:inline"><input type="hidden" name="action" value="direct"><input type="hidden" name="id" value="${esc(a.discord_id)}"><select name="series" onchange="this.form.submit()"><option value="">Add series…</option>${series.filter(x => !mine.some(d => d.series_id === x.id)).map(x => `<option value="${x.id}">${esc(x.short_name)}</option>`).join("")}</select></form>` : "");

@@ -148,7 +148,7 @@ test("series directors: one Discord role, and an admin assigns each director the
   await signInTo(s, { id: "70", roles: [], nick: "Cup Director" });
   assert.ok(!(await s.page("/test-cup/rules")).html.includes("Save rules"));
   await s.signIn(ADMIN);
-  assert.match(text((await s.page("/accounts")).html), /No Series official role in Discord: not active/);
+  assert.match(text((await s.page("/accounts")).html), /No Series official role when the site last checked \(.*ET ?\): not active\. The site reads their roles again the next time they use it/);
   await s.post("/accounts", { action: "undirect", id: "70", series: "4242" });
   await signInTo(s, dir);
   assert.ok(!(await s.page("/test-cup/rules")).html.includes("Save rules"));
