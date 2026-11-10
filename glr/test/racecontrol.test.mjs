@@ -167,3 +167,16 @@ test("the overlay reads a race's calls with its key, without the stewards' names
   assert.equal(s.DB.raw.prepare("SELECT uses FROM overlay_keys").get().uses, 0);
   assert.equal((await rc(s, "vsglr_" + "0".repeat(48), "GET", "/api/overlay/calls/1000")).status, 401);
 });
+
+test("the stewards' report lists race control's calls by lap, then decisions made afterwards", async () => {
+  const s = await setup();
+  const token = await signedIn(s);
+  // sent out of order, as a race file can be after a call is edited
+  const r = await rc(s, token, "PUT", "/api/rc/races/1000", file(1000, [call(1, { lap: 40, reason: "Lap forty" }), call(2, { lap: 7, reason: "Lap seven" }),
+    call(3, { lap: 40, reason: "Lap forty again" }), call(4, { lap: null, reason: "No lap" }), call(5, { lap: 22, reason: "Lap twenty-two" })]));
+  assert.equal(r.status, 200);
+  const page = text((await s.page("/results/1000/stewards")).html);
+  const at = w => page.indexOf(w);
+  for (const w of ["Lap seven", "Lap twenty-two", "Lap forty", "Lap forty again", "No lap"]) assert.ok(at(w) > 0, w);
+  assert.ok(at("Lap seven") < at("Lap twenty-two") && at("Lap twenty-two") < at("Lap forty") && at("Lap forty") < at("Lap forty again") && at("Lap forty again") < at("No lap"), page.slice(at("Decisions"), at("Decisions") + 600));
+});

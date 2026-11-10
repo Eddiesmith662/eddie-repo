@@ -1445,7 +1445,10 @@ export async function listDecisions(db, sub) {
     if (!d.name) d.name = d.info.driverName || String(d.cust_id);
     if (!d.car_number) d.car_number = d.info.carNumber || "";
   }
-  return rows;
+  // in race order: race control's calls by the lap they were made on, then decisions made afterwards (no lap) in the
+  // order they were made. Calls on the same lap keep the order they came in.
+  const lap = d => { const n = Number(d.info.lap); return d.info.lap != null && d.info.lap !== "" && Number.isFinite(n) ? n : Infinity; };
+  return rows.sort((a, b) => (lap(a) - lap(b) || 0) || a.id - b.id);
 }
 
 /**
