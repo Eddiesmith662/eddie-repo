@@ -1340,7 +1340,10 @@ window.addEventListener('message',e=>{if(e.data&&e.data.glrWidget&&e.source===$(
 }
 
 // series as the public sees them: never the webhook links
-const pub = ({ hook_results, hook_standings, hook_penalties, ...rest }) => rest;
+// what the public series API sends: only the fields named here. Nov 9 2026: the old version removed three webhook
+// fields by name, so hook_teams (added later) went out to everyone. A new column is private until it's added here.
+const PUB_SERIES = ["id", "name", "short_name", "slug", "teams", "races", "latest", "latestEvent"];
+const pub = sr => Object.fromEntries(PUB_SERIES.filter(k => k in sr).map(k => [k, sr[k]]));
 const sameOrigin = (request, url) => request.headers.get("origin") === url.origin;
 const bearer = request => (/^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") || "") || [])[1] || "";
 
