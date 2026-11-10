@@ -85,7 +85,7 @@ test("calls arrive before the results, become decisions, and change the results 
   assert.match(text((await s.page("/test-cup/penalties")).html), /Stewards: Rough driving/);
   // the report shows the served stop and go, the lap, and race control
   const rep = text((await s.page(`/results/${sub}/stewards`)).html);
-  assert.match(rep, /Stop and go \(30 s\) served lap 44 race control, lap 12/);
+  assert.match(rep, /12 #4 Racer D Stop and go \(30 s\) served lap 44 Race Control Jumped the restart/);
   assert.match(rep, /\+25 seconds/);
 });
 
@@ -179,4 +179,25 @@ test("the stewards' report lists race control's calls by lap, then decisions mad
   const at = w => page.indexOf(w);
   for (const w of ["Lap seven", "Lap twenty-two", "Lap forty", "Lap forty again", "No lap"]) assert.ok(at(w) > 0, w);
   assert.ok(at("Lap seven") < at("Lap twenty-two") && at("Lap twenty-two") < at("Lap forty") && at("Lap forty") < at("Lap forty again") && at("Lap forty again") < at("No lap"), page.slice(at("Decisions"), at("Decisions") + 600));
+});
+
+test("the stewards' report says where each decision came from, with tick boxes and sortable headings", async () => {
+  const s = await setup();
+  const token = await signedIn(s);
+  await rc(s, token, "PUT", "/api/rc/races/1000", file(1000, [
+    call(1, { lap: 30, kind: "noaction", reason: "Pit speeding, served", incident: { type: "penalty", points: null } }),    // iRacing's own black flag
+    call(2, { lap: 9, kind: "warning", reason: "Blocking", custId: 102, driverName: "Racer C", incident: { type: "contact", points: 4 } }),
+    call(3, { lap: 18, kind: "drivethrough", reason: "Jumped the restart", custId: 103, driverName: "Racer D" })]));
+  await s.signIn({ id: "1", roles: ["111111"], nick: "Test Admin" });
+  await s.post("/results/1000/stewards", { action: "decide", cust: "104", kind: "warning", amount: "", reason: "After review" });
+  const html = (await s.page("/results/1000/stewards")).html, page = text(html);
+  const rows = [...html.matchAll(/<tbody class="dec" data-lap="(\d*)" data-driver="[^"]*" data-type="([^"]*)" data-from="([^"]*)"/g)].map(m => m.slice(1));
+  assert.deepEqual(rows, [["9", "Warning", "Race Control"], ["18", "Drive-through", "Race Control"], ["30", "No action", "iRacing"], ["", "Warning", "Stewards"]]);
+  assert.match(page, /Show: Warning Drive-through No action From: iRacing Race Control Stewards/);
+  assert.match(page, /Lap Driver Decision From Reason When/);
+  for (const k of ["lap", "driver", "type", "from"]) assert.match(html, new RegExp(`<th class="[^"]*sort[^"]*" data-k="${k}"`));
+  // one decision: nothing to filter
+  const t = await setup(), tok = await signedIn(t);
+  await rc(t, tok, "PUT", "/api/rc/races/1000", file(1000, [call(1)]));
+  assert.doesNotMatch((await t.page("/results/1000/stewards")).html, /id="decf"/);
 });

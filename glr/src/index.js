@@ -405,6 +405,31 @@ function decisionForm(ev, race, { protest = null, self = null } = {}) {
     <p><button class="btn">Save decision</button></p></form>`;
 }
 
+// The Decisions table on a stewards' report: where each row came from, the lap it was made on, and tick boxes and
+// sortable headings so a long race-night list can be narrowed down (Nov 2026, from a Series Director's feedback).
+//   iRacing: a steward's call in race control on something iRacing flagged itself (its own black flag, warning or DQ)
+//   Race Control: any other call made live in race control
+//   Stewards: decided on the site afterwards (a protest, or a review)
+const IRACING_FLAGS = new Set(["penalty", "warning", "dq"]);
+const decFrom = d => d.source !== "race control" ? "Stewards" : IRACING_FLAGS.has(((d.info || {}).incident || {}).type) ? "iRacing" : "Race Control";
+const decLap = d => { const l = (d.info || {}).lap, n = Number(l); return l != null && l !== "" && Number.isFinite(n) ? n : ""; };
+function decFilters(decs) {
+  const types = [...new Set(decs.map(d => KINDS[d.kind] || d.kind))], from = ["iRacing", "Race Control", "Stewards"].filter(f => decs.some(d => decFrom(d) === f));
+  if (decs.length < 2 || (types.length < 2 && from.length < 2)) return "";
+  const box = (k, v) => `<label><input type="checkbox" name="${k}" value="${esc(v)}" checked> ${esc(v)}</label>`;
+  return `<style>#decf{display:flex;flex-wrap:wrap;gap:4px 14px;align-items:center;margin:0 0 8px;font-size:14px}#decf b{font-weight:600}#decf label{display:inline-flex;gap:5px;align-items:center}#decf .sep{width:1px;height:16px;background:var(--line,#8884)}</style>
+    <div id="decf"><b>Show:</b>${types.length > 1 ? types.map(t => box("type", t)).join("") : ""}${types.length > 1 && from.length > 1 ? `<span class="sep"></span>` : ""}${from.length > 1 ? `<b>From:</b>` + from.map(f => box("from", f)).join("") : ""}<span class="tag" id="decn"></span></div>
+    <p class="tag" style="margin:0 0 8px">Untick a box to hide those rows; click a heading to sort by lap, driver, decision or where it came from. ${from.includes("iRacing") ? "From iRacing: a steward's call on something iRacing flagged itself. " : ""}</p>`;
+}
+const DEC_JS = `<script>(()=>{const t=document.getElementById('decs');if(!t)return;const hs=[...t.querySelectorAll('th.sort')],bodies=()=>[...t.querySelectorAll('tbody.dec')];
+hs.forEach(h=>h.onclick=()=>{const k=h.dataset.k,asc=h.classList.contains('on')?!h.classList.contains('asc'):true;hs.forEach(x=>x.classList.remove('on','asc'));h.classList.add('on');if(asc)h.classList.add('asc');
+const v=b=>{const d=b.dataset[k];return d===undefined||d===''?null:isNaN(+d)?d.toLowerCase():+d;};
+bodies().map((b,i)=>[b,i]).sort((a,b)=>{const x=v(a[0]),y=v(b[0]);if(x===null||y===null)return x===y?a[1]-b[1]:x===null?1:-1;return (x<y?-1:x>y?1:0)*(asc?1:-1)||a[1]-b[1];}).forEach(([b])=>t.appendChild(b));});
+const f=[...document.querySelectorAll('#decf input')],n=document.getElementById('decn');
+const go=()=>{const on=k=>{const c=f.filter(x=>x.name===k);return c.length?new Set(c.filter(x=>x.checked).map(x=>x.value)):null;},ty=on('type'),fr=on('from');let s=0;const all=bodies();
+all.forEach(b=>{b.hidden=!((!ty||ty.has(b.dataset.type))&&(!fr||fr.has(b.dataset.from)));if(!b.hidden)s++;});if(n)n.textContent=s===all.length?'':'Showing '+s+' of '+all.length;};
+f.forEach(c=>c.onchange=go);})();</script>`;
+
 function stewardsPage(ev, user, { protests = [], steward = false, msg = "", report = null } = {}) {
   const race = (ev.sessions.race || []).slice().sort((a, b) => a.finish_pos - b.finish_pos);
   const decs = ev.decisions || [];
@@ -419,13 +444,13 @@ function stewardsPage(ev, user, { protests = [], steward = false, msg = "", repo
     ? `<form method="post" action="#top" style="margin:0 0 10px" onsubmit="return confirm('Send this race\\'s penalty report to the penalties Discord channel?')"><input type="hidden" name="action" value="report"><button class="btn">Send penalty report to Discord</button>
       <span class="tag">One post with every penalty on this race (warnings, race control's calls, points penalties). Withdrawn calls and no action are left out.</span></form>`
     : `<p class="tag">To send this race's penalty report to Discord, add a Penalties webhook on <a href="${BASE}/${report.slug}/edit">Edit series</a>.</p>`;
-  body += (decs.length ? `<div class="wrap"><table><tr><th>Driver</th><th>Decision</th><th>Reason</th><th>When</th>${steward ? "<th></th>" : ""}</tr>` +
-    decs.map(d => { const off = d.status === "withdrawn", rc = d.source === "race control", info = d.info || {};
-      return `<tr${off ? ' class="wd"' : ""}><td>${driverLink(d.cust_id, `${d.car_number ? "#" + d.car_number + " " : ""}${d.name || d.cust_id}`)}</td>
-      <td><b>${esc(decisionText(d))}</b>${servedText(d)}${rc ? ` <span class="tag">race control${info.lap != null ? `, lap ${esc(info.lap)}` : ""}</span>` : ""}</td>
+  body += (decs.length ? decFilters(decs) + `<div class="wrap"><table id="decs"><tr><th class="n sort on asc" data-k="lap">Lap</th><th class="sort" data-k="driver">Driver</th><th class="sort" data-k="type">Decision</th><th class="sort" data-k="from">From</th><th>Reason</th><th>When</th>${steward ? "<th></th>" : ""}</tr>` +
+    decs.map(d => { const off = d.status === "withdrawn", rc = d.source === "race control", info = d.info || {}, lap = decLap(d);
+      return `<tbody class="dec" data-lap="${lap}" data-driver="${esc(d.name || d.cust_id)}" data-type="${esc(KINDS[d.kind] || d.kind)}" data-from="${decFrom(d)}"><tr${off ? ' class="wd"' : ""}><td class="n">${lap}</td><td>${driverLink(d.cust_id, `${d.car_number ? "#" + d.car_number + " " : ""}${d.name || d.cust_id}`)}</td>
+      <td><b>${esc(decisionText(d))}</b>${servedText(d)}</td><td>${decFrom(d)}</td>
       <td style="white-space:normal">${esc(d.reason)}${d.protest_id ? ` <span class="tag">(protest ${d.protest_id})</span>` : ""}${d.edited_at ? `<br><span class="tag">Changed ${day(d.edited_at)} by ${esc(whoName(d.edited_by))}, was ${esc(d.edited_from || "")}</span>` : ""}${off ? `<br><span class="tag">Withdrawn${d.withdrawn_reason ? ": " + esc(d.withdrawn_reason) : ""}</span>` : ""}</td><td>${day(d.made_at)}</td>
       ${steward ? `<td>${off || d.cust_id === (user && user.cust) || involvedIn(user, protests.find(p => p.id === d.protest_id)) ? "" : `<button type="button" class="link" onclick="const r=this.closest('tr').nextElementSibling;r.hidden=!r.hidden">Edit</button> `}${off || d.cust_id === (user && user.cust) || involvedIn(user, protests.find(p => p.id === d.protest_id)) ? "" : rc ? `<form method="post" action="#top" onsubmit="return confirm('Withdraw this race control call? It stays on the report, crossed out, and anything it changed goes back. Race control can\\'t bring it back.')"><input type="hidden" name="action" value="undo"><input type="hidden" name="id" value="${d.id}"><button class="link">Withdraw</button></form>`
-        : `<form method="post" action="#top" onsubmit="return confirm('Take this decision back? Any points or places it changed go back too.')"><input type="hidden" name="action" value="undo"><input type="hidden" name="id" value="${d.id}"><button class="link">Take back</button></form>`}</td>` : ""}</tr>${steward && !(off || d.cust_id === (user && user.cust) || involvedIn(user, protests.find(p => p.id === d.protest_id))) ? `<tr class="editrow" hidden><td colspan="5">${editForm(d)}</td></tr>` : ""}`; }).join("") + `</table></div>`
+        : `<form method="post" action="#top" onsubmit="return confirm('Take this decision back? Any points or places it changed go back too.')"><input type="hidden" name="action" value="undo"><input type="hidden" name="id" value="${d.id}"><button class="link">Take back</button></form>`}</td>` : ""}</tr>${steward && !(off || d.cust_id === (user && user.cust) || involvedIn(user, protests.find(p => p.id === d.protest_id))) ? `<tr class="editrow" hidden><td colspan="7">${editForm(d)}</td></tr>` : ""}</tbody>`; }).join("") + `</table></div>` + DEC_JS
     : `<p class="hint">No decisions for this race.</p>`);
   // the protests: who protested whom, and where it stands. What was written is for the stewards and the driver who filed it.
   body += `<h2>Protests</h2>`;
