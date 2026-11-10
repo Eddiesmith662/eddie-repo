@@ -36,7 +36,7 @@ export async function currentRound(db, seriesId) {
 // every series' current round that isn't closed, for the Sign up page and the header link
 export async function liveRounds(db) {
   await ensureSchema(db);
-  return (await db.prepare(`SELECT r.*, sr.short_name, sr.slug FROM signup_rounds r JOIN series sr ON sr.id = r.series_id
+  return (await db.prepare(`SELECT r.*, sr.short_name, sr.slug, sr.hidden FROM signup_rounds r JOIN series sr ON sr.id = r.series_id
     WHERE r.closed_at IS NULL AND r.id = (SELECT MAX(id) FROM signup_rounds x WHERE x.series_id = r.series_id) ORDER BY sr.short_name COLLATE NOCASE`).all()).results;
 }
 

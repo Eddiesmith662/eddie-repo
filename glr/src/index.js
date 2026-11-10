@@ -53,7 +53,7 @@ import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, i
   logChange, listChanges, whoName, mergeDrivers, separateDriver, aliasesOf, findDrivers,
   seriesEvents, allSeriesEvents, listRoster, addRoster, removeRoster, listSchedule, upcoming, addSchedule, addScheduleLines, deleteSchedule,
   scheduleEntry, linkScheduleTo, getSetting, setSetting, editSchedule,
-  linkDriver, unlinkDriver, setLink, linkedAccount, listAccounts, listClaims, decideClaim, getTeams, saveTeams, setSeriesTeams, listBlocks, setBlock, missedResults, announcerShow, logHelp, helpToday, listHelp, setEventSeason, saveProfile, PROFILE_FIELDS, driversForMatching, directorOf, listDirectors, setDirector, accountRoles, searchDrivers, normName, decisionsFor, fileProtest, listProtests, getProtest, setProtestStatus, listDecisions, addDecision, editDecision, deleteDecision,
+  linkDriver, unlinkDriver, setLink, linkedAccount, listAccounts, listClaims, decideClaim, getTeams, saveTeams, setSeriesTeams, listBlocks, setBlock, missedResults, announcerShow, addSeries, setSeriesHidden, setLogo, getLogo, logHelp, helpToday, listHelp, setEventSeason, saveProfile, PROFILE_FIELDS, driversForMatching, directorOf, listDirectors, setDirector, accountRoles, searchDrivers, normName, decisionsFor, fileProtest, listProtests, getProtest, setProtestStatus, listDecisions, addDecision, editDecision, deleteDecision,
   saveRaceCalls, raceCalls } from "./db.js";
 import { KINDS, AMOUNT, CHANGES_ORDER, decisionText } from "./stewards.js";
 import { resultsPost, standingsPost, teamStandingsPost, penaltyPost, fixPost, decisionPost, penaltyReportPost, enqueue, processQueue, queueFor, retryQueued, discardQueued, isRecent } from "./discord.js";
@@ -147,6 +147,11 @@ __THEME_CSS__</style></head><body><header><a class="brand" href="${BASE}/">__THE
   : `<a href="${BASE}/login">Sign in</a>`}</div></header><main>${body}</main>${user && user.help && title !== "Help" ? helpWidget(user) : ""}</body></html>`,
   { status, headers: { "content-type": "text/html; charset=utf-8", "cache-control": "no-store" } });
 
+// a hidden series is off the public lists (home, all-series Schedule and Drivers, Sign up) but works by its own link;
+// admins and its directors still see it in the lists
+const shown = (sr, user) => !sr.hidden || !!(user && (user.admin || (user.directs || []).includes(sr.id)));
+// a series' logo: the uploaded one, else the one built into the site, else none
+const logoUrl = sr => sr.logo_at ? `${BASE}/logo/${sr.id}?v=${encodeURIComponent(sr.logo_at)}` : ASSETS[`series-${sr.id}.png`] ? `${BASE}/theme/series-${sr.id}.png` : "";
 const notFound = (what, user) => page("Not found", `<h1>Not found</h1><p class="sub">${esc(what)}</p>`, { status: 404, user });
 const driverLink = (id, name) => `<a href="${BASE}/drivers/${id}">${esc(name)}</a>`;
 const seriesLink = e => e.slug ? `<a href="${BASE}/${esc(e.slug)}">${esc(e.short_name)}</a>` : esc(e.series_name || "");
@@ -170,13 +175,14 @@ const LOCAL_JS = `<script>document.querySelectorAll('time[datetime]').forEach(t=
 t.textContent=d.toLocaleString(undefined,Object.assign(t.dataset.day==='1'?{weekday:'short',month:'short',day:'numeric'}:{},{hour:'numeric',minute:'2-digit',timeZoneName:'short'}));}catch(e){}});</script>`;
 
 function homePage(series, recent, user, next = new Map()) {
-  if (!series.length) return page("VSPEED GLR", `<h1>Results</h1><p class="sub">No races uploaded yet.</p>`, { user });
+  const add = user && user.admin ? `<p><a class="btn" href="${BASE}/series/add" style="text-decoration:none;display:inline-block">Add series</a></p>` : "";
+  if (!series.length) return page("VSPEED GLR", `<h1>Results</h1><p class="sub">No races uploaded yet.</p>${add}`, { user });
   let body = `<h1>Series</h1><p class="sub">${series.length} series</p><div class="cards">` +
-    series.map(s => { const e = s.latestEvent, logo = ASSETS[`series-${s.id}.png`]; return `<a class="card${logo ? " has-logo" : ""}" href="${BASE}/${esc(s.slug)}">${logo ? `<div class="slogo"><img src="${BASE}/theme/series-${s.id}.png" alt="${esc(s.short_name)} logo" loading="lazy"></div>` : ""}<b>${esc(s.short_name)}</b><div class="full">${esc(s.name)}</div>
+    series.map(s => { const e = s.latestEvent, logo = logoUrl(s); return `<a class="card${logo ? " has-logo" : ""}" href="${BASE}/${esc(s.slug)}">${logo ? `<div class="slogo"><img src="${logo}" alt="${esc(s.short_name)} logo" loading="lazy"></div>` : ""}<b>${esc(s.short_name)}</b>${s.hidden ? ` <span class="cls">Hidden</span>` : ""}<div class="full">${esc(s.name)}</div>
       ${e ? `<div class="row"><span>Latest:</span> ${esc(e.track)}, ${day(e.start_time)}</div>
         <div class="row"><span>Won by</span> ${e.winners.map(w => (e.winners.length > 1 ? cls(w.carClass) : "") + esc(w.name)).join(" · ")}</div>` : ""}
       ${next.get(s.id) ? `<div class="row"><span>Next:</span> ${esc(next.get(s.id).track)}, ${when(next.get(s.id).starts_at)}</div>` : ""}
-      <div class="row"><span>${s.races} race${s.races === 1 ? "" : "s"} uploaded</span></div></a>`; }).join("") + `</div>`;
+      <div class="row"><span>${s.races} race${s.races === 1 ? "" : "s"} uploaded</span></div></a>`; }).join("") + `</div>` + add;
   body += `<h2>Latest races</h2>` + raceTable(recent, { series: true });
   return page("VSPEED GLR results", body + LOCAL_JS, { user });
 }
@@ -223,19 +229,49 @@ function hooksHtml(sr, queue, note) {
 // the series edit page's directors list (admins), once the Series official role is set
 const dirOpts = async (db, seriesId) => ({ officialRole: await getSetting(db, "official_role"), directors: (await listDirectors(db)).filter(d => d.series_id === seriesId) });
 
+// what kind of image these bytes are, by their first bytes (not the file's name): PNG, JPG or WebP, else ""
+function logoType(b) {
+  if (b.length > 8 && b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return "image/png";
+  if (b.length > 3 && b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return "image/jpeg";
+  if (b.length > 12 && String.fromCharCode(...b.subarray(0, 4)) === "RIFF" && String.fromCharCode(...b.subarray(8, 12)) === "WEBP") return "image/webp";
+  return "";
+}
+
+function addSeriesPage(user, err = "", v = {}) {
+  const val = k => esc(String(v[k] || ""));
+  return page("Add series", `<p class="crumb"><a href="${BASE}/">GLR</a></p><h1>Add series</h1>
+    <p class="sub">Add a series before its first race, so its directors, schedule, rules, signups and Discord posts can be set up. A series that has already raced can be added the same way: then upload its old results files.</p>
+    ${err ? `<div class="msg bad">${esc(err)}</div>` : ""}
+    <form method="post"><label for="lid">iRacing league ID</label><input type="number" id="lid" name="id" required min="1" value="${val("id")}" style="max-width:200px">
+    <p class="tag">The number in the league's address on the iRacing members site. Each series is one iRacing league: results from the overlay, race control and uploaded files find the series by this number, so it has to be right. It can't be changed later.</p>
+    <label for="sn">Short name (shown on the site)</label><input type="text" id="sn" name="short_name" maxlength="40" required placeholder="Trucks" value="${val("shortName")}">
+    <label for="sl">Address: glrhub.app/…</label><input type="text" id="sl" name="slug" maxlength="40" placeholder="trucks" value="${val("slug")}">
+    <p class="tag">Leave the address empty to make it from the short name.</p>
+    <label for="fn">Full league name (optional)</label><input type="text" id="fn" name="name" maxlength="120" value="${val("name")}">
+    <p class="tag">The first results file fills this in from iRacing.</p>
+    <p><button class="btn">Add series</button></p></form>
+    <p class="tag">Next, on the series' Edit page: its logo, Discord posts, and Hide from the Series List until it's ready. Assign its directors on Accounts.</p>`, { user });
+}
+
 function seriesEditPage(sr, user, err = "", queue = [], note = "", { officialRole = "", directors = [] } = {}) {
   return page(`Edit ${sr.short_name}`, `<p class="crumb"><a href="${BASE}/">GLR</a> › <a href="${BASE}/${esc(sr.slug)}">${esc(sr.short_name)}</a></p>
     <h1>Edit series</h1><p class="sub">${esc(sr.name)} · iRacing league ${sr.id}</p>${err ? `<div class="msg bad">${esc(err)}</div>` : ""}
     <form method="post"><label for="sn">Short name (shown on the site)</label><input type="text" id="sn" name="short_name" value="${esc(sr.short_name)}" maxlength="40" required>
     <label for="sl">Address: glrhub.app/…</label><input type="text" id="sl" name="slug" value="${esc(sr.slug)}" maxlength="40">
     <p class="tag">Changing the address breaks old links to this series. Race and driver links aren't affected.</p>
-    ${user && user.admin ? `<input type="hidden" name="teams_form" value="1"><label class="chk"><input type="checkbox" name="teams"${sr.teams ? " checked" : ""}> Team points (the Warrior points system): a Teams tab with team standings</label>` : ""}
+    ${user && user.admin ? `<input type="hidden" name="teams_form" value="1"><label class="chk"><input type="checkbox" name="teams"${sr.teams ? " checked" : ""}> Team points (the Warrior points system): a Teams tab with team standings</label>
+    <label class="chk"><input type="checkbox" name="hidden"${sr.hidden ? " checked" : ""}> Hide from the Series List: off the home page, the all-series Schedule and Drivers pages and Sign up. It still works by its own link, results still arrive, and admins and its directors still see it.</label>` : ""}
     ${user && user.admin && officialRole ? `<p class="stw"><b>Series directors:</b> ${directors.length ? directors.map(d => esc(d.name || d.discord_id)).join(", ") : "none yet"}. <a href="${BASE}/accounts">Assign on the Accounts page</a>.</p>
     <p class="tag">Directors need the Series official role in Discord too. They change only their series: its rules, penalties, results uploads and this page.</p>` : ""}
     ${user && user.admin && !officialRole ? `<p class="tag">Being replaced: once the Series official role is saved on <a href="${BASE}/settings">Settings</a>, admins assign each series' directors on the Accounts page, and this role stops working.</p><label for="rl">Discord role for this series' officials (role ID; leave empty for admins only)</label>
     <input type="text" id="rl" name="role_id" value="${esc(sr.role_id || "")}" maxlength="25" inputmode="numeric">
     <p class="tag">People with this role can sign in and change only this series: its rules, penalties, results uploads and this page. In Discord: Server Settings › Roles › right-click the role › Copy Role ID.</p>` : ""}
-    <p><button class="btn">Save</button></p></form>${hooksHtml(sr, queue, note)}`, { user });
+    <p><button class="btn">Save</button></p></form>
+    <h2 id="logo">Logo</h2>${logoUrl(sr) ? `<p><img src="${logoUrl(sr)}" alt="${esc(sr.short_name)} logo" style="max-height:110px;max-width:320px"></p>` : `<p class="tag">No logo yet.</p>`}
+    <form method="post" action="#logo" enctype="multipart/form-data"><input type="hidden" name="action" value="logo"><input type="file" name="file" accept="image/png,image/jpeg,image/webp" required> <button class="btn">Upload logo</button></form>
+    <p class="tag">PNG, JPG or WebP, up to 500 KB. A wide logo with a clear background looks best. It shows on the Series List and at the top of the series' pages.</p>
+    ${sr.logo_at ? `<form method="post" action="#logo"><input type="hidden" name="action" value="logo"><input type="hidden" name="remove" value="1"><button class="link">Remove this logo${ASSETS[`series-${sr.id}.png`] ? " (back to the built-in one)" : ""}</button></form>` : ""}
+    ${hooksHtml(sr, queue, note)}`, { user });
 }
 
 function sessionTable(rows, race, inClass, score = null) {
@@ -642,8 +678,8 @@ function seriesTabs(sr, on, seasons, seasonId, user) {
   const opts = on === "stats" && seasons.length > 1 ? [...seasons, { id: "all", name: "All seasons" }] : seasons;
   const pick = !["results", "drivers", "schedule", "director"].includes(on) && opts.length > 1 ? `<form class="season" method="get"><select name="season" onchange="this.form.submit()">${opts.map(se =>
     `<option value="${se.id}"${se.id === seasonId ? " selected" : ""}>${esc(se.name)}</option>`).join("")}</select></form>` : "";
-  const logo = ASSETS[`series-${sr.id}.png`] ? `<img class="shlogo" src="${BASE}/theme/series-${sr.id}.png" alt="${esc(sr.short_name)} logo">` : "";
-  return `<p class="crumb"><a href="${BASE}/">GLR</a></p><div class="shead">${logo}<div><h1>${esc(sr.short_name)}</h1><p class="sub">${esc(sr.name)}${canEdit(user, sr) ? ` · <a href="${BASE}/${esc(sr.slug)}/edit">Edit series</a> · <a href="${BASE}/${esc(sr.slug)}/embed">Embed on a website</a>` : ""}</p></div></div>
+  const logo = logoUrl(sr) ? `<img class="shlogo" src="${logoUrl(sr)}" alt="${esc(sr.short_name)} logo">` : "";
+  return `<p class="crumb"><a href="${BASE}/">GLR</a></p><div class="shead">${logo}<div><h1>${esc(sr.short_name)}${sr.hidden ? ` <span class="cls">Hidden</span>` : ""}</h1><p class="sub">${esc(sr.name)}${canEdit(user, sr) ? ` · <a href="${BASE}/${esc(sr.slug)}/edit">Edit series</a> · <a href="${BASE}/${esc(sr.slug)}/embed">Embed on a website</a>` : ""}</p></div></div>
     <nav class="tabs">${t("results", "Results", "")}${t("schedule", "Schedule", "/schedule")}${t("standings", "Standings", "/standings")}${t("stats", "Stats", "/stats")}${t("drivers", "Drivers", "/drivers")}${sr.teams ? t("teams", "Teams", "/teams") : ""}${t("rules", "Rules", "/rules")}${t("penalties", "Penalties", "/penalties")}${canEdit(user, sr) ? t("director", "Director", "/director") : ""}${pick}</nav>`;
 }
 
@@ -786,11 +822,12 @@ function leagueDriversPage(list, user) {
 }
 
 // the league list: every driver, the series they've run (or been added to), starts and wins across all of them
-async function leagueDrivers(db) {
+async function leagueDrivers(db, user = null) {
   const [series, bySeries, roster] = await Promise.all([listSeries(db), allSeriesEvents(db), listRoster(db)]);
-  const sr = new Map(series.map(s => [s.id, s])), out = new Map();
+  const sr = new Map(series.filter(s => shown(s, user)).map(s => [s.id, s])), out = new Map();
   const get = (id, name) => { if (!out.has(id)) out.set(id, { custId: id, name, series: [], starts: 0, wins: 0, last: "" }); return out.get(id); };
   for (const [sid, evs] of bySeries) {
+    if (!sr.has(sid)) continue;                    // a hidden series: its races don't count here
     for (const r of computeStats(evs)) {
       const d = get(r.custId, r.name);
       d.starts += r.starts; d.wins += r.wins;
@@ -798,7 +835,7 @@ async function leagueDrivers(db) {
       if (sr.has(sid)) d.series.push({ slug: sr.get(sid).slug, short: sr.get(sid).short_name });
     }
   }
-  for (const r of roster) { const d = get(r.cust_id, r.name); if (sr.has(r.series_id) && !d.series.some(s => s.slug === sr.get(r.series_id).slug)) d.series.push({ slug: sr.get(r.series_id).slug, short: sr.get(r.series_id).short_name }); }
+  for (const r of roster) { if (!sr.has(r.series_id)) continue; const d = get(r.cust_id, r.name); if (sr.has(r.series_id) && !d.series.some(s => s.slug === sr.get(r.series_id).slug)) d.series.push({ slug: sr.get(r.series_id).slug, short: sr.get(r.series_id).short_name }); }
   return [...out.values()].sort((a, b) => b.starts - a.starts || a.name.localeCompare(b.name));
 }
 
@@ -1350,7 +1387,7 @@ window.addEventListener('message',e=>{if(e.data&&e.data.glrWidget&&e.source===$(
 // series as the public sees them: never the webhook links
 // what the public series API sends: only the fields named here. Nov 9 2026: the old version removed three webhook
 // fields by name, so hook_teams (added later) went out to everyone. A new column is private until it's added here.
-const PUB_SERIES = ["id", "name", "short_name", "slug", "teams", "races", "latest", "latestEvent"];
+const PUB_SERIES = ["id", "name", "short_name", "slug", "teams", "hidden", "races", "latest", "latestEvent"];
 const pub = sr => Object.fromEntries(PUB_SERIES.filter(k => k in sr).map(k => [k, sr[k]]));
 const sameOrigin = (request, url) => request.headers.get("origin") === url.origin;
 const bearer = request => (/^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") || "") || [])[1] || "";
@@ -1583,7 +1620,7 @@ function signupsAdminPage(sr, user, { round, list = [], held = null, flags = nul
 async function signupRoutes(request, env, db, url, path, user) {
   let m;
   if (path === `${BASE}/signup`) {
-    const rounds = await liveRounds(db), msgs = [], vals = new Map();
+    const rounds = (await liveRounds(db)).filter(r => shown({ hidden: r.hidden, id: r.series_id }, user)), msgs = [], vals = new Map();
     let same = "";
     if (request.method === "POST") {
       if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/signup`, 302);
@@ -1772,7 +1809,8 @@ const site = {
       if (path === `${BASE}/logout` && request.method === "POST" && sameOrigin(request, url)) return logout(request, env);
       let user = await currentUser(request, env);
       // "Sign up" in the header while any series is taking season signups (pages only, not the API or widgets)
-      NAV.signup = !/\/(api|widget)\//.test(path) && (await liveRounds(db)).length > 0;
+      NAV.signup = !/\/(api|widget)\//.test(path) && (await liveRounds(db)).some(r => shown({ hidden: r.hidden, id: r.series_id }, user));
+      const hiddenIds = path === `${BASE}/api/schedule` ? new Set((await listSeries(db)).filter(x => x.hidden).map(x => x.id)) : new Set();
       // the Help chat: directors, race control and admins, once the API key is in Cloudflare and an admin hasn't switched it off
       if (user && (user.official || user.steward) && env.ANTHROPIC_API_KEY && await getSetting(db, "help_off") !== "1") user.help = true;
       if (path === `${BASE}/help` || path === `${BASE}/api/help` || path === `${BASE}/help/log`) {
@@ -1959,7 +1997,8 @@ const site = {
       if (path === "/") {
         const next = new Map();
         for (const r of await upcoming(db, 120)) if (!next.has(r.series_id)) next.set(r.series_id, r);
-        return homePage(await listSeries(db), await listEvents(db, { limit: 15 }), user, next);
+        const all = await listSeries(db), off = new Set(all.filter(x => !shown(x, user)).map(x => x.id));
+        return homePage(all.filter(x => !off.has(x.id)), (await listEvents(db, { limit: 15 + (off.size ? 40 : 0) })).filter(e => !off.has(e.series_id)).slice(0, 15), user, next);
       }
       if ((m = path.match(/^\/results\/(\d+)\/stewards$/))) {
         const sub = Number(m[1]);
@@ -2192,6 +2231,28 @@ const site = {
         }
         return resultPage(ev, user, { fixes: await listFixes(db, sub), edit, msg, score: await raceScore(db, ev), seasons: edit && ev.series_id && !ev.season_id ? await seasonsOf(db, ev.series_id) : [] });
       }
+      if ((m = path.match(/^\/logo\/(\d+)$/))) {
+        const a = await getLogo(db, Number(m[1]));
+        if (!a) return new Response("Not found", { status: 404 });
+        return new Response(Uint8Array.from(atob(a.data), c => c.charCodeAt(0)), { headers: { "content-type": a.mime, "cache-control": "public, max-age=86400", "x-content-type-options": "nosniff" } });
+      }
+      // Add series (admins): a series by its iRacing league ID, before its first race
+      if (path === `${BASE}/series/add`) {
+        if (!user) return Response.redirect(`${url.origin}${BASE}/login?back=${BASE}/series/add`, 302);
+        if (!user.admin) return notFound("Only admins can add a series.", user);
+        let err = "", v = {};
+        if (request.method === "POST") {
+          if (!sameOrigin(request, url)) return notFound("Add the series from this page.", user);
+          const f = await request.formData();
+          v = { id: f.get("id"), shortName: f.get("short_name"), slug: f.get("slug"), name: f.get("name") };
+          try {
+            const r = await addSeries(db, v);
+            await logChange(db, { by: `discord:${user.id}:${user.name}`, seriesId: r.id, kind: "series", summary: `Series added: ${r.shortName} (/${r.slug}), iRacing league ${r.id}` });
+            return Response.redirect(`${url.origin}${BASE}/${r.slug}/edit`, 303);
+          } catch (e) { err = e.message; }
+        }
+        return addSeriesPage(user, err, v);
+      }
       if ((m = path.match(/^\/theme\/([\w.-]+)$/))) {
         const a = ASSETS[m[1]];
         if (!a) return new Response("Not found", { status: 404 });
@@ -2297,8 +2358,9 @@ const site = {
         const st = await seasonStandings(db, sr, season);
         return json({ ok: true, series: sr.short_name, season: { id: season.id, name: season.name }, rules: st.rules, groups: st.groups, adjustments: st.adj });
       }
-      if (path === `${BASE}/schedule`) return leagueSchedulePage(await upcoming(db), user);
-      if (path === `${BASE}/api/schedule`) return json({ ok: true, races: (await upcoming(db)).map(r => ({ series: r.short_name, slug: r.slug, startsAt: r.starts_at, track: r.track, notes: r.notes })) });
+      if (path === `${BASE}/schedule`) { const off = new Set((await listSeries(db)).filter(x => !shown(x, user)).map(x => x.id));
+        return leagueSchedulePage((await upcoming(db)).filter(r => !off.has(r.series_id)), user); }
+      if (path === `${BASE}/api/schedule`) return json({ ok: true, races: (await upcoming(db)).filter(r => !hiddenIds.has(r.series_id)).map(r => ({ series: r.short_name, slug: r.slug, startsAt: r.starts_at, track: r.track, notes: r.notes })) });
       if ((m = path.match(/^\/(?:api\/series\/)?([a-z0-9-]+)\/schedule$/))) {
         const sr = await getSeries(db, m[1]), api = path.startsWith(`${BASE}/api/`);
         if (!sr) return api ? json({ ok: false, error: "No such series" }, 404) : notFound("No series at that address.", user);
@@ -2371,8 +2433,8 @@ const site = {
         const classes = [...new Set((await seriesEvents(db, sr.id)).slice(-3).flatMap(e => e.results.map(r => r.car_class || "")))].filter(Boolean);
         return embedPage(sr, user, classes);
       }
-      if (path === `${BASE}/drivers`) return leagueDriversPage(await leagueDrivers(db), user);
-      if (path === `${BASE}/api/drivers`) return json({ ok: true, drivers: await leagueDrivers(db) });
+      if (path === `${BASE}/drivers`) return leagueDriversPage(await leagueDrivers(db, user), user);
+      if (path === `${BASE}/api/drivers`) return json({ ok: true, drivers: await leagueDrivers(db, null) });
       // GET /api/series/<series>/points: the season's points rules, for the overlay's live points (Nov 2026).
       // source "iracing" means iRacing's league points: the site has no table to give, so the overlay keeps its own.
       if ((m = path.match(/^\/api\/series\/([a-z0-9-]+)\/points$/))) {
@@ -2517,6 +2579,23 @@ const site = {
         if (request.method === "POST") {
           if (!sameOrigin(request, url)) return seriesEditPage(sr, user, "Save from this page.");
           const f = await request.formData(), act = f.get("action");
+          if (act === "logo") {
+            let err = "";
+            try {
+              if (f.get("remove")) { await setLogo(db, sr.id, "", ""); await logChange(db, { by: `discord:${user.id}:${user.name}`, seriesId: sr.id, kind: "series", summary: "Logo removed" }); }
+              else {
+                const file = f.get("file"), bytes = file && typeof file.arrayBuffer === "function" ? new Uint8Array(await file.arrayBuffer()) : new Uint8Array(0);
+                const mime = logoType(bytes);
+                if (!bytes.length) throw new Error("Choose an image file first.");
+                if (!mime) throw new Error("That isn't a PNG, JPG or WebP image.");
+                if (bytes.length > 500 * 1024) throw new Error(`That image is ${Math.round(bytes.length / 1024)} KB. Use one under 500 KB.`);
+                let b = ""; for (let i = 0; i < bytes.length; i += 8192) b += String.fromCharCode(...bytes.subarray(i, i + 8192));
+                await setLogo(db, sr.id, mime, btoa(b));
+                await logChange(db, { by: `discord:${user.id}:${user.name}`, seriesId: sr.id, kind: "series", summary: "Logo uploaded" });
+              }
+            } catch (e) { err = e.message; }
+            return seriesEditPage(await getSeries(db, sr.slug), user, err, await queueFor(db, sr.id), "", await dirOpts(db, sr.id));
+          }
           if (act === "hook" || act === "retry" || act === "discard") {
             let note = "";
             try {
@@ -2551,6 +2630,10 @@ const site = {
             if (user.admin && f.has("role_id") && String(f.get("role_id")).trim() !== (sr.role_id || "")) {
               await setSeriesRole(db, sr.id, f.get("role_id"));
               await logChange(db, { by: who, seriesId: sr.id, kind: "series", summary: String(f.get("role_id")).trim() ? `Officials' Discord role set (${String(f.get("role_id")).trim()})` : "Officials' Discord role removed" });
+            }
+            if (user.admin && f.has("teams_form") && f.has("hidden") !== !!sr.hidden) {
+              await setSeriesHidden(db, sr.id, f.has("hidden"));
+              await logChange(db, { by: who, seriesId: sr.id, kind: "series", summary: f.has("hidden") ? "Hidden from the Series List" : "Shown on the Series List again" });
             }
             if (user.admin && f.has("teams_form") && f.has("teams") !== !!sr.teams) {
               await setSeriesTeams(db, sr.id, f.has("teams"));

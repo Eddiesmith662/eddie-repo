@@ -92,6 +92,8 @@ const SCHEMA = [
   `CREATE TABLE IF NOT EXISTS help_log (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, discord_id TEXT NOT NULL, name TEXT, question TEXT NOT NULL, answer TEXT)`,
   `CREATE INDEX IF NOT EXISTS help_log_who ON help_log (discord_id, at)`,
   `CREATE TABLE IF NOT EXISTS announcer_shows (discord_id TEXT PRIMARY KEY, show TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL)`,
+  // a series' uploaded logo (base64), shown instead of the built-in one
+  `CREATE TABLE IF NOT EXISTS series_logos (series_id INTEGER PRIMARY KEY, mime TEXT NOT NULL, data TEXT NOT NULL)`,
   // season signups and car numbers (Nov 2026): see signups.js. A round is one season's signup for one series; iRacing's
   // season doesn't exist on the site until its first race, so a round has its own name and dates.
   `CREATE TABLE IF NOT EXISTS signup_rounds (id INTEGER PRIMARY KEY AUTOINCREMENT, series_id INTEGER NOT NULL, name TEXT NOT NULL,
@@ -123,6 +125,7 @@ const SCHEMA = [
 const ADDED = [
   ["series", "short_name", "TEXT NOT NULL DEFAULT ''"], ["series", "slug", "TEXT NOT NULL DEFAULT ''"], ["series", "role_id", "TEXT NOT NULL DEFAULT ''"],
   ["series", "hook_results", "TEXT NOT NULL DEFAULT ''"], ["series", "hook_standings", "TEXT NOT NULL DEFAULT ''"], ["series", "hook_penalties", "TEXT NOT NULL DEFAULT ''"],
+  ["series", "hidden", "INTEGER NOT NULL DEFAULT 0"], ["series", "logo_at", "TEXT NOT NULL DEFAULT ''"],   // Add series (Nov 2026)
   ["series", "teams", "INTEGER NOT NULL DEFAULT 0"], ["series", "hook_teams", "TEXT NOT NULL DEFAULT ''"],   // team points (the Warrior series only): an admin turns it on, on Edit series
   ["results", "orig_cust_id", "INTEGER"],
   ["overlay_keys", "kind", "TEXT NOT NULL DEFAULT 'overlay'"],
@@ -141,7 +144,8 @@ const ADDED = [
 // short names for the GLR series (by iRacing league id); officials can change them on the site
 const SHORT = { 9310: "ARCA", 9309: "Grand National", 11390: "Foundation", 12070: "Sports Car", 11059: "Warrior", 6838: "Next Gen" };
 // words in the site's own addresses, which a series can't use as its address
-export const RESERVED = new Set(["api", "results", "drivers", "upload", "login", "logout", "auth", "health", "series", "edit", "admin", "keys", "history", "schedule", "settings", "theme", "protests", "rc"]);
+export const RESERVED = new Set(["api", "results", "drivers", "upload", "login", "logout", "auth", "health", "series", "edit", "admin", "keys", "history", "schedule", "settings", "theme", "protests", "rc",
+  "signup", "signups", "me", "help", "accounts", "downloads", "overlay", "logo", "widget", "embed", "k"]);
 
 export const slugify = s => String(s || "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 40);
 const shortFrom = (id, name) => SHORT[id] || String(name || "").replace(/^\s*GLR\s+/i, "").replace(/\s+SERIES\s*$/i, "").trim() || `Series ${id}`;
@@ -199,6 +203,14 @@ export async function importEvent(db, ev, by = "") {
   if (ev.season.id) st.push(db.prepare(`INSERT INTO seasons (id, series_id, name) VALUES (?1, ?2, ?3)
       ON CONFLICT(id) DO UPDATE SET series_id = COALESCE(?2, series_id), name = CASE WHEN ?3 <> '' THEN ?3 ELSE name END`)
       .bind(ev.season.id, ev.league.id, ev.season.name));
+  // a series added before its first race has a "first season" holding its rules and teams: this season takes them over
+  if (ev.season.id && ev.league.id) {
+    const ph = firstSeasonId(ev.league.id);
+    st.push(db.prepare(`UPDATE season_rules SET season_id = ?1 WHERE season_id = ?2 AND NOT EXISTS (SELECT 1 FROM season_rules WHERE season_id = ?1)`).bind(ev.season.id, ph));
+    st.push(db.prepare(`UPDATE teams SET season_id = ?1 WHERE season_id = ?2`).bind(ev.season.id, ph));
+    st.push(db.prepare(`DELETE FROM season_rules WHERE season_id = ?`).bind(ph));
+    st.push(db.prepare(`DELETE FROM seasons WHERE id = ?`).bind(ph));
+  }
   st.push(db.prepare(`INSERT INTO events (subsession_id, series_id, season_id, track, start_time, laps, cautions, caution_laps,
         lead_changes, sof, source, uploaded_at, uploaded_by, status, official_at, official_by)
         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, CASE WHEN ?14 = 'official' THEN ?12 END, CASE WHEN ?14 = 'official' THEN ?13 END)
@@ -408,6 +420,49 @@ export async function deleteAdjustment(db, seasonId, id) {
 }
 
 // team points on or off for a series (only the Warrior series has them)
+// Add series (Nov 2026): an admin adds a series before its first race, by its iRacing league ID (which is how results
+// from the overlay, race control and uploaded files find it). It gets a "first season" so its rules can be set before
+// any race; the first race that arrives takes those rules over (importEvent).
+export const firstSeasonId = seriesId => -Math.abs(seriesId);
+export async function addSeries(db, { id, shortName, slug, name }) {
+  await ensureSchema(db);
+  const lid = Number(String(id || "").trim());
+  if (!Number.isInteger(lid) || lid < 1 || lid > 99999999) throw new Error("Enter the iRacing league ID: the number in the league's address on the iRacing members site.");
+  const have = await db.prepare(`SELECT short_name, slug FROM series WHERE id = ?`).bind(lid).first();
+  if (have) throw new Error(`iRacing league ${lid} is already on the site: ${have.short_name} (/${have.slug}).`);
+  const short = String(shortName || "").trim().slice(0, 40);
+  if (!short) throw new Error("Give the series a short name, like Trucks.");
+  const want = slugify(slug || short);
+  if (!want) throw new Error("The address needs at least one letter or number.");
+  if (RESERVED.has(want) || /^\d+$/.test(want)) throw new Error(`The address /${want} is used by the site itself. Pick another.`);
+  const taken = await db.prepare(`SELECT short_name FROM series WHERE slug = ?`).bind(want).first();
+  if (taken) throw new Error(`The address /${want} belongs to ${taken.short_name}. Pick another.`);
+  const full = String(name || "").trim().slice(0, 120) || short;
+  await db.batch([
+    db.prepare(`INSERT INTO series (id, name, short_name, slug) VALUES (?, ?, ?, ?)`).bind(lid, full, short, want),
+    db.prepare(`INSERT OR IGNORE INTO seasons (id, series_id, name) VALUES (?, ?, 'First season')`).bind(firstSeasonId(lid), lid),
+  ]);
+  return { id: lid, shortName: short, slug: want, name: full };
+}
+export async function setSeriesHidden(db, id, on) {
+  await ensureSchema(db);
+  await db.prepare(`UPDATE series SET hidden = ? WHERE id = ?`).bind(on ? 1 : 0, id).run();
+}
+// a series' uploaded logo. data: base64. Removing it goes back to the built-in logo, if the series has one.
+export async function setLogo(db, id, mime, data) {
+  await ensureSchema(db);
+  const at = mime ? new Date().toISOString() : "";
+  await db.batch([
+    mime ? db.prepare(`INSERT INTO series_logos (series_id, mime, data) VALUES (?1, ?2, ?3) ON CONFLICT(series_id) DO UPDATE SET mime = ?2, data = ?3`).bind(id, mime, data)
+         : db.prepare(`DELETE FROM series_logos WHERE series_id = ?`).bind(id),
+    db.prepare(`UPDATE series SET logo_at = ? WHERE id = ?`).bind(at, id),
+  ]);
+}
+export async function getLogo(db, id) {
+  await ensureSchema(db);
+  return db.prepare(`SELECT mime, data FROM series_logos WHERE series_id = ?`).bind(id).first();
+}
+
 export async function setSeriesTeams(db, id, on) {
   await ensureSchema(db);
   await db.prepare(`UPDATE series SET teams = ? WHERE id = ?`).bind(on ? 1 : 0, id).run();
