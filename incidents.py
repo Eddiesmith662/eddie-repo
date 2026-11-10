@@ -149,7 +149,9 @@ def update(live, track_m=0.0, log=None):
     by_idx = {c["idx"]: c for c in cars}
     rising = sum(1 for c in cars if c.get("inc") is not None and (st["cars"].get(c["idx"]) or {}).get("inc") is not None
                  and c["inc"] > st["cars"][c["idx"]]["inc"])
-    reveal = rising >= 4
+    # Oct 25: lots of cars "gaining" points in the same second after the finish is iRacing publishing the final counts.
+    # Not when iRacing sends live counts (a session admin, Nov 9, 2026): then it's a big wreck, and it's logged
+    reveal = rising >= 4 and not live.get("incLive")
     for c in cars:
         idx = c["idx"]
         cs = st["cars"].get(idx)

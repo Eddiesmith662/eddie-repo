@@ -574,6 +574,10 @@ class IRacingSource:
                 "carFull": d.get("CarScreenName", "") or d.get("CarScreenNameShort", ""),
                 "custId": str(d.get("UserID", "") or ""),
                 "irating": d.get("IRating", 0),
+                # incident points as they happen: iRacing fills these in only for a session admin (0 for everyone else),
+                # while the results' Incidents stay 0 until the checkered (league race, Nov 9, 2026: 48 -> 73 points in the
+                # driver list over 5 minutes, results 0). The team count, so a car with driver swaps keeps its total.
+                "liveInc": _int_or_none(d.get("TeamIncidentCount", d.get("CurDriverIncidentCount"))),
                 # paint scheme details, used to ask iRacing for a render of the car
                 "paint": {"carPath": d.get("CarPath", "") or "", "carId": d.get("CarID", ""),
                           "design": d.get("CarDesignStr", "") or "", "number": d.get("CarNumberDesignStr", "") or "",
@@ -684,6 +688,7 @@ class IRacingSource:
                 "carFlags": [g(cflags, i, 0) for i in ids],
                 # iRacing's incident points per car (same order as cars), to check whether they're shared while spectating
                 "inc": [(results.get(i) or {}).get("Incidents") for i in ids],
+                "incLive": [self.drivers[i].get("liveInc") for i in ids],     # the driver list's count (admins only)
             }
             diag.blackbox(bb)
 
@@ -720,7 +725,10 @@ class IRacingSource:
                     # gear (-1 reverse, 0 neutral) and engine RPM, for the Telemetry widget; None when iRacing doesn't say
                     "gear": gear_a[idx] if idx < len(gear_a) and isinstance(gear_a[idx], int) else None,
                     "rpm": round(rpm_a[idx]) if idx < len(rpm_a) and isinstance(rpm_a[idx], (int, float)) and rpm_a[idx] >= 0 else None,
-                    "inc": (results.get(idx) or {}).get("Incidents"),  # incident points from iRacing's results (may be hidden)
+                    # incident points, for the incident log and race control: the driver list's live count when iRacing
+                    # sends it (session admins), else the results' (hidden until the checkered). The results upload and
+                    # the results file read iRacing's final results themselves.
+                    "inc": live_inc((results.get(idx) or {}).get("Incidents"), c.pop("liveInc", None)),
                     "outReason": (results.get(idx) or {}).get("ReasonOutStr") or "",
                     "resultLaps": (results.get(idx) or {}).get("LapsComplete"),
                     "lapsLed": (results.get(idx) or {}).get("LapsLed"),          # podium graphic
@@ -801,6 +809,9 @@ class IRacingSource:
                 "grid": build_grid(self.drivers, self.info.get("gridOrder"), cars),
                 "cars": cars,
                 "classes": sorted({c["cls"] for c in cars if c["cls"]}),
+                # iRacing is sending live incident points (we're a session admin): many cars gaining points at once is
+                # then a big wreck, not the final counts arriving after the checkered (incidents.py)
+                "incLive": any((d.get("liveInc") or 0) > 0 for d in self.drivers.values()),
                 "t": time.time(),
             }
             if is_race and state >= 5 and not replaying:     # save this race's results (data/results/<series>/)
@@ -901,6 +912,21 @@ class IRacingSource:
         else:
             return False
         return True
+
+
+def _int_or_none(v):
+    try:
+        return int(v) if v is not None and v != "" else None
+    except (TypeError, ValueError):
+        return None
+
+
+def live_inc(results, live):
+    """A car's incident points: iRacing's results, or the driver list's live count when that's higher (session admins
+    get it as it happens; the results catch up at the checkered)."""
+    if isinstance(live, int) and live > (results if isinstance(results, int) else -1):
+        return live
+    return results
 
 
 def order_cars(cars, is_race, state, qual_order):

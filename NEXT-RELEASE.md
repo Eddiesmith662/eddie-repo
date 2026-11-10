@@ -12,3 +12,5 @@ How it works (CLAUDE.md, "Three chats, one repo"):
   VERSION bump).
 
 ## Notes
+
+Incident points live (overlay incident log and race control): when you're an admin of the hosted or league session, the incident boxes now get iRacing's incident points as they happen (+1x off track, +2x loss of control, +4x contact), instead of only after the checkered. A wreck with many cars at once is logged too. Results sent to GLR HUB still use iRacing's final incident counts. Not an admin: no change.
