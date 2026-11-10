@@ -126,6 +126,9 @@ const ADDED = [
   ["series", "short_name", "TEXT NOT NULL DEFAULT ''"], ["series", "slug", "TEXT NOT NULL DEFAULT ''"], ["series", "role_id", "TEXT NOT NULL DEFAULT ''"],
   ["series", "hook_results", "TEXT NOT NULL DEFAULT ''"], ["series", "hook_standings", "TEXT NOT NULL DEFAULT ''"], ["series", "hook_penalties", "TEXT NOT NULL DEFAULT ''"],
   ["series", "hidden", "INTEGER NOT NULL DEFAULT 0"], ["series", "logo_at", "TEXT NOT NULL DEFAULT ''"],   // Add series (Nov 2026)
+  // reusing a league ID (Nov 2026): a series set aside as a past series, the league it had and until when; and a
+  // series that took over a league ID another series had before
+  ["series", "past", "INTEGER NOT NULL DEFAULT 0"], ["series", "was_league", "INTEGER"], ["series", "retired_at", "TEXT"], ["series", "reused", "INTEGER NOT NULL DEFAULT 0"],
   ["series", "teams", "INTEGER NOT NULL DEFAULT 0"], ["series", "hook_teams", "TEXT NOT NULL DEFAULT ''"],   // team points (the Warrior series only): an admin turns it on, on Edit series
   ["results", "orig_cust_id", "INTEGER"],
   ["overlay_keys", "kind", "TEXT NOT NULL DEFAULT 'overlay'"],
@@ -162,9 +165,9 @@ async function freeSlug(db, want, id) {
 
 // give any series without a short name and address the defaults
 async function nameSeries(db) {
-  const rows = (await db.prepare(`SELECT id, name, short_name, slug FROM series WHERE short_name = '' OR slug = ''`).all()).results;
+  const rows = (await db.prepare(`SELECT id, name, short_name, slug, reused FROM series WHERE short_name = '' OR slug = ''`).all()).results;
   for (const r of rows) {
-    const short = r.short_name || shortFrom(r.id, r.name);
+    const short = r.short_name || shortFrom(r.reused ? 0 : r.id, r.name) || `Series ${r.id}`;
     await db.prepare(`UPDATE series SET short_name = ?, slug = ? WHERE id = ?`).bind(short, r.slug || await freeSlug(db, short, r.id), r.id).run();
   }
 }
@@ -198,7 +201,7 @@ export async function importEvent(db, ev, by = "") {
   await ensureSchema(db);
   const now = new Date().toISOString(), when = ev.startTime || now, st = [];
   const status = ev.status || "official";
-  if (ev.league.id) st.push(db.prepare(`INSERT INTO series (id, name) VALUES (?1, ?2)
+  if (ev.league.id) st.push(db.prepare(`INSERT INTO series (id, name, reused) VALUES (?1, ?2, (SELECT COUNT(*) > 0 FROM series WHERE was_league = ?1))
       ON CONFLICT(id) DO UPDATE SET name = CASE WHEN ?2 <> '' THEN ?2 ELSE name END`).bind(ev.league.id, ev.league.name));
   if (ev.season.id) st.push(db.prepare(`INSERT INTO seasons (id, series_id, name) VALUES (?1, ?2, ?3)
       ON CONFLICT(id) DO UPDATE SET series_id = COALESCE(?2, series_id), name = CASE WHEN ?3 <> '' THEN ?3 ELSE name END`)
@@ -455,12 +458,14 @@ export async function deleteAdjustment(db, seasonId, id) {
 // from the overlay, race control and uploaded files find it). It gets a "first season" so its rules can be set before
 // any race; the first race that arrives takes those rules over (importEvent).
 export const firstSeasonId = seriesId => -Math.abs(seriesId);
-export async function addSeries(db, { id, shortName, slug, name }) {
+// past: a past series, with no league ID (its old seasons are moved into it, moveSeason). It gets a number of its own.
+const ownSeriesId = async db => Math.max(1e9, (await db.prepare(`SELECT MAX(id) AS m FROM series`).first()).m || 0) + 1;
+export async function addSeries(db, { id, shortName, slug, name, past = false }) {
   await ensureSchema(db);
-  const lid = Number(String(id || "").trim());
-  if (!Number.isInteger(lid) || lid < 1 || lid > 99999999) throw new Error("Enter the iRacing league ID: the number in the league's address on the iRacing members site.");
+  const lid = past ? await ownSeriesId(db) : Number(String(id || "").trim());
+  if (!Number.isInteger(lid) || lid < 1 || (!past && lid > 99999999)) throw new Error("Enter the iRacing league ID: the number in the league's address on the iRacing members site.");
   const have = await db.prepare(`SELECT short_name, slug FROM series WHERE id = ?`).bind(lid).first();
-  if (have) throw new Error(`iRacing league ${lid} is already on the site: ${have.short_name} (/${have.slug}).`);
+  if (have) throw new Error(`iRacing league ${lid} is already on the site: ${have.short_name} (/${have.slug}). To use this league ID for another series, set ${have.short_name} aside first (its Edit page, Reuse this league ID).`);
   const short = String(shortName || "").trim().slice(0, 40);
   if (!short) throw new Error("Give the series a short name, like Trucks.");
   const want = slugify(slug || short);
@@ -469,11 +474,84 @@ export async function addSeries(db, { id, shortName, slug, name }) {
   const taken = await db.prepare(`SELECT short_name FROM series WHERE slug = ?`).bind(want).first();
   if (taken) throw new Error(`The address /${want} belongs to ${taken.short_name}. Pick another.`);
   const full = String(name || "").trim().slice(0, 120) || short;
-  await db.batch([
-    db.prepare(`INSERT INTO series (id, name, short_name, slug) VALUES (?, ?, ?, ?)`).bind(lid, full, short, want),
+  await db.batch(past ? [db.prepare(`INSERT INTO series (id, name, short_name, slug, past) VALUES (?, ?, ?, ?, 1)`).bind(lid, full, short, want)] : [
+    db.prepare(`INSERT INTO series (id, name, short_name, slug, reused) VALUES (?1, ?2, ?3, ?4, (SELECT COUNT(*) > 0 FROM series WHERE was_league = ?1))`).bind(lid, full, short, want),
     db.prepare(`INSERT OR IGNORE INTO seasons (id, series_id, name) VALUES (?, ?, 'First season')`).bind(firstSeasonId(lid), lid),
   ]);
-  return { id: lid, shortName: short, slug: want, name: full };
+  return { id: lid, shortName: short, slug: want, name: full, past: !!past };
+}
+
+/*
+ * Reusing a league ID (Nov 2026). GLR sometimes gives an iRacing league to another series (the Next Gen AM league was
+ * the Late Model and then the dirt series before). A race follows its season, and a season belongs to one series
+ * for good; the league ID only says where a series lives now.
+ *
+ * retireSeries: set a series aside as a past series and free its league ID. It keeps its name, address and
+ * everything in it, under a number of its own: every table that points at the series is moved to that number.
+ * Open signups are closed and an upcoming season with no races is dropped: a past series takes no new races.
+ */
+export async function retireSeries(db, id) {
+  await ensureSchema(db);
+  const sr = await db.prepare(`SELECT * FROM series WHERE id = ?`).bind(id).first();
+  if (!sr) throw new Error("No such series.");
+  if (sr.past) throw new Error(`${sr.short_name} is already a past series.`);
+  const to = await ownSeriesId(db), now = new Date().toISOString(), up = firstSeasonId(id);
+  const tables = (await db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%' AND name <> 'series'`).all()).results.map(t => t.name);
+  const st = [
+    db.prepare(`DELETE FROM season_rules WHERE season_id = ?`).bind(up), db.prepare(`DELETE FROM teams WHERE season_id = ?`).bind(up),
+    db.prepare(`UPDATE events SET season_id = NULL WHERE season_id = ?`).bind(up), db.prepare(`DELETE FROM seasons WHERE id = ?`).bind(up),
+    db.prepare(`UPDATE signup_rounds SET closed_at = ? WHERE series_id = ? AND closed_at IS NULL`).bind(now, id),
+  ];
+  for (const t of tables) {
+    const cols = (await db.prepare(`PRAGMA table_info(${t})`).all()).results.map(c => c.name);
+    if (cols.includes("series_id")) st.push(db.prepare(`UPDATE ${t} SET series_id = ? WHERE series_id = ?`).bind(to, id));
+  }
+  st.push(db.prepare(`UPDATE series SET id = ?, past = 1, was_league = ?, retired_at = ? WHERE id = ?`).bind(to, id, now, id));
+  await db.batch(st);
+  return { id: to, league: id, shortName: sr.short_name, slug: sr.slug };
+}
+
+/*
+ * Which series a results file belongs to. Normally the one with the file's league ID. But once a league ID has been
+ * reused: a race already on the site stays where it is; a race from a season the site knows goes to that season's
+ * series; and a race from a season it doesn't know, dated before the league changed hands, goes to the past series
+ * that had the league then. Returns the file with league.id set to that series (the league name left out, so a past
+ * series keeps its own name).
+ */
+export async function placeEvent(db, ev) {
+  await ensureSchema(db);
+  if (!ev || !ev.league || !ev.league.id) return ev;
+  let to = null;
+  const had = ev.subsessionId ? await db.prepare(`SELECT series_id FROM events WHERE subsession_id = ?`).bind(ev.subsessionId).first() : null;
+  if (had && had.series_id) to = had.series_id;
+  if (!to && ev.season && ev.season.id) to = ((await db.prepare(`SELECT series_id FROM seasons WHERE id = ?`).bind(ev.season.id).first()) || {}).series_id || null;
+  if (!to && ev.startTime) to = ((await db.prepare(`SELECT id FROM series WHERE was_league = ? AND retired_at >= ? ORDER BY retired_at LIMIT 1`).bind(ev.league.id, ev.startTime).first()) || {}).id || null;
+  if (!to || to === ev.league.id) return ev;
+  if (!(await db.prepare(`SELECT 1 AS x FROM series WHERE id = ?`).bind(to).first())) return ev;
+  return { ...ev, league: { id: to, name: "" }, fromLeague: ev.league.id };
+}
+
+// Move a whole season (its races, teams, protests and the rest) to another series: for seasons that landed under a
+// league ID's later series. The races keep everything; only the series they're listed under changes.
+export async function moveSeason(db, seasonId, fromId, toId) {
+  await ensureSchema(db);
+  const se = await db.prepare(`SELECT id, name FROM seasons WHERE id = ? AND series_id = ?`).bind(seasonId, fromId).first();
+  if (!se || se.id < 0) throw new Error("Pick one of this series' seasons that has races.");
+  const to = await db.prepare(`SELECT id, short_name FROM series WHERE id = ?`).bind(toId).first();
+  if (!to || to.id === fromId) throw new Error("Pick the series to move it to.");
+  const subs = `(SELECT subsession_id FROM events WHERE season_id = ?1)`, st = [];
+  const tables = (await db.prepare(`SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' AND name NOT LIKE '_cf_%'`).all()).results.map(t => t.name);
+  for (const t of tables) {
+    if (t === "events" || t === "seasons") continue;
+    const cols = (await db.prepare(`PRAGMA table_info(${t})`).all()).results.map(c => c.name);
+    if (!cols.includes("series_id")) continue;
+    if (cols.includes("subsession_id")) st.push(db.prepare(`UPDATE ${t} SET series_id = ?2 WHERE subsession_id IN ${subs}`).bind(seasonId, toId));
+    else if (cols.includes("season_id")) st.push(db.prepare(`UPDATE ${t} SET series_id = ?2 WHERE season_id = ?1`).bind(seasonId, toId));
+  }
+  st.push(db.prepare(`UPDATE events SET series_id = ?2 WHERE season_id = ?1`).bind(seasonId, toId));
+  st.push(db.prepare(`UPDATE seasons SET series_id = ?2 WHERE id = ?1`).bind(seasonId, toId));
+  await db.batch(st);
+  return { name: se.name, to: to.short_name };
 }
 export async function setSeriesHidden(db, id, on) {
   await ensureSchema(db);
@@ -560,7 +638,9 @@ export async function importOverlay(db, ev, by) {
   await ensureSchema(db);
   const sr = await db.prepare(`SELECT * FROM series WHERE id = ?`).bind(ev.league.id).first();
   if (!sr) return { ok: false, status: 404, error: `iRacing league ${ev.league.id} isn't on the site yet. Upload one of its iRacing results files first.` };
-  const had = await db.prepare(`SELECT source, season_id, status FROM events WHERE subsession_id = ?`).bind(ev.subsessionId).first();
+  const had = await db.prepare(`SELECT source, season_id, status, series_id FROM events WHERE subsession_id = ?`).bind(ev.subsessionId).first();
+  // a race that's on the site under another series (the league ID was reused since) stays where it is
+  if (had && had.series_id && had.series_id !== sr.id) return { ok: true, skipped: true, series: sr.short_name, message: "This race is already on the site under the series that had this league before." };
   if (had && (had.source !== "overlay" || had.status === "official")) return { ok: true, skipped: true, series: sr.short_name, message: "Official results for this race are already on the site." };
   const cur = had && had.season_id ? { season_id: had.season_id }
     : await db.prepare(`SELECT season_id FROM events WHERE series_id = ? AND season_id IS NOT NULL ORDER BY start_time DESC LIMIT 1`).bind(sr.id).first();

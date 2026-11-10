@@ -32,6 +32,6 @@ test("with all four webhooks set, no public JSON or page carries a hook_ field o
   }
   assert.ok(read >= 20, `only ${read} pages answered`);
   const api = (await s.json("/api/series")).series[0];
-  assert.deepEqual(Object.keys(api).sort(), ["hidden", "id", "latest", "latestEvent", "name", "races", "short_name", "slug", "teams"]);
+  assert.deepEqual(Object.keys(api).sort(), ["hidden", "id", "latest", "latestEvent", "name", "past", "races", "short_name", "slug", "teams"]);
   assert.equal((await s.json("/api/series/test-cup")).series.short_name, "Test Cup");
 });

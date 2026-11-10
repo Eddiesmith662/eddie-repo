@@ -47,7 +47,7 @@ import { systemPrompt, cleanTurns, askClaude, HELP_PER_DAY } from "./help.js";
 import { roundState, currentRound, liveRounds, saveRound, closeRound, holds, listSignups, activeOf, mineIn, signUp, withdraw, decide, release,
   changeNumber, raceFlags, entryCsv, newDriver } from "./signups.js";
 import { teamStandings, parseTeams, teamsCsv } from "./teams.js";
-import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, importEvent, seriesById, seasonsOf, upcomingSeason, setUpcomingSeason, removeUpcomingSeason,
+import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, importEvent, seriesById, seasonsOf, upcomingSeason, setUpcomingSeason, removeUpcomingSeason, retireSeries, placeEvent, moveSeason,
   getRules, saveRules, seasonEvents, listAdjustments, addAdjustment, deleteAdjustment,
   importOverlay, listKeys, createKey, revokeKey, checkKey, deleteEvent, listFixes, fixResult, FIX_FIELDS, markOfficial, setHook, HOOKS,
   logChange, listChanges, whoName, mergeDrivers, separateDriver, aliasesOf, findDrivers,
@@ -151,7 +151,10 @@ __THEME_CSS__</style></head><body><header><a class="brand" href="${BASE}/">__THE
 // admins and its directors still see it in the lists
 const shown = (sr, user) => !sr.hidden || !!(user && (user.admin || (user.directs || []).includes(sr.id)));
 // a series' logo: the uploaded one, else the one built into the site, else none
-const logoUrl = sr => sr.logo_at ? `${BASE}/logo/${sr.id}?v=${encodeURIComponent(sr.logo_at)}` : ASSETS[`series-${sr.id}.png`] ? `${BASE}/theme/series-${sr.id}.png` : "";
+// a GLR series' built-in logo goes with the series, not the league ID: a past series keeps it, and a series that took
+// over a reused league ID doesn't get it
+const builtIn = sr => { const k = `series-${sr.was_league || sr.id}.png`; return !sr.reused && ASSETS[k] ? k : ""; };
+const logoUrl = sr => sr.logo_at ? `${BASE}/logo/${sr.id}?v=${encodeURIComponent(sr.logo_at)}` : builtIn(sr) ? `${BASE}/theme/${builtIn(sr)}` : "";
 const notFound = (what, user) => page("Not found", `<h1>Not found</h1><p class="sub">${esc(what)}</p>`, { status: 404, user });
 const driverLink = (id, name) => `<a href="${BASE}/drivers/${id}">${esc(name)}</a>`;
 const seriesLink = e => e.slug ? `<a href="${BASE}/${esc(e.slug)}">${esc(e.short_name)}</a>` : esc(e.series_name || "");
@@ -177,12 +180,13 @@ t.textContent=d.toLocaleString(undefined,Object.assign(t.dataset.day==='1'?{week
 function homePage(series, recent, user, next = new Map()) {
   const add = user && user.admin ? `<p><a class="btn" href="${BASE}/series/add" style="text-decoration:none;display:inline-block">Add series</a></p>` : "";
   if (!series.length) return page("VSPEED GLR", `<h1>Results</h1><p class="sub">No races uploaded yet.</p>${add}`, { user });
-  let body = `<h1>Series</h1><p class="sub">${series.length} series</p><div class="cards">` +
-    series.map(s => { const e = s.latestEvent, logo = logoUrl(s); return `<a class="card${logo ? " has-logo" : ""}" href="${BASE}/${esc(s.slug)}">${logo ? `<div class="slogo"><img src="${logo}" alt="${esc(s.short_name)} logo" loading="lazy"></div>` : ""}<b>${esc(s.short_name)}</b>${s.hidden ? ` <span class="cls">Hidden</span>` : ""}<div class="full">${esc(s.name)}</div>
+  const now = series.filter(s => !s.past), past = series.filter(s => s.past);
+  const cards = list => `<div class="cards">` + list.map(s => { const e = s.latestEvent, logo = logoUrl(s); return `<a class="card${logo ? " has-logo" : ""}" href="${BASE}/${esc(s.slug)}">${logo ? `<div class="slogo"><img src="${logo}" alt="${esc(s.short_name)} logo" loading="lazy"></div>` : ""}<b>${esc(s.short_name)}</b>${s.hidden ? ` <span class="cls">Hidden</span>` : ""}<div class="full">${esc(s.name)}</div>
       ${e ? `<div class="row"><span>Latest:</span> ${esc(e.track)}, ${day(e.start_time)}</div>
         <div class="row"><span>Won by</span> ${e.winners.map(w => (e.winners.length > 1 ? cls(w.carClass) : "") + esc(w.name)).join(" · ")}</div>` : ""}
       ${next.get(s.id) ? `<div class="row"><span>Next:</span> ${esc(next.get(s.id).track)}, ${when(next.get(s.id).starts_at)}</div>` : ""}
-      <div class="row"><span>${s.races} race${s.races === 1 ? "" : "s"} uploaded</span></div></a>`; }).join("") + `</div>` + add;
+      <div class="row"><span>${s.races} race${s.races === 1 ? "" : "s"} uploaded</span></div></a>`; }).join("") + `</div>`;
+  let body = `<h1>Series</h1><p class="sub">${now.length} series</p>` + cards(now) + add + (past.length ? `<h2>Past series</h2><p class="tag">Series that have finished. Their results, standings and stats stay here.</p>` + cards(past) : "");
   body += `<h2>Latest races</h2>` + raceTable(recent, { series: true });
   return page("VSPEED GLR results", body + LOCAL_JS, { user });
 }
@@ -227,7 +231,8 @@ function hooksHtml(sr, queue, note) {
 }
 
 // the series edit page's directors list (admins), once the Series Director role is set
-const dirOpts = async (db, seriesId) => ({ officialRole: await getSetting(db, "official_role"), directors: (await listDirectors(db)).filter(d => d.series_id === seriesId) });
+const dirOpts = async (db, seriesId) => ({ officialRole: await getSetting(db, "official_role"), directors: (await listDirectors(db)).filter(d => d.series_id === seriesId),
+  seasons: await seasonsOf(db, seriesId), others: (await listSeries(db)).filter(x => x.id !== seriesId).map(x => ({ id: x.id, short_name: x.short_name, past: x.past })) });
 
 // what kind of image these bytes are, by their first bytes (not the file's name): PNG, JPG or WebP, else ""
 function logoType(b) {
@@ -242,8 +247,9 @@ function addSeriesPage(user, err = "", v = {}) {
   return page("Add series", `<p class="crumb"><a href="${BASE}/">GLR</a></p><h1>Add series</h1>
     <p class="sub">Add a series before its first race, so its Series Directors, schedule, rules, signups and Discord posts can be set up. A series that has already raced can be added the same way: then upload its old results files.</p>
     ${err ? `<div class="msg bad">${esc(err)}</div>` : ""}
-    <form method="post"><label for="lid">iRacing league ID</label><input type="number" id="lid" name="id" required min="1" value="${val("id")}" style="max-width:200px">
+    <form method="post"><label for="lid">iRacing league ID</label><input type="number" id="lid" name="id" min="1" value="${v.past ? "" : val("id")}" style="max-width:200px">
     <p class="tag">The number in the league's address on the iRacing members site. Each series is one iRacing league: results from the overlay, race control and uploaded files find the series by this number, so it has to be right. It can't be changed later.</p>
+    <label class="chk"><input type="checkbox" name="past"${v.past ? " checked" : ""}> A past series, with no league ID: for a series that ran in a league now used by another series. Leave the league ID empty, then move its old seasons into it from the other series' Edit page (Move a season).</label>
     <label for="sn">Short name (shown on the site)</label><input type="text" id="sn" name="short_name" maxlength="40" required placeholder="Trucks" value="${val("shortName")}">
     <label for="sl">Address: glrhub.app/…</label><input type="text" id="sl" name="slug" maxlength="40" placeholder="trucks" value="${val("slug")}">
     <p class="tag">Leave the address empty to make it from the short name.</p>
@@ -253,9 +259,25 @@ function addSeriesPage(user, err = "", v = {}) {
     <p class="tag">Next, on the series' Edit page: its logo, Discord posts, and Hide from the Series List until it's ready. Assign its Series Directors on Accounts.</p>`, { user });
 }
 
-function seriesEditPage(sr, user, err = "", queue = [], note = "", { officialRole = "", directors = [] } = {}) {
+// Admins, on Edit series: set the series aside so its league ID can be used by another series, and move a season
+// that landed here to the series it belongs to.
+function leagueTools(sr, { seasons = [], others = [] } = {}) {
+  const S = `${BASE}/${esc(sr.slug)}/edit`, real = seasons.filter(se => !se.upcoming && se.id);
+  let h = `<h2 id="league">League ID</h2>`;
+  if (sr.past) h += `<p class="tag">A past series${sr.was_league ? `: it ran in iRacing league ${sr.was_league} until ${day(sr.retired_at)}` : ", with no league ID"}. It takes no new races or signups. A results file from one of its seasons still lands here.</p>`;
+  else h += `<p class="tag">iRacing league ${sr.id}. <b>Reuse this league ID:</b> if this iRacing league is being given to another series, set ${esc(sr.short_name)} aside first. It becomes a past series: it keeps its name, address, results, standings and stats, and takes no new races. Its open signups close, and its Series Directors stay with it. Then add the new series with league ID ${sr.id} (Add series). This can't be undone from the site.</p>
+    <form method="post" action="${S}#league" onsubmit="return confirm('Set ${esc(sr.short_name).replace(/'/g, "\\'")} aside as a past series and free league ID ${sr.id}? This can\\'t be undone from the site.')"><input type="hidden" name="action" value="retire">
+    <label for="rt">Type the series' short name to confirm</label><input type="text" id="rt" name="confirm" maxlength="40" required style="max-width:260px"> <button class="btn">Set aside as a past series</button></form>`;
+  if (real.length && others.length) h += `<p class="tag" style="margin-top:14px"><b>Move a season:</b> for a season that belongs to another series (this league ran that series before). Its races, results, penalties, protests and teams go with it.</p>
+    <form method="post" action="${S}#league" onsubmit="return confirm('Move this season and all its races to the other series?')"><input type="hidden" name="action" value="move_season">
+    <select name="season" required>${real.map(se => `<option value="${se.id}">${esc(se.name)} (${se.races} race${se.races === 1 ? "" : "s"})</option>`).join("")}</select> to
+    <select name="to" required><option value="">Pick a series…</option>${others.map(o => `<option value="${o.id}">${esc(o.short_name)}${o.past ? " (past series)" : ""}</option>`).join("")}</select> <button class="btn">Move season</button></form>`;
+  return h;
+}
+
+function seriesEditPage(sr, user, err = "", queue = [], note = "", { officialRole = "", directors = [], seasons = [], others = [] } = {}) {
   return page(`Edit ${sr.short_name}`, `<p class="crumb"><a href="${BASE}/">GLR</a> › <a href="${BASE}/${esc(sr.slug)}">${esc(sr.short_name)}</a></p>
-    <h1>Edit series</h1><p class="sub">${esc(sr.name)} · iRacing league ${sr.id}</p>${err ? `<div class="msg bad">${esc(err)}</div>` : ""}
+    <h1>Edit series</h1><p class="sub">${esc(sr.name)} · ${sr.past ? "past series" : `iRacing league ${sr.id}`}</p>${err ? `<div class="msg bad">${esc(err)}</div>` : ""}
     <form method="post"><label for="sn">Short name (shown on the site)</label><input type="text" id="sn" name="short_name" value="${esc(sr.short_name)}" maxlength="40" required>
     <label for="sl">Address: glrhub.app/…</label><input type="text" id="sl" name="slug" value="${esc(sr.slug)}" maxlength="40">
     <p class="tag">Changing the address breaks old links to this series. Race and driver links aren't affected.</p>
@@ -267,8 +289,8 @@ function seriesEditPage(sr, user, err = "", queue = [], note = "", { officialRol
     <h2 id="logo">Logo</h2>${logoUrl(sr) ? `<p><img src="${logoUrl(sr)}" alt="${esc(sr.short_name)} logo" style="max-height:110px;max-width:320px"></p>` : `<p class="tag">No logo yet.</p>`}
     <form method="post" action="#logo" enctype="multipart/form-data"><input type="hidden" name="action" value="logo"><input type="file" name="file" accept="image/png,image/jpeg,image/webp" required> <button class="btn">Upload logo</button></form>
     <p class="tag">PNG, JPG or WebP, up to 500 KB. A wide logo with a clear background looks best. It shows on the Series List and at the top of the series' pages.</p>
-    ${sr.logo_at ? `<form method="post" action="#logo"><input type="hidden" name="action" value="logo"><input type="hidden" name="remove" value="1"><button class="link">Remove this logo${ASSETS[`series-${sr.id}.png`] ? " (back to the built-in one)" : ""}</button></form>` : ""}
-    ${hooksHtml(sr, queue, note)}`, { user });
+    ${sr.logo_at ? `<form method="post" action="#logo"><input type="hidden" name="action" value="logo"><input type="hidden" name="remove" value="1"><button class="link">Remove this logo${builtIn(sr) ? " (back to the built-in one)" : ""}</button></form>` : ""}
+    ${hooksHtml(sr, queue, note)}${user && user.admin ? leagueTools(sr, { seasons, others }) : ""}`, { user });
 }
 
 function sessionTable(rows, race, inClass, score = null) {
@@ -675,7 +697,7 @@ function seriesTabs(sr, on, seasons, seasonId, user) {
   const pick = !["results", "drivers", "schedule", "director"].includes(on) && opts.length > 1 ? `<form class="season" method="get"><select name="season" onchange="this.form.submit()">${opts.map(se =>
     `<option value="${se.id}"${se.id === seasonId ? " selected" : ""}>${esc(se.name)}${se.upcoming && seasons.length > 1 ? " (upcoming)" : ""}</option>`).join("")}</select></form>` : "";
   const logo = logoUrl(sr) ? `<img class="shlogo" src="${logoUrl(sr)}" alt="${esc(sr.short_name)} logo">` : "";
-  return `<p class="crumb"><a href="${BASE}/">GLR</a></p><div class="shead">${logo}<div><h1>${esc(sr.short_name)}${sr.hidden ? ` <span class="cls">Hidden</span>` : ""}</h1><p class="sub">${esc(sr.name)}${canEdit(user, sr) ? ` · <a href="${BASE}/${esc(sr.slug)}/edit">Edit series</a> · <a href="${BASE}/${esc(sr.slug)}/embed">Embed on a website</a>` : ""}</p></div></div>
+  return `<p class="crumb"><a href="${BASE}/">GLR</a></p><div class="shead">${logo}<div><h1>${esc(sr.short_name)}${sr.past ? ` <span class="cls">Past series</span>` : ""}${sr.hidden ? ` <span class="cls">Hidden</span>` : ""}</h1><p class="sub">${esc(sr.name)}${canEdit(user, sr) ? ` · <a href="${BASE}/${esc(sr.slug)}/edit">Edit series</a> · <a href="${BASE}/${esc(sr.slug)}/embed">Embed on a website</a>` : ""}</p></div></div>
     <nav class="tabs">${t("results", "Results", "")}${t("schedule", "Schedule", "/schedule")}${t("standings", "Standings", "/standings")}${t("stats", "Stats", "/stats")}${t("drivers", "Drivers", "/drivers")}${sr.teams ? t("teams", "Teams", "/teams") : ""}${t("rules", "Rules", "/rules")}${t("penalties", "Penalties", "/penalties")}${canEdit(user, sr) ? t("director", "Director", "/director") : ""}${pick}</nav>`;
 }
 
@@ -1116,7 +1138,7 @@ function rulesPage(sr, seasons, season, info, rules, events, user, msg = "") {
   if (msg) body += `<div class="msg ${/^(Saved|Taken out|Put back|Added|Renamed|Removed)/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>`;
   body += rulesSummary(rules, events);
   if (rules.playoffs.enabled) body += outList(rules, events, canEdit(user, sr));
-  if (canEdit(user, sr)) body += `<h2>Change the rules</h2>` + rulesForm(rules, events) + nextSeasonForm(sr, seasons);
+  if (canEdit(user, sr)) body += `<h2>Change the rules</h2>` + rulesForm(rules, events) + (sr.past ? "" : nextSeasonForm(sr, seasons));
   return page(`${sr.short_name} rules`, body, { user });
 }
 
@@ -1180,7 +1202,7 @@ async function upload(request, env, user) {
   if (!file || typeof file === "string") return json({ ok: false, error: "No file was sent." }, 400);
   if (file.size > 5e6) return json({ ok: false, error: "That file is too big to be a results export." }, 400);
   let ev;
-  try { ev = parseExport(await file.text(), file.name || ""); } catch (e) { return json({ ok: false, error: e.message }, 400); }
+  try { ev = await placeEvent(env.DB, parseExport(await file.text(), file.name || "")); } catch (e) { return json({ ok: false, error: e.message }, 400); }
   const sr = ev.league.id ? await seriesById(env.DB, ev.league.id) : null;
   // uploaded from a schedule line: it must be that series' race
   const sched = form.get("schedule") ? await scheduleEntry(env.DB, Number(form.get("schedule"))) : null;
@@ -1396,7 +1418,7 @@ window.addEventListener('message',e=>{if(e.data&&e.data.glrWidget&&e.source===$(
 // series as the public sees them: never the webhook links
 // what the public series API sends: only the fields named here. Nov 9 2026: the old version removed three webhook
 // fields by name, so hook_teams (added later) went out to everyone. A new column is private until it's added here.
-const PUB_SERIES = ["id", "name", "short_name", "slug", "teams", "hidden", "races", "latest", "latestEvent"];
+const PUB_SERIES = ["id", "name", "short_name", "slug", "teams", "hidden", "past", "races", "latest", "latestEvent"];
 const pub = sr => Object.fromEntries(PUB_SERIES.filter(k => k in sr).map(k => [k, sr[k]]));
 const sameOrigin = (request, url) => request.headers.get("origin") === url.origin;
 const bearer = request => (/^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") || "") || [])[1] || "";
@@ -1691,6 +1713,7 @@ async function signupRoutes(request, env, db, url, path, user) {
       const log = summary => logChange(db, { by, seriesId: sr.id, kind: "signup", summary });
       try {
         if (a === "round") {
+          if (sr.past) throw new Error(`${sr.short_name} is a past series: it doesn't take signups.`);
           const r = await saveRound(db, sr.id, { name: f.get("name"), keepDate: f.get("keep_date"), keepTime: f.get("keep_time"), openDate: f.get("open_date"), openTime: f.get("open_time") }, by);
           // signups are for the upcoming season: opening them adds it if it isn't there, and the two share one name
           const up = await upcomingSeason(db, sr.id);
@@ -1852,7 +1875,7 @@ const site = {
         const key = await checkKey(db, bearer(request), "import");
         if (!key) return cj({ ok: false, error: "That isn't a working import key." }, 401);
         let ev;
-        try { ev = parseExport(await request.text(), ""); } catch (e) { return cj({ ok: false, error: e.message }, 400); }
+        try { ev = await placeEvent(db, parseExport(await request.text(), "")); } catch (e) { return cj({ ok: false, error: e.message }, 400); }
         const had = await getEvent(db, ev.subsessionId || 0);
         try {
           const by = `import:${key.id}:${key.name}`, r = await importEvent(db, ev, by);
@@ -2264,10 +2287,10 @@ const site = {
         if (request.method === "POST") {
           if (!sameOrigin(request, url)) return notFound("Add the series from this page.", user);
           const f = await request.formData();
-          v = { id: f.get("id"), shortName: f.get("short_name"), slug: f.get("slug"), name: f.get("name") };
+          v = { id: f.get("id"), shortName: f.get("short_name"), slug: f.get("slug"), name: f.get("name"), past: !!f.get("past") };
           try {
             const r = await addSeries(db, v);
-            await logChange(db, { by: `discord:${user.id}:${user.name}`, seriesId: r.id, kind: "series", summary: `Series added: ${r.shortName} (/${r.slug}), iRacing league ${r.id}` });
+            await logChange(db, { by: `discord:${user.id}:${user.name}`, seriesId: r.id, kind: "series", summary: r.past ? `Past series added: ${r.shortName} (/${r.slug}), no league ID` : `Series added: ${r.shortName} (/${r.slug}), iRacing league ${r.id}` });
             return Response.redirect(`${url.origin}${BASE}/${r.slug}/edit`, 303);
           } catch (e) { err = e.message; }
         }
@@ -2543,6 +2566,7 @@ const site = {
               let note;
               try {
                 if (a === "season_add") {
+                  if (sr.past) throw new Error(`${sr.short_name} is a past series: it doesn't get new seasons.`);
                   const r = await setUpcomingSeason(db, sr.id, f.get("name"));
                   note = r.created ? `Added ${r.name}. Pick it at the top of this tab to set its rules.` : r.was === r.name ? "Saved." : `Renamed ${r.was} to ${r.name}.`;
                   if (r.created || r.was !== r.name) await logChange(db, { by, seriesId: sr.id, kind: "rules", summary: r.created ? `Season added: ${r.name}` : `Season renamed: ${r.was} to ${r.name}` });
@@ -2617,6 +2641,22 @@ const site = {
         if (request.method === "POST") {
           if (!sameOrigin(request, url)) return seriesEditPage(sr, user, "Save from this page.");
           const f = await request.formData(), act = f.get("action");
+          if (act === "retire" || act === "move_season") {
+            if (!user.admin) return notFound("Only Admins can do that.", user);
+            const by = `discord:${user.id}:${user.name}`;
+            try {
+              if (act === "retire") {
+                if (String(f.get("confirm") || "").trim().toLowerCase() !== sr.short_name.toLowerCase()) throw new Error(`Type ${sr.short_name} to confirm. Nothing was changed.`);
+                const r = await retireSeries(db, sr.id);
+                await logChange(db, { by, seriesId: r.id, kind: "series", summary: `${r.shortName} set aside as a past series: iRacing league ${r.league} is free for another series` });
+                return Response.redirect(`${url.origin}${BASE}/${r.slug}/edit#league`, 303);
+              }
+              const r = await moveSeason(db, Number(f.get("season")), sr.id, Number(f.get("to")));
+              await logChange(db, { by, seriesId: sr.id, kind: "series", summary: `Season moved to ${r.to}: ${r.name}` });
+              await logChange(db, { by, seriesId: Number(f.get("to")), kind: "series", summary: `Season moved here from ${sr.short_name}: ${r.name}` });
+              return seriesEditPage(await getSeries(db, sr.slug), user, "", await queueFor(db, sr.id), "", await dirOpts(db, sr.id));
+            } catch (e) { return seriesEditPage(sr, user, e.message, await queueFor(db, sr.id), "", await dirOpts(db, sr.id)); }
+          }
           if (act === "logo") {
             let err = "";
             try {
