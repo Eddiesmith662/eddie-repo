@@ -450,7 +450,6 @@
     <span class="pill series" title="Series: switching changes the standings, bracket, live points settings, ticker header, league logo and Next broadcast text">
       <span class="sl">Series</span><select id="seriesSel"></select><button id="seriesMenuBtn" title="New, rename or delete a series">⋯</button></span>
     <button id="camWin" class="navlink">Open live timing ↗</button>
-    <button id="codesWin" class="navlink" title="Make a producer code for a show (needs the relay password)">Producer codes ↗</button>
   </nav>
   <div class="smenu" id="seriesMenu" hidden></div>
   <div class="warnbar" id="luWarn" hidden></div>
@@ -830,15 +829,13 @@
   <section class="wide" id="anSetup">
     <h2><span class="t">Announcer page</span><span class="pill" id="anPill2">OFF</span></h2>
     <p class="hint" style="margin-top:0">A live page for remote announcers: they open a link in any browser. The overlay sends it a small update twice a second through the VSPEED relay; nothing on their side can change anything here.</p>
-    <label>Producer code for this show (from the relay's /admin page; one code per show)</label>
-    <div class="url"><input id="anCode" placeholder="https://…/k/show-name.…" spellcheck="false" autocomplete="off"><button id="anCodeSave">Save</button></div>
     <div class="grid2" style="margin-top:10px">
       <div><label>Feed</label><div class="seg" id="anSeg"><button data-v="on">On</button><button data-v="off">Off</button></div></div>
       <div><label>Status</label><div class="hint" id="anStatus" style="margin:6px 0 0">—</div></div>
     </div>
     <label>Announcer link (send this to your announcers)</label>
-    <div class="url"><input readonly id="anLink" placeholder="Appears once the producer code is saved"><button data-copy="anLink">Copy</button><button id="anNew" title="Make a new link: the old one stops working">New link</button></div>
-    <p class="hint">If a link gets passed around, press <b>New link</b> and send the new one: the old link stops working straight away.</p>
+    <div class="url"><input readonly id="anLink" placeholder="Appears once the feed is on (needs the GLR HUB sign-in)"><button data-copy="anLink">Copy</button><button id="anNew" title="Make a new link: the old one stops working">New link</button></div>
+    <p class="hint">Your announcer link is yours: it stays the same whichever series you broadcast. It comes with your GLR HUB sign-in, so there's no code to paste. If a link gets passed around, press <b>New link</b> and send the new one: the old link stops working straight away.</p>
   </section>
 
   <section class="wide" id="luSetup">
@@ -922,12 +919,6 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt
 // ---------- live timing window (/timing) ----------
 const SOLO = location.pathname.replace(/\/+$/, '') === '/timing' || new URLSearchParams(location.search).get('solo') === 'cars';
 if (SOLO) { document.body.classList.add('solo'); document.title = 'VSPEED Live Timing'; }
-// the announcer relay's page for making producer codes: the relay from the saved code, or VSPEED's own
-const RELAY_DEFAULT = 'https://vspeedlivetiming.app';
-$('codesWin').onclick = () => {
-  const m = String((S && S.announcer && S.announcer.code) || '').match(/^\s*(https?:\/\/[^/\s]+)\/k\//);
-  window.open((m ? m[1] : RELAY_DEFAULT) + '/admin', '_blank', 'noopener');
-};
 $('camWin').onclick = () => {
   const w = window.open('/timing', 'vspeedTiming', 'width=1560,height=980');
   if (!w) toast('Your browser blocked the pop-up. Open /timing in a new window instead.');
@@ -1804,15 +1795,13 @@ $('u1').value = o + '/overlay'; $('u2').value = o + '/standings'; $('u3').value 
 document.querySelectorAll('[data-copy]').forEach(b => b.onclick = () => { const i = $(b.dataset.copy); i.select(); try { navigator.clipboard.writeText(i.value); } catch (e) { document.execCommand('copy'); } toast('Copied'); });
 $('resetBtn').onclick = async () => { if (confirm('Reset live race settings and text to default?')) { await post('/api/reset', {}); filled = false; toast('Reset'); } };
 
-/* ---------- announcer page (Race tab: link + notes; Setup tab: producer code, on/off, new link) ---------- */
+/* ---------- announcer page (Race tab: link + notes; Setup tab: on/off, new link; the producer code comes from GLR HUB) ---------- */
 let AN = {};
 async function anCmd(body) { const r = await post('/api/announcer', body); if (r.msg) toast(r.msg); return r; }
 function copyText(t) {
   try { navigator.clipboard.writeText(t).then(() => toast('Copied'), () => fallback()); } catch (e) { fallback(); }
   function fallback() { const i = document.createElement('input'); i.value = t; document.body.appendChild(i); i.select(); try { document.execCommand('copy'); toast('Copied'); } catch (e) {} i.remove(); }
 }
-$('anCodeSave').onclick = () => anCmd({ cmd: 'code', code: $('anCode').value.trim() });
-$('anCode').onkeydown = e => { if (e.key === 'Enter') $('anCodeSave').click(); };
 $('anSeg').onclick = e => { const b = e.target.closest('button'); if (b) anCmd({ cmd: b.dataset.v }); };
 $('anNew').onclick = () => { if (confirm('Make a new announcer link? The old link stops working straight away, so send the new one to your announcers.')) anCmd({ cmd: 'newlink' }); };
 $('anCopy').onclick = () => { const l = AN.link || ''; if (!l) return toast('Set up the announcer page on the Setup tab first'); copyText(l); };
@@ -1832,7 +1821,6 @@ function anRender() {
   $('anInfo').textContent = info; $('anStatus').textContent = info;
   $('anInfo').style.color = $('anStatus').style.color = st.state === 'error' ? '#ff8da3' : '';
   document.querySelectorAll('#anSeg button').forEach(b => b.classList.toggle('on', (b.dataset.v === 'on') === !!a.on));
-  if (document.activeElement !== $('anCode')) $('anCode').value = a.code || '';
   $('anLink').value = st.link || '';
   if (document.activeElement !== $('anNotes') && !anT) $('anNotes').value = a.notes || '';
 }

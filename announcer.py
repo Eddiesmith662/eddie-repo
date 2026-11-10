@@ -8,9 +8,11 @@ seconds rather than wait, and backs off when the relay can't be reached. It neve
 In a league race, the driver on camera also gets their season in that series (stats, championship place and points)
 and their own info (bio, team, sponsor, hometown) from the league site's public pages (SiteInfo, below).
 
-Setup (control panel, Setup tab): paste the producer code made on the relay's /admin page
-("https://<relay>/k/<show>.<signature>") and switch it on. The announcer link is https://<relay>/a/<show>/<view code>;
-the view code is made here, and "New link" makes another one, which turns the old links off.
+Setup (control panel, Setup tab): switch it on. The producer code that lets this PC send to the relay
+("https://<relay>/k/<show>.<signature>") comes from the league site (GLR HUB) with this PC's sign-in, one show per
+producer (Nov 2026; before, it was made on the relay's /admin page and pasted in). It's saved, so the feed keeps going
+if the site can't be reached later. The announcer link is https://<relay>/a/<show>/<view code>; the view code is made
+here, and "New link" makes another one, which turns the old links off.
 """
 import http.client
 import json
@@ -34,6 +36,7 @@ HEARTBEAT = 10.0           # send even when nothing changed, at least this often
 TIMEOUT = 5.0              # give up on one update after this long
 MAX_INC = 12               # incidents on the page
 MAX_STANDINGS = 20
+CODE_RETRY = 120           # after the league site didn't give the producer code: wait this long before asking again
 
 STATUS = {"state": "off", "viewers": 0, "error": "", "link": "", "sentAt": 0, "sent": 0}
 _lock = threading.Lock()
@@ -329,6 +332,42 @@ class Sender:
         self.last_sent = 0.0
         self.backoff_until = 0.0
         self.fails = 0
+        self.code_for = None      # the producer (site user id) the league site last gave the producer code for
+        self.code_at = 0.0        # when the site last didn't give it
+        self.code_said = None
+
+    def ask_code(self, cfg):
+        """Ask the league site for this producer's code (their show on the relay), with this PC's sign-in, and save it.
+        Asked when the feed is switched on, and again for another producer or after the relay turned the code down.
+        Returns the error to show, or "" (also when the site can't be reached but a saved code is there to use)."""
+        who = leagueupload.signed_in()
+        if not who:
+            return "Sign in to GLR HUB first (Setup tab, League site)"
+        if self.code_for == who["id"] or time.time() < self.code_at + CODE_RETRY:
+            return ""
+        old = parse_code(cfg.get("code"))
+        try:
+            code, j = leagueupload._request("/api/overlay/announcer", leagueupload.token(), {"show": old[1] if old else ""})
+        except Exception as e:
+            why = "Couldn't reach GLR HUB for the producer code (%s)" % (getattr(e, "reason", None) or type(e).__name__)
+        else:
+            new = parse_code(j.get("code")) if code == 200 and j.get("ok") else None
+            if new:
+                self.code_for = who["id"]
+                patch = {"code": j["code"]}
+                if not cfg.get("token"):
+                    patch["token"] = new_token()
+                if j["code"] != cfg.get("code") or patch.get("token"):
+                    self.state.update_settings({"announcer": patch})
+                    self.log("Announcer feed: show %s, from GLR HUB for %s" % (new[1], who["name"] or "this producer"))
+                self.code_said = None
+                return ""
+            why = j.get("error") or "GLR HUB didn't give a producer code (%s)" % code
+        self.code_at = time.time()           # didn't get it: ask again in a couple of minutes
+        if why != self.code_said:            # once until it changes, not every two minutes
+            self.code_said = why
+            self.log("Announcer feed: %s%s" % (why, "; using the saved one" if old else ""))
+        return "" if old else why
 
     def _set(self, **kw):
         with _lock:
@@ -378,6 +417,10 @@ class Sender:
             settings = json.loads(json.dumps({k: self.state.settings.get(k) for k in ("announcer", "raceName")}))
             live = self.state.live
         cfg = dict(DEFAULTS, **(settings.get("announcer") or {}))
+        if cfg.get("on"):
+            why = self.ask_code(cfg)          # the producer code, from the league site
+            with self.state.lock:
+                cfg = dict(DEFAULTS, **(self.state.settings.get("announcer") or {}))
         settings["announcer"] = cfg
         p = parse_code(cfg.get("code"))
         if not cfg.get("on") or not p or not cfg.get("token"):
@@ -386,7 +429,7 @@ class Sender:
             if not cfg.get("on"):
                 return self._set(state="off", viewers=0, error="", link=link_for(cfg))
             return self._set(state="setup", viewers=0, link=link_for(cfg),
-                             error="Paste the producer code on the Setup tab" if not p else "Press New link on the Setup tab")
+                             error=why or "Getting the producer code from GLR HUB" if not p else "Press New link on the Setup tab")
         self._set(link=link_for(cfg))        # the link shows even before the first update goes out
         now = time.time()
         if now < self.backoff_until:
@@ -411,6 +454,7 @@ class Sender:
             return self._fail("Can't reach the relay (%s)" % (type(e).__name__,))
         if status == 401:
             self.backoff_until = now + 60
+            self.code_for, self.code_at = None, 0.0     # ask the league site for the code again
             return self._set(state="error", viewers=0, error=resp.get("error") or "The producer code isn't valid", link=link_for(cfg))
         if status != 200 or not resp.get("ok"):
             return self._fail(resp.get("error") or "Relay answered %s" % status)

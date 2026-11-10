@@ -78,7 +78,7 @@ DEFAULT_SETTINGS = {
     # live points: points per finishing place (P1 first), bonuses, cutoff line position and rows on the graphic
     "livePoints": copy.deepcopy(livepoints.DEFAULTS),
     # next broadcast box: text typed on the Prerace tab; logo = an image in data\logos ("" = none)
-    "announcer": dict(announcer.DEFAULTS),   # the announcer page feed (Setup tab): producer code, on/off, view code, notes
+    "announcer": dict(announcer.DEFAULTS),   # the announcer page feed (Setup tab): on/off, view code, notes; the producer code from GLR HUB
     "checklist": {"overlay": False},      # the setup checklist: has the overlay page ever been open in the broadcasting software
     "nextRace": {"title": "NEXT BROADCAST", "event": "RACE 2 - TEXAS", "date": "JAN 19TH", "time": "8:00 PM ET", "logo": ""},
     "raceName": "VSPEED RACING LEAGUE",
@@ -188,9 +188,12 @@ class State:
 
     def public_settings(self):
         """The settings for the control panel and other pages. The league site key is in its own file
-        (leagueupload.KEY_FILE): the pages only learn whether one is saved ("saved" or "")."""
+        (leagueupload.KEY_FILE): the pages only learn whether one is saved ("saved" or ""). The same for the announcer
+        feed's producer code: it's a key to the relay, from GLR HUB (Nov 2026)."""
         s = dict(self.settings)
         s["leagueUpload"] = dict(self.settings.get("leagueUpload") or {}, key="saved" if leagueupload.stored_key() else "")
+        an = self.settings.get("announcer") or {}
+        s["announcer"] = dict(an, code="saved" if an.get("code") else "")
         return s
 
     def snapshot(self):
@@ -1748,22 +1751,11 @@ def _static_page(path):
 
 
 def announcer_command(d):
-    """Announcer page feed, from the control panel: code / on / off / newlink / notes."""
+    """Announcer page feed, from the control panel: on / off / newlink / notes. The producer code comes from the league
+    site with this PC's sign-in (announcer.Sender.ask_code), not from the control panel (Nov 2026)."""
     cmd = str(d.get("cmd") or "")
     with STATE.lock:
         cur = dict(announcer.DEFAULTS, **(STATE.settings.get("announcer") or {}))
-    if cmd == "code":
-        code = str(d.get("code") or "").strip()
-        if code and not announcer.parse_code(code):
-            return False, "That isn't a producer code. It looks like https://…/k/show-name.…"
-        patch = {"code": code}
-        if code and not cur.get("token"):
-            patch["token"] = announcer.new_token()
-        if code and code != cur.get("code"):
-            patch["on"] = True                         # pasting a code switches it on
-        STATE.update_settings({"announcer": patch})
-        diag.log("Announcer feed: producer code %s" % ("set (%s)" % announcer.parse_code(code)[1] if code else "removed"))
-        return True, "Saved" if code else "Removed"
     if cmd in ("on", "off"):
         patch = {"on": cmd == "on"}
         if cmd == "on" and not cur.get("token"):

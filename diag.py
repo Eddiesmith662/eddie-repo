@@ -10,6 +10,7 @@ import json
 import os
 import platform
 import queue
+import re
 import sys
 import threading
 import time
@@ -529,6 +530,12 @@ def status():
     return s
 
 
+def announcer_show(code):
+    """The show name in an announcer producer code (https://<relay>/k/<show>.<signature>), without the signature."""
+    m = re.match(r"^\s*https?://[^/\s]+/k/([a-z0-9][a-z0-9-]{0,39})\.", str(code or ""))
+    return m.group(1) if m else ""
+
+
 def save_zip(settings):
     """Bundle recent logs, the black box, settings and system info into one zip; returns its path."""
     flush_blackbox()
@@ -545,6 +552,9 @@ def save_zip(settings):
         safe = json.loads(json.dumps(settings, default=str))
         if (safe.get("leagueUpload") or {}).get("key"):          # the league site key never leaves this PC
             safe["leagueUpload"]["key"] = "(set, not included)"
+        if (safe.get("announcer") or {}).get("code"):            # nor the announcer feed's producer code (a key to the relay)
+            show = announcer_show(safe["announcer"]["code"])
+            safe["announcer"]["code"] = "(set for show %s, not included)" % show if show else "(set, not included)"
         z.writestr("settings.json", json.dumps(safe, indent=2, default=str))
         try:
             for f in sorted(os.listdir(LOG_DIR)):

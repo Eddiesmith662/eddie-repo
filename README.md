@@ -213,8 +213,8 @@ A live page for remote announcers: they open a link in any browser (computer, ta
 screen, your notes, the weather, the running order, incidents, live points and standings, updated twice a second.
 Nothing on their page can change anything on your PC.
 
-1. **Setup tab → Announcer page:** paste the show's **producer code** and press **Save**. Codes are made by the
-   relay's owner (**Producer codes ↗** at the top; it needs the relay password). One code per show.
+1. **Setup tab → Announcer page:** switch the feed **On**. There's no code to paste: the overlay gets your show on the
+   relay from GLR HUB with your sign-in. Each producer has one announcer link, whichever series they broadcast.
 2. **Copy the announcer link** (Setup tab, or **Copy announcer link** on the Race tab) and send it to your announcers.
 3. **Notes** (Race tab) go out as you type, e.g. "Sponsor read after the restart".
 
