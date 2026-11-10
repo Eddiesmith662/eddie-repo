@@ -93,6 +93,7 @@ th{font-size:12px;color:var(--dim);font-weight:600;text-transform:uppercase;lett
 tr+tr td{border-top:1px solid var(--line)}
 table.pin{border-collapse:separate;border-spacing:0}table.pin th:first-child,table.pin td:first-child{position:sticky;left:0;z-index:1;background:var(--card);box-shadow:1px 0 0 var(--line)}
 table.pin td:first-child{max-width:46vw;overflow:hidden;text-overflow:ellipsis}
+.wrap.pinwrap{max-height:85vh;overflow:auto}table.pin th{position:sticky;top:0;z-index:2;background:var(--card)}table.pin th:first-child{z-index:3}
 header{display:flex;align-items:center;gap:14px}header .me{margin-left:auto;display:flex;gap:12px;align-items:center;font-size:14px}
 header .me a{font-weight:400;letter-spacing:0;color:var(--link)}header form{margin:0}button.link{background:none;border:0;color:var(--link);font:inherit;cursor:pointer;padding:0}
 .drop{border:2px dashed var(--line);border-radius:10px;padding:28px;text-align:center;background:var(--card)}.drop.on{border-color:var(--accent)}
@@ -734,7 +735,7 @@ function statsPage(sr, seasons, seasonId, rows, races, user) {
     <span>${driverLink(r.custId, r.name)}</span></div>`).join("")}</div>`;
   if (multi) body += `<p class="tag">Multi-class: finishes, poles and wins count within each driver's class.</p>`;
   const sorted = [...rows].sort((a, b) => b.wins - a.wins || b.top5 - a.top5 || (a.avgFinish ?? 99) - (b.avgFinish ?? 99));
-  body += `<div class="wrap"><table class="sortable pin"><tr><th class="sort" data-dir="asc">Driver</th><th>#</th>${COLUMNS.map(([k, l, dir]) => `<th class="n sort${k === "wins" ? " on" : ""}" data-dir="${dir}">${l}</th>`).join("")}</tr>` +
+  body += `<div class="wrap pinwrap"><table class="sortable pin"><tr><th class="sort" data-dir="asc">Driver</th><th>#</th>${COLUMNS.map(([k, l, dir]) => `<th class="n sort${k === "wins" ? " on" : ""}" data-dir="${dir}">${l}</th>`).join("")}</tr>` +
     sorted.map(r => `<tr><td data-v="${esc(r.name)}">${multi ? cls(r.cls) : ""}${driverLink(r.custId, r.name)}</td><td>${esc(r.number)}</td>${COLUMNS.map(([k, , , dp]) =>
       `<td class="n" data-v="${r[k] ?? ""}">${fmt(r[k], dp)}</td>`).join("")}</tr>`).join("") + `</table></div>
     <p class="tag">Click a heading to sort. Pos. gained adds up start minus finish. Lead-lap: finished on the leader's lap. DNF: didn't finish running.</p>` + SORT_JS;
