@@ -163,3 +163,59 @@ test("an admin can't block themselves, and a block doesn't touch race control or
   await block(s, "80");
   assert.equal((await call(s, key, "GET", "/api/overlay/check")).status, 200);
 });
+
+// The announcer producer code from GLR HUB (Nov 2026): one show per producer, signed like the relay signs it.
+import { createHmac } from "node:crypto";
+const SECRET = "test-relay-secret";
+const relaySig = show => createHmac("sha256", SECRET).update("producer:" + show).digest("base64url").slice(0, 32);  // as relay/src/index.js
+const announcer = (s, token, show) => call(s, token, "POST", "/api/overlay/announcer", { show });
+
+test("announcer: keeps the overlay's current show, signs it the relay's way, and it's fixed once given", async () => {
+  const s = await setup();
+  s.env.CHANNEL_SECRET = SECRET;
+  const { token } = await signIn(s);
+  const r = await announcer(s, token, "glr-arca");
+  assert.equal(r.status, 200, JSON.stringify(r.body));
+  assert.equal(r.body.show, "glr-arca");
+  assert.equal(r.body.code, "https://vspeedlivetiming.app/k/glr-arca." + relaySig("glr-arca"));
+  assert.equal((await announcer(s, token, "something-else")).body.show, "glr-arca");   // fixed
+  assert.equal((await announcer(s, token, "")).body.show, "glr-arca");
+  // the code never lands in History or on a page
+  await s.signIn({ id: "1", roles: [ADMIN_ROLE], nick: "Test Admin" });
+  for (const p of ["/history", "/accounts", "/keys"]) assert.doesNotMatch((await s.page(p)).html, new RegExp(relaySig("glr-arca")), p);
+});
+
+test("announcer: a show another producer holds, a bad name, or none: one is made from the Discord name", async () => {
+  const s = await setup();
+  s.env.CHANNEL_SECRET = SECRET;
+  const pat = await signIn(s);
+  await announcer(s, pat.token, "glr-arca");
+  const sam = await signIn(s, { id: "81", roles: [PRODUCER], nick: "Sam O'Brien" }, "ovpc02");
+  const r = await announcer(s, sam.token, "glr-arca");                     // Pat already has it
+  assert.equal(r.body.show, "sam-o-brien");
+  assert.equal(r.body.code.split(".").pop(), relaySig("sam-o-brien"));
+  const sam2 = await signIn(s, { id: "82", roles: [PRODUCER], nick: "Sam O'Brien" }, "ovpc03");
+  assert.equal((await announcer(s, sam2.token, "Bad Name!")).body.show, "sam-o-brien-2");
+  const odd = await signIn(s, { id: "83", roles: [PRODUCER], nick: "★★★" }, "ovpc04");
+  assert.equal((await announcer(s, odd.token)).body.show, "producer");
+});
+
+test("announcer: only a producer's own overlay sign-in, and only once the relay secret is set", async () => {
+  const s = await setup();
+  const { token } = await signIn(s);
+  const none = await announcer(s, token, "glr-arca");
+  assert.equal(none.status, 503);
+  assert.equal(none.body.error, "The announcer relay isn't set up on GLR HUB yet");
+  s.env.CHANNEL_SECRET = SECRET;
+  assert.equal((await announcer(s, "vsov_" + "0".repeat(64), "x")).status, 401);
+  await s.signIn({ id: "1", roles: [ADMIN_ROLE], nick: "Test Admin" });
+  const key = (await s.post("/keys", { name: "Old Overlay" })).html.match(/vsglr_[0-9a-f]{48}/)[0];
+  const k = await announcer(s, key, "x");
+  assert.equal(k.status, 403);
+  assert.match(k.body.error, /Sign the overlay in with Discord/);
+  await s.post("/accounts", { action: "block", id: "80" });
+  const b = await announcer(s, token, "glr-arca");
+  assert.equal(b.status, 403);
+  assert.equal(b.body.blocked, true);
+  assert.equal((await s.go("/api/overlay/announcer", { headers: { authorization: "Bearer " + token } })).status, 405);
+});

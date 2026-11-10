@@ -73,6 +73,25 @@ overlay.
 Results sent with a token are recorded as sent by that producer (their Discord name, in the site's History), where a
 key records the key's name.
 
+### Announcer producer code (`POST /api/overlay/announcer`, Nov 9, 2026)
+
+The overlay gets its announcer relay producer code from GLR HUB: one show per producer.
+
+- Request: `POST /api/overlay/announcer`, `Authorization: Bearer <vsov_ token>`, JSON `{"show": "<the show the overlay
+  uses now, or empty>"}`.
+- Answer: `{"ok": true, "show": "glr-arca", "code": "https://vspeedlivetiming.app/k/glr-arca.<sig>"}`. `sig` is the
+  relay's own signature (relay/src/index.js `signature()`: base64url HMAC-SHA256 with `CHANNEL_SECRET` over
+  `"producer:" + show`, first 32 characters), so the relay accepts it unchanged.
+- The show is stored on the site and fixed once given. The first time, `show` is kept if it fits the relay's rule
+  (`^[a-z0-9][a-z0-9-]{0,39}$`) and no other producer holds it, so existing announcer links keep working. Otherwise
+  one is made from the Discord name (`sam-o-brien`, then `sam-o-brien-2`; `producer` if the name has no letters).
+- Only a producer's own Discord sign-in: an overlay key or race control's sign-in gets **403** ("Sign the overlay in
+  with Discord…"). Not signed in **401**, blocked **403** with `blocked: true`, as on every overlay endpoint.
+- **503** `"The announcer relay isn't set up on GLR HUB yet"` until the `CHANNEL_SECRET` secret (the relay's value) is
+  in GLR HUB's Cloudflare settings.
+- The code is a key: the site gives it only to that signed-in producer, and never logs it or shows it on a page. The
+  overlay should keep it like its sign-in token (not in diagnostics zips or logs).
+
 ## Errors
 
 The reason is always in `error`.

@@ -51,7 +51,7 @@ import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, i
   logChange, listChanges, whoName, mergeDrivers, separateDriver, aliasesOf, findDrivers,
   seriesEvents, allSeriesEvents, listRoster, addRoster, removeRoster, listSchedule, upcoming, addSchedule, addScheduleLines, deleteSchedule,
   scheduleEntry, linkScheduleTo, getSetting, setSetting, editSchedule,
-  linkDriver, unlinkDriver, setLink, linkedAccount, listAccounts, listClaims, decideClaim, getTeams, saveTeams, setSeriesTeams, listBlocks, setBlock, missedResults, logHelp, helpToday, listHelp, setEventSeason, saveProfile, PROFILE_FIELDS, driversForMatching, directorOf, listDirectors, setDirector, accountRoles, searchDrivers, normName, decisionsFor, fileProtest, listProtests, getProtest, setProtestStatus, listDecisions, addDecision, editDecision, deleteDecision,
+  linkDriver, unlinkDriver, setLink, linkedAccount, listAccounts, listClaims, decideClaim, getTeams, saveTeams, setSeriesTeams, listBlocks, setBlock, missedResults, announcerShow, logHelp, helpToday, listHelp, setEventSeason, saveProfile, PROFILE_FIELDS, driversForMatching, directorOf, listDirectors, setDirector, accountRoles, searchDrivers, normName, decisionsFor, fileProtest, listProtests, getProtest, setProtestStatus, listDecisions, addDecision, editDecision, deleteDecision,
   saveRaceCalls, raceCalls } from "./db.js";
 import { KINDS, AMOUNT, CHANGES_ORDER, decisionText } from "./stewards.js";
 import { resultsPost, standingsPost, teamStandingsPost, penaltyPost, fixPost, decisionPost, penaltyReportPost, enqueue, processQueue, queueFor, retryQueued, discardQueued, isRecent } from "./discord.js";
@@ -1386,6 +1386,15 @@ function linkPage(kind, code, user, { done = false, msg = "" } = {}) {   // msg:
  * sign-in (vsrc_, for results from a race with no broadcast, and the calls). -> { key } or { error, status }.
  * key: { id, name, via: "key" | "ov" | "rc", user? }. count: a race sent (adds to the key's "races sent").
  */
+// the announcer relay's producer-code signature, exactly as relay/src/index.js signature(): base64url of
+// HMAC-SHA256(CHANNEL_SECRET, "producer:" + show), first 32 characters. Change both together or links break.
+async function relaySignature(secret, show) {
+  const key = await crypto.subtle.importKey("raw", new TextEncoder().encode(secret), { name: "HMAC", hash: "SHA-256" }, false, ["sign"]);
+  let b = "";
+  for (const x of new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode("producer:" + show)))) b += String.fromCharCode(x);
+  return btoa(b).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "").slice(0, 32);
+}
+
 // who is calling an overlay endpoint: an overlay key, a producer's sign-in, or race control's sign-in.
 // fresh: read the producer's Discord roles now (the start-up check).
 async function overlayCaller(request, env, db, count, fresh = false) {
@@ -1581,6 +1590,21 @@ const site = {
         if (who.error) return json({ ok: false, error: who.error, ...(who.blocked ? { blocked: true } : {}) }, who.status);
         const calls = (await raceCalls(db, Number(m[1]))).map(({ madeBy, withdrawnBy, ...c }) => c);
         return json({ ok: true, subsessionId: Number(m[1]), calls });
+      }
+      // POST /api/overlay/announcer {"show": "<the overlay's current show, or empty>"}: this producer's announcer show and
+      // producer code for the relay (Nov 2026). Only a producer's own overlay sign-in; the code is a key: it goes to that
+      // producer only, and is never logged or shown on a page.
+      if (path === `${BASE}/api/overlay/announcer`) {
+        if (request.method !== "POST") return json({ ok: false, error: "Use POST." }, 405);
+        const who = await overlayCaller(request, env, db, false);
+        if (who.error) return json({ ok: false, error: who.error, ...(who.blocked ? { blocked: true } : {}) }, who.status);
+        if (who.key.via !== "ov") return json({ ok: false, error: "Sign the overlay in with Discord (Setup tab) to get an announcer link. Overlay keys and race control can't." }, 403);
+        if (!env.CHANNEL_SECRET) return json({ ok: false, error: "The announcer relay isn't set up on GLR HUB yet" }, 503);
+        let body = {};
+        try { body = await request.json(); } catch (e) { /* no body: make a show from their name */ }
+        const u = who.key.user;
+        const show = await announcerShow(db, u.id, String((body && body.show) || "").trim().toLowerCase(), u.name);
+        return json({ ok: true, show, code: `https://vspeedlivetiming.app/k/${show}.${await relaySignature(env.CHANNEL_SECRET, show)}` });
       }
       if (path === `${BASE}/api/overlay/check` || path === `${BASE}/api/overlay/results`) {
         const check = path.endsWith("/check");

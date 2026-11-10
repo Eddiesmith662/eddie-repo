@@ -91,6 +91,7 @@ const SCHEMA = [
   // an admin turned a person's overlay access off: wins over their Discord roles until it's lifted
   `CREATE TABLE IF NOT EXISTS help_log (id INTEGER PRIMARY KEY AUTOINCREMENT, at TEXT NOT NULL, discord_id TEXT NOT NULL, name TEXT, question TEXT NOT NULL, answer TEXT)`,
   `CREATE INDEX IF NOT EXISTS help_log_who ON help_log (discord_id, at)`,
+  `CREATE TABLE IF NOT EXISTS announcer_shows (discord_id TEXT PRIMARY KEY, show TEXT NOT NULL UNIQUE, created_at TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS overlay_blocks (discord_id TEXT PRIMARY KEY, blocked_at TEXT NOT NULL, blocked_by TEXT NOT NULL)`,
   `CREATE TABLE IF NOT EXISTS link_claims (
      id INTEGER PRIMARY KEY AUTOINCREMENT, discord_id TEXT NOT NULL, discord_name TEXT, cust_id INTEGER NOT NULL,
@@ -1065,6 +1066,26 @@ export async function helpToday(db, id, now = Date.now()) {
 }
 export async function listHelp(db, limit = 200) {
   return (await db.prepare(`SELECT * FROM help_log ORDER BY id DESC LIMIT ?`).bind(limit).all()).results;
+}
+
+// Each producer's announcer show (Nov 2026): one per producer, fixed once given. The first time, the show the overlay
+// already uses is kept if it's free (so existing announcer links keep working), else one is made from their name.
+export const SHOW_RE = /^[a-z0-9][a-z0-9-]{0,39}$/;          // the relay's own rule for show names
+export async function announcerShow(db, discordId, want, name) {
+  await ensureSchema(db);
+  const mine = await db.prepare(`SELECT show FROM announcer_shows WHERE discord_id = ?`).bind(discordId).first();
+  if (mine) return mine.show;
+  const taken = async x => !!(await db.prepare(`SELECT 1 FROM announcer_shows WHERE show = ?`).bind(x).first());
+  let show = typeof want === "string" && SHOW_RE.test(want) && !(await taken(want)) ? want : null;
+  if (!show) {
+    const base = (String(name || "").toLowerCase().normalize("NFKD").replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 34).replace(/-+$/, "")) || "producer";
+    for (let i = 1; !show; i++) { const x = i === 1 ? base : `${base}-${i}`; if (!(await taken(x))) show = x; }
+  }
+  // INSERT OR IGNORE + read back: two start-ups at once still end with one show per producer
+  await db.prepare(`INSERT OR IGNORE INTO announcer_shows (discord_id, show, created_at) VALUES (?, ?, ?)`).bind(discordId, show, new Date().toISOString()).run();
+  const got = await db.prepare(`SELECT show FROM announcer_shows WHERE discord_id = ?`).bind(discordId).first();
+  if (!got) throw new Error("That show name was just taken. Try again.");
+  return got.show;
 }
 
 export async function getBlock(db, discordId) {
