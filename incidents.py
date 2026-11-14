@@ -31,6 +31,12 @@ MULTI_S = 4.0              # ... and this close in time = one multi-car incident
 # crash / spin: speed falls below 25% of what it was in the last 8 s (from at least 60 mph), while the rest of the field
 # keeps going (under 35% of the field's speed). Real Talladega crash (Oct 2026): 185 -> 18 mph over about 8 seconds.
 SPIN_FROM, SPIN_FRAC, SPIN_FIELD, SPIN_WINDOW = 60, 0.25, 0.35, 8.0
+# ... and it's well under what cars usually do at that point of the lap. On a road course every car loses that much
+# speed braking for a slow corner (Charlotte Roval, Nov 12, 2026: 140 -> 30 mph into the hairpin, lap after lap; 70 of
+# 80 "spins" and "contacts" in one race were there). The log learns the usual speed round the lap from the cars
+# themselves: the lap in 100 pieces, each car's lowest speed through a piece, under green. A car is only crashing when
+# it is under half the slower cars' speed (the slowest fifth) around that point.
+USUAL_BINS, USUAL_KEEP, USUAL_MIN, USUAL_LOW, USUAL_FRAC = 100, 40, 8, 0.2, 0.5
 WALL_FROM, WALL_TO, WALL_WINDOW = 80, 25, 1.2   # an almost instant stop: hit something
 STOP_MPH, STOP_SECS = 5, 2.0
 SLOW_FRAC, SLOW_SECS = 0.45, 4.0   # under 45% of the field's speed for 4 seconds
@@ -43,7 +49,14 @@ STATE = {"list": [], "seq": 0, "ver": 0}
 
 
 def _new_store():
-    return {"cars": {}, "sess": None, "flag": None, "greenAt": None, "replay": False}
+    return {"cars": {}, "sess": None, "flag": None, "greenAt": None, "replay": False, "usual": {}, "usualM": None}
+
+
+def _usual_low(st, pos):
+    """The speed of the slower cars around this point of the lap (0-1), or None when too few have been by yet."""
+    b = int((pos % 1.0) * USUAL_BINS)
+    seen = sorted(m for k in (b - 1, b, b + 1) for m in st["usual"].get(k % USUAL_BINS, ()))
+    return seen[int(len(seen) * USUAL_LOW)] if len(seen) >= USUAL_MIN else None
 
 
 _store = _new_store()
@@ -96,8 +109,10 @@ def update(live, track_m=0.0, log=None):
     if st["sess"] != sess:
         if st["sess"] is not None:    # a new session (e.g. qualifying -> race): start the log over
             clear()
+        usual, usual_m = st["usual"], st["usualM"]
         _store = st = _new_store()
         st["sess"] = sess
+        st["usual"], st["usualM"] = usual, usual_m      # the usual speeds round the lap carry over: same track
     t = live.get("sessTime")
     if t is None:
         t = time.time()
@@ -114,6 +129,8 @@ def update(live, track_m=0.0, log=None):
         st["greenAt"] = t
     cars = live.get("cars") or []
     track_m = track_m or live.get("trackM") or 0.0
+    if track_m and st["usualM"] != track_m:       # another track: its usual speeds are learned again
+        st["usual"], st["usualM"] = {}, track_m
     base = {"sess": live.get("sessNum", 0), "sessName": live.get("sessionName", ""), "t": round(t, 2)}
 
     # caution (whole field)
@@ -239,6 +256,18 @@ def update(live, track_m=0.0, log=None):
 
         # speed-based guesses (racing, on track, not on pit road)
         mph = c.get("mph")
+        # the usual speed round the lap: this car's lowest speed through each piece of the lap, in any session, under
+        # green (noted once, as it leaves the piece, so a car sitting spun in one doesn't count many times)
+        piece = int((c["progress"] % 1.0) * USUAL_BINS) if c.get("progress") is not None else None
+        clean = mph is not None and on_track and not c.get("pit") and surf == 3 and not yellow and state == 4
+        if piece != cs.get("piece"):
+            if cs.get("pieceMin") is not None and cs.get("piece") is not None:
+                st["usual"].setdefault(cs["piece"], collections.deque(maxlen=USUAL_KEEP)).append(cs["pieceMin"])
+            cs["piece"], cs["pieceMin"] = piece, (mph if clean else None)
+        elif not clean:
+            cs["pieceMin"] = None
+        elif cs.get("pieceMin") is not None:
+            cs["pieceMin"] = min(cs["pieceMin"], mph)
         # only in races: in practice and qualifying cars slow down and stop after their runs, which isn't an incident
         active = is_race and racing and on_track and not c.get("pit") and mph is not None and surf not in (1, 2)   # 1 pit stall, 2 pit entry lane
         settled = st["greenAt"] is not None and t - st["greenAt"] > 20
@@ -258,7 +287,9 @@ def update(live, track_m=0.0, log=None):
         if mph < WALL_TO and wall_peak >= WALL_FROM:
             crash = "wall"
         elif spin_peak >= SPIN_FROM and mph < spin_peak * SPIN_FRAC and (not median or mph < median * SPIN_FIELD):
-            crash = "spin"
+            usual = _usual_low(st, c["progress"]) if c.get("progress") is not None else None
+            if usual is None or mph < usual * USUAL_FRAC:      # not just braking for a slow corner like everyone else
+                crash = "spin"
         if crash:
             others = near(idx, NEAR_M)
             if others:

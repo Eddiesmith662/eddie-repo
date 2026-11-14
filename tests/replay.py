@@ -32,6 +32,9 @@ RECORDINGS = {
     "talladega-2026-10-24-finish": {"track": "Talladega Super Speedway", "length": "2.66 mi", "laps": 50},
     # the same race, laps 15 to 22: caution on lap 17 (pit stops under it), green again on lap 20
     "talladega-2026-10-24-caution": {"track": "Talladega Super Speedway", "length": "2.66 mi", "laps": 50},
+    # Charlotte Roval, Sports Car, Nov 12 2026: 15 minutes of a one-hour race under green. A road course: every car
+    # brakes from 140 mph to about 35 for the hairpin, which the incident log took for spins (test_road_course_incidents)
+    "charlotte-roval-2026-11-12-hairpin": {"track": "Charlotte Motor Speedway", "length": "2.28 mi", "laps": "unlimited"},
 }
 SESSION_TYPES = ["Practice", "Lone Qualify", "Race"]
 

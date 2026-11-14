@@ -155,6 +155,25 @@ class TalladegaCaution(GoldenMixin, unittest.TestCase):
         self.assertEqual(sorted(set(stops.values())), [1, 2])
         self.assertTrue(all(stops.get(r["num"]) for r in self.R["pitrace"].get("list") or []))
 
+class CharlotteRovalHairpin(GoldenMixin, unittest.TestCase):
+    """Charlotte Roval, Sports Car, Nov 12 2026: 15 minutes of a timed race under green, 16 cars. The first road course
+    recording: the hairpin 42% of the way round is taken at about 35 mph after a 140 mph straight."""
+    NAME = "charlotte-roval-2026-11-12-hairpin"
+
+    @classmethod
+    def setUpClass(cls):
+        cls.R = run(cls.NAME)
+
+    def test_green_all_the_way(self):
+        self.assertEqual({r["flag"] for r in self.R["rows"]}, {"green"})
+
+    def test_braking_for_the_hairpin_is_not_logged(self):
+        # at one reading a second the smoothed speeds are gentler than on race night; test_road_course_incidents.py has
+        # the same recording with the cars' real speeds
+        crashes = [(e["t"], e["num"], e["type"], e["detail"]) for e in self.R["incidents"] if e["type"] in ("spin", "contact", "wall", "multi")]
+        self.assertLessEqual(len(crashes), 3, crashes)
+
+
 
 if __name__ == "__main__":
     unittest.main()

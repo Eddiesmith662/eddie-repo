@@ -14,3 +14,5 @@ How it works (CLAUDE.md, "Three chats, one repo"):
 ## Notes
 
 Race control: when the steward is a session admin (so iRacing's live incident points are coming in), spins and car contacts that only the software's own detection saw, with no points from iRacing, no longer fill To review. They are usually cars braking (at the Charlotte Roval on Nov 12, 80 in one race). They stay under All, tagged unconfirmed, and a new Unconfirmed tick at the bottom of the Types menu brings them back. Stopped cars, wall hits and meatballs always show.
+
+Incident log: on road courses, cars braking for a slow corner are no longer logged as spins or car contacts. The log learns the usual speed at each point of the lap from the cars themselves and only logs a car that is well under it (at the Charlotte Roval on Nov 12, 70 false ones in one race came from the hairpin). Nothing to set; ovals work as before. In race control this leaves far fewer incidents to review, for admins and non-admins alike.
