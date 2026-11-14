@@ -60,9 +60,10 @@
   .banner { display: none; align-items: center; gap: 12px; padding: 8px 16px; background: #3a2d00; border-bottom: 1px solid #7a5d00; color: #ffe08a; font-size: 14px; }
   .banner.on { display: flex; }
   .banner button { padding: 4px 12px; }
-  .wrap { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(340px, 1fr) minmax(380px, 1.15fr) minmax(330px, .95fr); grid-template-rows: 1fr minmax(150px, 30%); gap: 12px; padding: 12px; }
+  .wrap { flex: 1; min-height: 0; display: grid; grid-template-columns: minmax(340px, 1fr) minmax(380px, 1.15fr) minmax(330px, .95fr); grid-template-rows: 1fr minmax(190px, 32%); gap: 12px; padding: 12px; }
   section { background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 12px; min-width: 0; min-height: 0; display: flex; flex-direction: column; }
-  section.log { grid-column: 1 / 3; grid-row: 2; } section.map { grid-column: 3; grid-row: 2; }
+  /* bottom row: Calls, Replay (under New call), Map (under the running order) */
+  section.log { grid-column: 1; grid-row: 2; } section.rpl { grid-column: 2; grid-row: 2; overflow-y: auto; } section.map { grid-column: 3; grid-row: 2; }
   h2 { margin: 0 0 10px; font-size: 13px; letter-spacing: 1.5px; text-transform: uppercase; color: var(--dim); display: flex; align-items: center; gap: 8px; }
   h2 .n { background: rgba(0,0,0,.35); color: var(--text); padding: 1px 8px; border-radius: 10px; letter-spacing: 0; font-size: 12px; }
   .scroll { overflow-y: auto; flex: 1; min-height: 0; }
@@ -119,13 +120,15 @@
   .go { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
   .go .msg { color: var(--bad); font-size: 13px; }
   .clist { display: flex; flex-direction: column; gap: 6px; margin-top: 6px; }
-  .call { display: flex; gap: 10px; align-items: flex-start; padding: 7px 9px; background: #1d1d1e; border: 1px solid #2f2f30; border-radius: 5px; font-size: 14px; }
-  .call .what { font-weight: 700; white-space: nowrap; }
-  .call .why { color: #ccc; flex: 1; min-width: 0; }
+  /* Calls is a third of the page wide (Replay sits beside it): who and what on the first line, the reason and what was
+     sent to iRacing on a line of their own underneath */
+  .call { display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: baseline; padding: 7px 9px; background: #1d1d1e; border: 1px solid #2f2f30; border-radius: 5px; font-size: 14px; }
+  .call .what { font-weight: 700; flex: 1 1 auto; min-width: 0; }
+  .call .why { color: #ccc; order: 5; flex: 1 1 100%; min-width: 0; }
   .call .by { color: var(--dim); font-size: 12px; white-space: nowrap; }
   .call.wd { opacity: .55; } .call.wd .what { text-decoration: line-through; }
   .call button { padding: 3px 9px; font-size: 12px; }
-  .call .acts { display: flex; flex-direction: column; gap: 4px; align-items: flex-end; }
+  .call .acts { display: flex; gap: 4px; align-items: center; }
   .sim { margin-top: 4px; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; font-size: 12px; }
   .sim code { font-family: Consolas, "Courier New", monospace; background: #111; border: 1px solid #333; border-radius: 3px; padding: 2px 6px; color: #e5e5e5; font-size: 12px; }
   .ss { font-size: 10px; letter-spacing: 1px; text-transform: uppercase; padding: 2px 6px; border-radius: 3px; font-weight: 700; white-space: nowrap; }
@@ -141,11 +144,11 @@
   .call button.send { background: var(--red); border-color: var(--red); color: #fff; font-weight: 600; }
   .kinds button .sm { display: block; font-size: 10px; letter-spacing: .8px; text-transform: uppercase; opacity: .65; margin-top: 2px; }
   /* replay + running order */
-  .rp { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-bottom: 10px; }
+  .rp { display: grid; grid-template-columns: repeat(5, 1fr); gap: 5px; margin-bottom: 10px; }
   .rp button { padding: 7px 4px; font-size: 13px; }
   .rp button.live { background: var(--red); border-color: var(--red); color: #fff; font-weight: 700; }
   /* iRacing's cameras (the same list the overlay's live timing has): small buttons, the current one lit */
-  .cams { display: grid; grid-template-columns: repeat(auto-fill, minmax(74px, 1fr)); gap: 4px; margin: -4px 0 10px; }
+  .cams { display: grid; grid-template-columns: repeat(auto-fill, minmax(64px, 1fr)); gap: 4px; margin: -2px 0 0; }
   .cams button { padding: 3px 4px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .cams button.on { background: #fff; border-color: #fff; color: #111; font-weight: 700; }
   .cams:empty { display: none; }
@@ -194,8 +197,8 @@
   body.solo .wrap > section:not(.map), body.solo section.map > h2, body.solo .steward, body.solo #site, body.solo .hbar a, body.solo #diagSave, body.solo .sessbar { display: none !important; }
   body.solo section.map { grid-column: 1 / -1; }
   @media (max-width: 1250px) { html, body { height: auto; } .wrap { flex: none; grid-template-columns: 1fr 1fr; grid-template-rows: auto; }
-    section { min-height: 420px; max-height: 80vh; } section.det { max-height: none; } section.ro, section.log, section.map { grid-column: 1 / -1; grid-row: auto; } section.map { min-height: 360px; } }
-  @media (max-width: 760px) { .wrap { grid-template-columns: 1fr; } section.log, section.map { grid-column: 1; } }
+    section { min-height: 420px; max-height: 80vh; } section.det { max-height: none; } section.ro, section.log, section.rpl, section.map { grid-column: 1 / -1; grid-row: auto; } section.rpl { min-height: 0; } section.map { min-height: 360px; } }
+  @media (max-width: 760px) { .wrap { grid-template-columns: 1fr; } section.log, section.rpl, section.map { grid-column: 1; } }
 </style>
 </head>
 <body>
@@ -249,14 +252,17 @@
 
   <section class="det" id="det"></section>
 
-  <section class="ro">
+  <section class="rpl">
     <h2>Replay</h2>
     <div class="rp">
-      <button data-r="back" data-v="10">−10 s</button><button data-r="rew">◀◀</button><button data-r="pause">❚❚</button><button data-r="play">▶</button>
-      <button data-r="speed" data-v="0.5">½ speed</button><button data-r="ff">▶▶</button><button data-r="prevlap">◀ Lap</button><button data-r="nextlap">Lap ▶</button>
-      <button data-r="live" class="live" style="grid-column: 1 / -1">LIVE</button>
+      <button data-r="back" data-v="10">−10 s</button><button data-r="rew">◀◀</button><button data-r="pause">❚❚</button><button data-r="play">▶</button><button data-r="ff">▶▶</button>
+      <button data-r="speed" data-v="0.5">½ speed</button><button data-r="prevlap">◀ Lap</button><button data-r="nextlap">Lap ▶</button>
+      <button data-r="live" class="live" style="grid-column: span 2">LIVE</button>
     </div>
     <div class="cams" id="cams" title="iRacing's cameras, in this PC's sim. The car being watched stays the same."></div>
+  </section>
+
+  <section class="ro">
     <h2>Running order<span class="grow"></span>
       <button id="clearAll" title="Sends !clearall: removes every driver's penalties in iRacing">Clear all penalties</button></h2>
     <div class="scroll" id="orderPane">

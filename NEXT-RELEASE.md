@@ -13,4 +13,4 @@ How it works (CLAUDE.md, "Three chats, one repo"):
 
 ## Notes
 
-Race control: iRacing's cameras are on the Race Control page, under the replay controls (the same list as the overlay's live timing). Click one to switch camera on the steward's own sim; the current one is lit.
+Race control: iRacing's cameras are on the Race Control page, under the replay controls (the same list as the overlay's live timing). Click one to switch camera on the steward's own sim; the current one is lit. The replay controls moved with them to the bottom of the page, between Calls and the map, so the running order has the whole right-hand column.
