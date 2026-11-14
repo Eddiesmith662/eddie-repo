@@ -278,7 +278,7 @@
   </section>
 
   <section class="log">
-    <h2>Calls <span class="n" id="cCount">0</span><span class="grow"></span><span id="file" style="text-transform:none;letter-spacing:0;font-size:12px"></span></h2>
+    <h2 id="callsHead">Calls <span class="n" id="cCount">0</span></h2>
     <div class="scroll"><div class="clist" id="calls"></div></div>
   </section>
 </div>
@@ -677,7 +677,7 @@ function renderCalls() {
     ...(RC.siteCalls || []).map(x => ({ at: x.madeAt || '', h: otherRow(x) }))]
     .sort((a, b) => a.at < b.at ? 1 : a.at > b.at ? -1 : 0);
   $('cCount').textContent = RC.calls.filter(c => c.status === 'active').length;
-  $('file').textContent = RC.file ? 'Saved in ' + RC.file : '';
+  $('callsHead').title = RC.file ? 'Saved in ' + RC.file : '';     // where the race is saved: on hover, not a line of its own (the panel is narrow)
   const html = list.length ? list.map(x => x.h).join('') : '<div class="empty">No calls yet</div>';
   if ($('calls')._h !== html) { $('calls')._h = html; $('calls').innerHTML = html; }
 }
