@@ -128,6 +128,7 @@ const ADDED = [
   ["series", "hidden", "INTEGER NOT NULL DEFAULT 0"], ["series", "logo_at", "TEXT NOT NULL DEFAULT ''"],   // Add series (Nov 2026)
   // reusing a league ID (Nov 2026): a series set aside as a past series, the league it had and until when; and a
   // series that took over a league ID another series had before
+  ["discord_queue", "card_waits", "INTEGER"],          // times a standings post has waited its turn for a picture
   ["series", "past", "INTEGER NOT NULL DEFAULT 0"], ["series", "was_league", "INTEGER"], ["series", "retired_at", "TEXT"], ["series", "reused", "INTEGER NOT NULL DEFAULT 0"],
   ["series", "teams", "INTEGER NOT NULL DEFAULT 0"], ["series", "hook_teams", "TEXT NOT NULL DEFAULT ''"],   // team points (the Warrior series only): an admin turns it on, on Edit series
   ["results", "orig_cust_id", "INTEGER"],

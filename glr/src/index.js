@@ -1013,6 +1013,49 @@ function standingsBody(st) {
   return body;
 }
 
+/*
+ * Standings pictures for Discord (Nov 2026). A card is a small page with the top CARD_ROWS of the standings, laid out
+ * like the standings page. When a standings post goes out, Cloudflare's Browser Run takes a picture of the card
+ * (the #card box) and the picture is attached to the post (discord.js). The card pages are public, like the
+ * standings themselves, and are handy to look at when changing how the picture looks.
+ */
+const CARD_ROWS = 20;
+function cardPage(sr, season, heading, inner, more, link) {
+  const logo = logoUrl(sr);
+  return page(`${sr.short_name} ${heading.toLowerCase()}`, `<style>#card{width:900px;padding:22px 24px 16px;background:var(--bg);color:var(--text)}
+    #card .top{display:flex;align-items:center;gap:16px;margin-bottom:14px}#card .top img{height:64px;max-width:220px;object-fit:contain}
+    #card .top h1{margin:0;font-size:26px}#card .top p{margin:2px 0 0 14px;color:var(--dim)}#card h2{margin:16px 0 8px}#card a{color:inherit;text-decoration:none}
+    #card .foot{display:flex;justify-content:space-between;margin-top:10px;color:var(--dim);font-size:13px}#card details,#card .tag.note{display:none}</style>
+    <div id="card"><div class="top">${logo ? `<img src="${logo}" alt="">` : ""}<div><h1>${esc(sr.short_name)} · ${esc(heading)}</h1><p>${esc(season.name)}</p></div></div>
+    ${inner}<div class="foot"><span>${esc(more)}</span><span>${esc(link)}</span></div></div>`);
+}
+function standingsCard(sr, season, st, origin) {
+  const po = st.rules.playoffs, host = origin.replace(/^https?:\/\//, "");
+  let inner = "", cut = 0;
+  for (const g of st.groups) {
+    const p = g.playoffs, klass = st.groups.length > 1 ? `${esc(g.carClass || "")} · ` : "";
+    if (po.enabled && p && p.started) {
+      const cur = p.current;
+      inner += `<h2>${klass}${esc(cur.name)}${cur.finale && cur.complete ? " (final)" : ` · after race ${cur.ran} of ${cur.races}`}</h2>` + roundTable({ ...cur, rows: cur.rows.slice(0, CARD_ROWS) });
+      cut += Math.max(0, cur.rows.length - CARD_ROWS);
+    } else {
+      const cutAfter = po.enabled ? cutRow(g) : 0;
+      inner += `<h2>${klass}${po.enabled ? "Regular season" : "Standings"} · ${g.regularRan} race${g.regularRan === 1 ? "" : "s"}</h2>` +
+        regularTable(g.regular.slice(0, CARD_ROWS), st.rules, { cutAfter: cutAfter > 0 && cutAfter < CARD_ROWS ? cutAfter : 0, playoffNote: po.enabled });
+      cut += Math.max(0, g.regular.length - CARD_ROWS);
+    }
+  }
+  if (!st.groups.length) inner = `<p class="hint">No races counted in this season yet.</p>`;
+  return cardPage(sr, season, "Standings", inner, cut ? `Top ${CARD_ROWS} shown · ${cut} more on the site` : "", `${host}${BASE}/${sr.slug}/standings`);
+}
+function teamsCard(sr, season, ts, origin) {
+  const top = ts.teams[0] ? ts.teams[0].total : 0, rows = ts.teams.slice(0, CARD_ROWS);
+  const inner = rows.length ? `<h2>Team standings · ${ts.races.length} race${ts.races.length === 1 ? "" : "s"}</h2><div class="wrap"><table><tr><th class="n">Pos</th><th>Team</th><th class="n">Points</th><th class="n">Behind</th><th class="n">Drivers</th></tr>` +
+    rows.map(t => `<tr><td class="n">${t.pos}</td><td>${esc(t.name)}</td><td class="n"><b>${teamNum(t.total)}</b></td><td class="n">${t.total < top ? "-" + teamNum(Math.round((top - t.total) * 1000) / 1000) : ""}</td><td class="n">${t.drivers.size}</td></tr>`).join("") + `</table></div>`
+    : `<p class="hint">No teams for this season yet.</p>`;
+  return cardPage(sr, season, "Team standings", inner, ts.teams.length > CARD_ROWS ? `Top ${CARD_ROWS} shown · ${ts.teams.length - CARD_ROWS} more on the site` : "", `${origin.replace(/^https?:\/\//, "")}${BASE}/${sr.slug}/teams`);
+}
+
 // team points (the Warrior points system): team standings for a season, each team's drivers, and the editor
 const teamNum = n => Number.isInteger(n) ? String(n) : n.toFixed(2).replace(/0$/, "");
 function teamsPage(sr, seasons, season, user, { teams = [], ts = null, problems = [], msg = "" } = {}) {
@@ -1825,7 +1868,7 @@ function helpLogPage(user, rows) {
 
 const site = {
   async scheduled(event, env, ctx) {
-    ctx.waitUntil(processQueue(env.DB));       // retry Discord posts that are waiting
+    ctx.waitUntil(processQueue(env.DB, 15, env));       // retry Discord posts that are waiting
   },
 
   async fetch(request, env, ctx) {
@@ -1846,7 +1889,7 @@ const site = {
 
   async route(request, env, ctx) {
     const url = new URL(request.url);
-    const kick = () => { if (ctx) ctx.waitUntil(processQueue(env.DB).catch(e => console.error(e))); };
+    const kick = () => { if (ctx) ctx.waitUntil(processQueue(env.DB, 15, env).catch(e => console.error(e))); };
     const path = url.pathname.replace(/\/+$/, "") || "/";
     const db = env.DB;
     try {
@@ -2134,7 +2177,7 @@ const site = {
               const items = await penaltyItems(db, ev);
               if (!items.length) throw new Error("No penalties to send for this race.");
               await enqueue(db, sr.id, "penalties", "report", sub, penaltyReportPost(sr, ev, items, url.origin));
-              const out = await processQueue(db);
+              const out = await processQueue(db, 15, env);
               await logChange(db, { by, seriesId: sr.id, sub, kind: "webhook", summary: `Penalty report for ${ev.track} posted to Discord by hand (${items.length})` });
               msg = out.includes("sent") ? `Sent: the penalty report (${items.length} penalt${items.length === 1 ? "y" : "ies"}). Check the channel.` : "It didn't go through; see Waiting to post on Edit series.";
             } else if ((a === "close" || a === "reopen") && p && p.subsession_id === sub) {
@@ -2547,6 +2590,13 @@ const site = {
         const round = await currentRound(db, sr.id);
         return seriesDriversPage(sr, rows, roster, user, msg, round ? { round, list: activeOf(await listSignups(db, round.id)) } : null);
       }
+      if ((m = path.match(/^\/([a-z0-9-]+)\/(standings|teams)\/card$/))) {          // the picture for Discord (standings cards, above)
+        const sr = await getSeries(db, m[1]);
+        const seasons = sr ? await seasonsOf(db, sr.id) : [], season = sr && pickSeason(seasons, url);
+        if (!sr || !season || (m[2] === "teams" && !sr.teams)) return notFound("No standings at that address.", user);
+        const st = await seasonStandings(db, sr, season);
+        return m[2] === "teams" ? teamsCard(sr, season, teamStandings(await getTeams(db, sr.id, season.id), st), url.origin) : standingsCard(sr, season, st, url.origin);
+      }
       if ((m = path.match(/^\/([a-z0-9-]+)\/(standings|rules|penalties|teams)$/))) {
         const sr = await getSeries(db, m[1]);
         if (!sr) return notFound("No series at that address.", user);
@@ -2703,13 +2753,13 @@ const site = {
             let note = "";
             try {
               const kind = String(f.get("kind") || "");
-              if (act === "retry") { await retryQueued(db, sr.id, Number(f.get("id"))); await processQueue(db); }
+              if (act === "retry") { await retryQueued(db, sr.id, Number(f.get("id"))); await processQueue(db, 15, env); }
               else if (act === "discard") await discardQueued(db, sr.id, Number(f.get("id")));
               else if (f.get("clear")) { await setHook(db, sr.id, kind, ""); note = "Removed.";
                 await logChange(db, { by: `discord:${user.id}:${user.name}`, seriesId: sr.id, kind: "webhook", summary: `Discord ${kind} posts switched off` }); }
               else if (f.get("latest")) {
                 const ev = await postLatest(db, sr, kind, url.origin);
-                const out = await processQueue(db);
+                const out = await processQueue(db, 15, env);
                 const what = kind === "teams" ? "Team standings" : kind[0].toUpperCase() + kind.slice(1);
                 await logChange(db, { by: `discord:${user.id}:${user.name}`, seriesId: sr.id, sub: ev.subsession_id, kind: "webhook", summary: `${what} for ${ev.track} posted to Discord by hand` });
                 note = out.includes("sent") ? `Sent: ${what.toLowerCase()} for ${ev.track}, ${day(ev.start_time)}. Check the channel.` : "It didn't go through; see Waiting to post below.";
@@ -2717,7 +2767,7 @@ const site = {
               else if (f.get("test")) {
                 await enqueue(db, sr.id, kind, "test", null, { embeds: [{ title: `${sr.short_name}: test post`, color: 0xFF0D40,
                   description: `This channel will get the ${sr.short_name} ${kind === "teams" ? "team standings" : kind} posts from GLR HUB.`, url: `${url.origin}${BASE}/${sr.slug}` }] });
-                const out = await processQueue(db);
+                const out = await processQueue(db, 15, env);
                 note = out.includes("sent") ? "Test sent. Check the channel." : "The test didn't go through; see Waiting to post below.";
               } else {
                 const u = String(f.get("url") || "").trim();

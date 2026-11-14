@@ -71,7 +71,7 @@ export function standingsPost(sr, season, st, ev, origin) {
     return { title: `${sr.short_name}${g.carClass && st.groups.length > 1 ? ` ${g.carClass}` : ""} · ${title}`, url, color: COLOR,
       description: lines.join("\n").slice(0, 4000), footer: { text: `${season.name} · after ${ev.track}` } };
   });
-  return { embeds };
+  return { embeds, card: `${origin}/${sr.slug}/standings/card?season=${season.id}` };
 }
 
 // team standings after a race (a series with team points, the Warrior series): ts from teams.js teamStandings
@@ -81,7 +81,34 @@ export function teamStandingsPost(sr, season, ts, ev, origin) {
   const lines = ts.teams.slice(0, 20).map(t => `${t.pos}. ${md(t.name)}: **${pts(t.total)}**${t.total < top ? ` (−${pts(Math.round((top - t.total) * 1000) / 1000)})` : ""}`);
   if (ts.teams.length > 20) lines.push(`…and ${ts.teams.length - 20} more`);
   return { embeds: [{ title: `${sr.short_name} · Team standings · ${ts.races.length} race${ts.races.length === 1 ? "" : "s"}`, url: `${origin}/${sr.slug}/teams`, color: COLOR,
-    description: lines.join("\n").slice(0, 4000), footer: { text: `${season.name} · after ${ev.track}` } }] };
+    description: lines.join("\n").slice(0, 4000), footer: { text: `${season.name} · after ${ev.track}` } }],
+    card: `${origin}/${sr.slug}/teams/card?season=${season.id}` };
+}
+
+/*
+ * Standings as a picture (Nov 2026). A standings post carries "card": the address of a small page on the site with
+ * the standings laid out like the standings page. If the two Cloudflare secrets are set (CF_ACCOUNT_ID and
+ * BROWSER_TOKEN, an API token with the Browser Run - Edit permission), Cloudflare's Browser Run takes a picture of
+ * that page and the post goes out as the picture. Anything wrong (no secrets, Browser Run down or over its daily
+ * allowance) and the post goes out as text, as before: a standings post is never lost for want of a picture.
+ * -> { png } | { busy: true } (asked to slow down: try again shortly) | null
+ */
+const SHOT_MS = 25000;
+export async function cardPicture(env, cardUrl) {
+  if (!env || !env.CF_ACCOUNT_ID || !env.BROWSER_TOKEN || !cardUrl) return null;
+  const ctl = new AbortController(), timer = setTimeout(() => ctl.abort(), SHOT_MS);
+  try {
+    const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${env.CF_ACCOUNT_ID}/browser-run/screenshot`, { method: "POST", signal: ctl.signal,
+      headers: { authorization: `Bearer ${env.BROWSER_TOKEN}`, "content-type": "application/json" },
+      body: JSON.stringify({ url: cardUrl, selector: "#card", viewport: { width: 1000, height: 800, deviceScaleFactor: 2 }, gotoOptions: { waitUntil: "networkidle0", timeout: 15000 } }) });
+    if (res.status === 429) { console.log("discord: standings picture: Browser Run asked to slow down"); return { busy: true }; }
+    const type = res.headers.get("content-type") || "";
+    if (!res.ok || !type.startsWith("image/")) { console.log(`discord: standings picture failed (${res.status}): ${(await res.text().catch(() => "")).slice(0, 200)}`); return null; }
+    const png = await res.arrayBuffer();
+    if (png.byteLength < 1000 || png.byteLength > 7e6) { console.log(`discord: standings picture is an odd size (${png.byteLength} bytes)`); return null; }
+    return { png };
+  } catch (e) { console.log(`discord: standings picture failed: ${e && e.message}`); return null; }
+  finally { clearTimeout(timer); }
 }
 
 export function penaltyPost(sr, ev, a, origin) {
@@ -117,12 +144,31 @@ export async function enqueue(db, seriesId, hook, kind, sub, body, editOf = null
     .bind(seriesId, hook, kind, sub, JSON.stringify(body), editOf, new Date().toISOString()).run();
 }
 
-async function sendOne(db, q, url) {
-  const body = JSON.stringify({ ...JSON.parse(q.body), allowed_mentions: { parse: [] }, username: "GLR HUB" });
+const CARD_WAITS = 3;      // times a post waits for Browser Run to be free before it goes out as text
+async function sendOne(db, q, url, env) {
+  const { card, ...post } = JSON.parse(q.body);
   const editing = !!q.edit_of;
+  let payload = { ...post, allowed_mentions: { parse: [] }, username: "GLR HUB" }, init = null;
+  if (card && !editing) {
+    const pic = (q.card_waits || 0) < CARD_WAITS ? await cardPicture(env, card) : null;
+    if (pic && pic.busy) {          // Browser Run takes one picture every 10 seconds on the free plan: this one waits its turn
+      await db.prepare(`UPDATE discord_queue SET next_try = ?, card_waits = COALESCE(card_waits, 0) + 1, last_error = ? WHERE id = ?`).bind(Date.now() + 12000, "Waiting to make the standings picture", q.id).run();
+      return "wait-picture";
+    }
+    if (pic && pic.png) {
+      const first = (post.embeds || [])[0] || {};
+      payload = { ...payload, embeds: [{ title: (post.embeds || []).length > 1 ? String(first.title || "").split(" · ")[0] + " · Standings" : first.title, url: first.url, color: first.color, footer: first.footer, image: { url: "attachment://standings.png" } }],
+        attachments: [{ id: 0, filename: "standings.png" }] };
+      const form = new FormData();
+      form.append("payload_json", JSON.stringify(payload));
+      form.append("files[0]", new Blob([pic.png], { type: "image/png" }), "standings.png");
+      init = { method: "POST", body: form };
+    }
+  }
+  if (!init) init = { method: editing ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload) };
   let res;
   try {
-    res = await fetch(editing ? `${url}/messages/${q.edit_of}` : `${url}?wait=true`, { method: editing ? "PATCH" : "POST", headers: { "content-type": "application/json" }, body });
+    res = await fetch(editing ? `${url}/messages/${q.edit_of}` : `${url}?wait=true`, init);
   } catch (e) { res = null; }
   const now = Date.now();
   if (res && res.ok) {
@@ -134,7 +180,7 @@ async function sendOne(db, q, url) {
   }
   if (res && res.status === 404 && editing) {                     // the post was deleted in Discord: post it again
     await db.prepare(`UPDATE discord_queue SET edit_of = NULL WHERE id = ?`).bind(q.id).run();
-    return sendOne(db, { ...q, edit_of: null }, url);
+    return sendOne(db, { ...q, edit_of: null }, url, env);
   }
   if (res && res.status === 429) {                                // Discord says wait: wait exactly that long
     const j = await res.json().catch(() => ({}));
@@ -160,7 +206,7 @@ async function fail(db, q, why, permanent) {
 }
 
 // send what's due, oldest first, one at a time (Discord allows a few posts a second per webhook)
-export async function processQueue(db, limit = 15) {
+export async function processQueue(db, limit = 15, env = null) {
   await ensureSchema(db);
   const due = (await db.prepare(`SELECT * FROM discord_queue WHERE sent_at IS NULL AND next_try <= ? ORDER BY id LIMIT ?`).bind(Date.now(), limit).all()).results;
   const out = [];
@@ -168,8 +214,19 @@ export async function processQueue(db, limit = 15) {
     const sr = await db.prepare(`SELECT hook_results, hook_standings, hook_teams, hook_penalties FROM series WHERE id = ?`).bind(q.series_id).first();
     const url = sr && sr[`hook_${q.hook}`];
     if (!url) { out.push(await fail(db, q, "No webhook set for this post", true)); continue; }
-    out.push(await sendOne(db, q, url));
+    out.push(await sendOne(db, q, url, env));
     if (out[out.length - 1] === "wait") break;
+  }
+  // a post waiting its turn for a picture (Browser Run takes one every 10 seconds on the free plan: standings, then
+  // team standings) gets it here, not at the next 5-minute check
+  for (let pass = 0; pass < 2 && out.includes("wait-picture"); pass++) {
+    await new Promise(r => setTimeout(r, Number(env && env.CARD_WAIT_MS) || 11000));
+    const again = due.filter((q, i) => out[i] === "wait-picture");
+    for (const q of again) {
+      const sr = await db.prepare(`SELECT hook_results, hook_standings, hook_teams, hook_penalties FROM series WHERE id = ?`).bind(q.series_id).first();
+      const fresh = await db.prepare(`SELECT * FROM discord_queue WHERE id = ? AND sent_at IS NULL`).bind(q.id).first();
+      if (fresh && sr && sr[`hook_${q.hook}`]) out[due.indexOf(q)] = await sendOne(db, fresh, sr[`hook_${q.hook}`], env);
+    }
   }
   // keep the table small: sent posts older than 30 days go
   await db.prepare(`DELETE FROM discord_queue WHERE sent_at IS NOT NULL AND sent_at < ?`).bind(new Date(Date.now() - 30 * 864e5).toISOString()).run();
