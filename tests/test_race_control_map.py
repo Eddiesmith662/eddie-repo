@@ -165,6 +165,40 @@ class Placing(unittest.TestCase):
         finally:
             page.close()
 
+    def test_a_call_is_two_short_lines_and_a_click_shows_the_rest(self):
+        # Nov 14, 2026: with Calls a third of the page wide, a call with a long reason was 137 px tall (173 at
+        # 1366x768) and the panel showed one or two. Now each is two lines; a click gives the full reason and command.
+        page = self.browser.new_page(viewport={"width": 1366, "height": 768})
+        try:
+            with open(os.path.join(STATIC, "racecontrol.html"), encoding="utf-8") as f:
+                page.set_content(f.read())
+            got = page.evaluate("""() => {
+                const reason = 'Avoidable contact in turn 3, sent the other car into the wall and did not give the place back';
+                RC.calls = [{id: 'c1', at: '2026-11-14T15:00:00Z', steward: 'Steward X', kind: 'drivethrough', value: null, reason,
+                    car: {idx: 3, num: '51', name: 'Driver One'}, lap: 4, status: 'active',
+                    sim: {cmd: '!black #51 D ' + reason, state: 'inSim', inSimLap: 4, by: 'Steward X'}},
+                  {id: 'c2', at: '2026-11-14T15:01:00Z', steward: 'Steward X', kind: 'warning', value: null, reason: 'Track limits',
+                    car: {idx: 5, num: '10', name: 'Driver Two'}, lap: 5, status: 'active',
+                    sim: {cmd: '/#10 Race control warning: Track limits', state: 'ready'}}];
+                renderCalls();
+                const rows = [...document.querySelectorAll('#calls .call')];
+                const closed = rows.map(r => Math.round(r.getBoundingClientRect().height));
+                const text = rows[1].innerText;
+                rows[1].querySelector('.why').click();
+                const open = document.querySelector('#calls .call.open');
+                return {closed, text, openHeight: Math.round(open.getBoundingClientRect().height),
+                        cmdShown: getComputedStyle(open.querySelector('.more')).display !== 'none',
+                        buttons: [...document.querySelectorAll('#calls button')].map(b => b.textContent)};
+            }""")
+            self.assertTrue(all(h <= 60 for h in got["closed"]), got["closed"])
+            for part in ("#51 Driver One", "IN THE SIM", "since lap 4", "Steward X"):
+                self.assertIn(part.lower(), got["text"].lower())
+            self.assertGreater(got["openHeight"], 60)
+            self.assertTrue(got["cmdShown"])
+            self.assertEqual(sorted(set(got["buttons"])), ["Send to iRacing", "Withdraw"])
+        finally:
+            page.close()
+
     def test_the_page_leaves_the_browsers_own_functions_alone(self):
         # Nov 7, 2026: the page's open-an-incident function was called open(), which replaced window.open, so Pop out
         # map (and the Sign in window) did nothing.
