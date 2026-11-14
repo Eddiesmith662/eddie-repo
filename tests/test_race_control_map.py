@@ -143,6 +143,28 @@ class Placing(unittest.TestCase):
         r = self.place(LEFT, [0.25])
         self.assertLess(r["pts"][0]["x"], 320)                  # the other way round
 
+    def test_the_camera_buttons_list_iracings_cameras_and_light_the_current_one(self):
+        # a steward asked (Nov 14, 2026) for the overlay's camera list on the Race Control page
+        page = self.browser.new_page()
+        try:
+            with open(os.path.join(STATIC, "racecontrol.html"), encoding="utf-8") as f:
+                page.set_content(f.read())
+            page.add_script_tag(path=os.path.join(STATIC, "rcmap.js"))
+            got = page.evaluate("""() => {
+                const sent = []; window.fetch = (u, o) => { sent.push([u, o && o.body]); return Promise.resolve(new Response('{"ok":true}')); };
+                L = {connected: true, camGroup: 10, camGroups: [{num: 9, name: 'TV1'}, {num: 10, name: 'TV2'}, {num: 3, name: 'Cockpit'}]};
+                renderLive();
+                const names = [...document.querySelectorAll('#cams button')].map(b => b.textContent);
+                const lit = [...document.querySelectorAll('#cams button.on')].map(b => b.textContent);
+                document.querySelector('#cams [data-g="3"]').click();
+                return {names, lit, sent: sent.filter(s => s[0] === '/api/camera').map(s => s[1])};
+            }""")
+            self.assertEqual(got["names"], ["TV1", "TV2", "Cockpit"])
+            self.assertEqual(got["lit"], ["TV2"])
+            self.assertEqual([json.loads(b) for b in got["sent"]], [{"group": 3}])
+        finally:
+            page.close()
+
     def test_the_page_leaves_the_browsers_own_functions_alone(self):
         # Nov 7, 2026: the page's open-an-incident function was called open(), which replaced window.open, so Pop out
         # map (and the Sign in window) did nothing.

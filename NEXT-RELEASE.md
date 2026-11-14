@@ -12,3 +12,5 @@ How it works (CLAUDE.md, "Three chats, one repo"):
   VERSION bump).
 
 ## Notes
+
+Race control: iRacing's cameras are on the Race Control page, under the replay controls (the same list as the overlay's live timing). Click one to switch camera on the steward's own sim; the current one is lit.

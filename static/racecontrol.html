@@ -144,6 +144,11 @@
   .rp { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; margin-bottom: 10px; }
   .rp button { padding: 7px 4px; font-size: 13px; }
   .rp button.live { background: var(--red); border-color: var(--red); color: #fff; font-weight: 700; }
+  /* iRacing's cameras (the same list the overlay's live timing has): small buttons, the current one lit */
+  .cams { display: grid; grid-template-columns: repeat(auto-fill, minmax(74px, 1fr)); gap: 4px; margin: -4px 0 10px; }
+  .cams button { padding: 3px 4px; font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .cams button.on { background: #fff; border-color: #fff; color: #111; font-weight: 700; }
+  .cams:empty { display: none; }
   table { width: 100%; border-collapse: collapse; font-size: 13px; font-variant-numeric: tabular-nums; }
   th { text-align: left; font-weight: 400; color: var(--dim); font-size: 11px; letter-spacing: 1px; text-transform: uppercase; padding: 4px 5px; position: sticky; top: 0; background: var(--panel); }
   td { padding: 4px 5px; border-top: 1px solid #2c2c2d; white-space: nowrap; }
@@ -251,6 +256,7 @@
       <button data-r="speed" data-v="0.5">½ speed</button><button data-r="ff">▶▶</button><button data-r="prevlap">◀ Lap</button><button data-r="nextlap">Lap ▶</button>
       <button data-r="live" class="live" style="grid-column: 1 / -1">LIVE</button>
     </div>
+    <div class="cams" id="cams" title="iRacing's cameras, in this PC's sim. The car being watched stays the same."></div>
     <h2>Running order<span class="grow"></span>
       <button id="clearAll" title="Sends !clearall: removes every driver's penalties in iRacing">Clear all penalties</button></h2>
     <div class="scroll" id="orderPane">
@@ -331,6 +337,8 @@ function renderLive() {
   const flag = L.flag ? `<span class="flag ${esc(L.flag)}">${esc(L.flag.toUpperCase())}</span>` : '';
   $('sess').innerHTML = on ? `${esc(L.track || '')} · ${esc(L.sessionName || '')}${L.lap ? ` · Lap ${L.lap}${L.totalLaps ? '/' + L.totalLaps : ''}` : ''} ${flag}` : '–';
   $('replayBanner').classList.toggle('on', !!(on && L.isReplay));
+  const groups = on ? (L.camGroups || []) : [], ck = groups.map(g => g.num + g.name).join('|') + '#' + L.camGroup;
+  if ($('cams')._k !== ck) { $('cams')._k = ck; $('cams').innerHTML = groups.map(g => `<button data-g="${g.num}" class="${g.num === L.camGroup ? 'on' : ''}" title="${esc(g.name)}">${esc(g.name)}</button>`).join(''); }
   if (L.sessNum !== renderLive.sess) { renderLive.sess = L.sessNum; if (RC.queue) renderQueue(); }
   const caution = L.flag === 'caution';
   $('sbYellow').disabled = !on || caution; $('sbYellow').title = caution ? 'It\'s already under caution' : 'Sends !yellow (with the message, if there is one, for everyone to see). Press twice: the first press arms it.';
@@ -701,6 +709,7 @@ $('sbAdvance').onclick = () => {
 /* ---------- the map (small, bottom right) and its pop-out window ---------- */
 const SOLO = new URLSearchParams(location.search).get('solo') === 'map';
 if (SOLO) { document.body.classList.add('solo'); document.title = 'VSPEED Race Control · Map'; $('mapPane').classList.remove('small'); }
+$('cams').onclick = e => { const b = e.target.closest('[data-g]'); if (b) post('/api/camera', { group: +b.dataset.g }); };
 $('diagSave').onclick = async () => {
   toast('Saving diagnostics…');
   const r = await post('/api/diagnostics', {});

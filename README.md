@@ -262,6 +262,9 @@ control from before v1.5.38 kept its calls in `data\race-control`; they're copie
   what still needs a look. Click one to open it; double-click to replay it in the sim (the seconds box sets how far
   before it the replay starts). Replaying marks it **Reviewing**. Only the current session's incidents show:
   practice and qualifying ones stay saved in the race file but don't carry over to the race.
+- **Replay and cameras** (top right): the replay controls and **LIVE**, and under them iRacing's cameras (the same list
+  as the overlay's live timing). Click one to switch camera in this PC's sim; the car being watched stays the same,
+  and the current camera is lit.
 - **Dismiss** (on an incident, or in the open incident) takes it off **To review** with no call: nothing goes to the
   league site, and who dismissed it is kept. It stays under **All**, marked Dismissed, and **Put back** returns it.
   **Clear list** dismisses every incident still New or Reviewing in this session at once, after asking (ones with a
