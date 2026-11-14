@@ -1,4 +1,4 @@
-# Next release: v1.5.49 (draft)
+# Next release: v1.5.50 (draft)
 
 The release notes for the next overlay release, built up as changes land. Producers see the notes in the black window
 when the update is offered (the first 25 lines), so each change gets one short paragraph in plain words: what's
@@ -12,5 +12,3 @@ How it works (CLAUDE.md, "Three chats, one repo"):
   VERSION bump).
 
 ## Notes
-
-Race control: iRacing's cameras are on the Race Control page, under the replay controls (the same list as the overlay's live timing). Click one to switch camera on the steward's own sim; the current one is lit. The replay controls moved with them to the bottom of the page, between Calls and the map, so the running order has the whole right-hand column.
