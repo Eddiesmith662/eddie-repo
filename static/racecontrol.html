@@ -82,6 +82,7 @@
   .types[hidden] { display: none; }
   .types label { display: flex; align-items: center; gap: 8px; padding: 5px 8px; font-size: 14px; cursor: pointer; border-radius: 4px; }
   .types label:hover { background: #2c2c2d; }
+  .types label.unc { margin-top: 4px; padding-top: 8px; border-top: 1px solid var(--line); border-radius: 0; font-size: 13px; color: #ccc; }
   .types input { accent-color: var(--red); }
   .q { display: flex; flex-direction: column; gap: 4px; }
   .inc { display: grid; grid-template-columns: 50px 1fr; gap: 2px 8px; padding: 7px 8px; background: #1d1d1e; border: 1px solid #2f2f30; border-left: 4px solid var(--ic, #666); border-radius: 5px; cursor: pointer; user-select: none; }
@@ -315,7 +316,7 @@ const COLORS = { offtrack: ['#8b8f96'], spin: ['#ff8a3d'], contact: ['#ff4d6d'],
 const STATUS = { new: 'New', reviewing: 'Reviewing', decided: 'Decided', noaction: 'No action', logged: 'Logged', dismissed: 'Dismissed' };
 const RC = { ver: -1, queue: [], calls: [], kinds: [], types: [], inReplay: false, busy: false };
 let L = { connected: false, cars: [] }, S = {}, LU = {};
-let view = load('rcView', 'review'), off = new Set(load('rcOff', ['offtrack', 'slow'])), cur = null, form = { kind: null, idx: null, value: '', reason: '' }, sel = null;
+let view = load('rcView', 'review'), off = new Set(load('rcOff', ['offtrack', 'slow'])), showUnc = !!load('rcUnc', false), cur = null, form = { kind: null, idx: null, value: '', reason: '' }, sel = null;
 $('rewind').value = load('rcRewind', 10);
 $('rewind').onchange = () => store('rcRewind', +$('rewind').value || 0);
 
@@ -439,7 +440,10 @@ $('steward').onchange = async () => { await post('/api/rc', { cmd: 'steward', na
 /* ---------- queue ---------- */
 // Only this session's incidents: practice and qualifying ones stay in the race's file but don't carry over to the race.
 const here = q => !L.connected || L.sessNum == null || q.sess == null || q.sess === L.sessNum;
-const inView = q => view === 'all' ? true : view === 'review' ? (q.status === 'new' || q.status === 'reviewing')
+// Unconfirmed: only the software saw it and iRacing, whose live points were coming in, gave none (racecontrol.py).
+// Kept off To review and the map unless "Unconfirmed" is ticked in the Types menu; always under All.
+const hidUnc = q => q.unconfirmed && !showUnc;
+const inView = q => view === 'all' ? true : view === 'review' ? ((q.status === 'new' || q.status === 'reviewing') && !hidUnc(q))
   : view === 'decided' ? (q.status === 'decided' || q.status === 'noaction') : q.status === 'logged';
 function callText(c) {
   const k = RC.kinds.find(k => k.key === c.kind) || { label: c.kind };
@@ -450,16 +454,17 @@ function renderQueue() {
   const label = Object.fromEntries(RC.types || []);
   const now = RC.queue.filter(here), earlier = RC.queue.length - now.length;
   const shown = now.filter(q => inView(q) && !off.has(q.type)).slice().reverse();
-  const review = now.filter(q => q.status === 'new' || q.status === 'reviewing').length;
+  const review = now.filter(q => (q.status === 'new' || q.status === 'reviewing') && !hidUnc(q)).length;
+  const unc = now.filter(q => (q.status === 'new' || q.status === 'reviewing') && hidUnc(q)).length;
   $('qCount').textContent = view === 'review' ? review : shown.length;
   document.querySelectorAll('#view button').forEach(b => b.classList.toggle('on', b.dataset.v === view));
-  const html = !shown.length ? `<div class="empty">${view === 'review' ? 'Nothing to review' : 'Nothing here yet'}${earlier ? `<br><span class="by">Earlier sessions' incidents (${earlier}) are saved but not shown here.</span>` : ''}</div>` : shown.map(q => {
+  const html = !shown.length ? `<div class="empty">${view === 'review' ? 'Nothing to review' : 'Nothing here yet'}${view === 'review' && unc ? `<br><span class="by">${unc} unconfirmed (no iRacing points) under All.</span>` : ''}${earlier ? `<br><span class="by">Earlier sessions' incidents (${earlier}) are saved but not shown here.</span>` : ''}</div>` : shown.map(q => {
     const [bg, fg] = COLORS[q.type] || ['#666'];
     const calls = RC.calls.filter(c => c.incident === q.id && c.status === 'active');
     return `<div class="inc ${cur === q.id ? 'cur' : ''} ${['decided', 'noaction', 'logged', 'dismissed'].includes(q.status) ? 'done' : ''}" data-id="${q.id}" style="--ic:${bg};--icx:${fg || '#fff'}">
       <div class="when"><b>${q.lap != null ? 'L' + Math.max(1, q.lap) : ''}</b>${clock(q.t)}</div>
       <div class="top"><span class="chip">${esc(label[q.type] || q.type)}</span><span class="who">${who(q)}</span>${q.pts ? `<span class="pts">+${q.pts}x</span>` : ''}<span class="st ${q.status}">${STATUS[q.status] || q.status}</span>${(q.status === 'new' || q.status === 'reviewing') && !calls.length ? `<button class="dis" data-dismiss="${q.id}" title="Off To review, no call">Dismiss</button>` : ''}</div>
-      <div class="dt"><span>${esc(q.detail || '')}</span>${q.afterReview ? '<span class="tag rev">found after review</span>' : q.auto ? '<span class="tag">iRacing penalty</span>' : ''}</div>
+      <div class="dt"><span>${esc(q.detail || '')}</span>${q.unconfirmed ? '<span class="tag" title="Only the software saw this. iRacing gave no incident points for it.">unconfirmed</span>' : ''}${q.afterReview ? '<span class="tag rev">found after review</span>' : q.auto ? '<span class="tag">iRacing penalty</span>' : ''}</div>
       ${calls.length ? `<div class="calls">${calls.map(c => esc(callText(c)) + (c.car ? ' · #' + esc(c.car.num) : '')).join(' &nbsp;|&nbsp; ')}</div>` : ''}</div>`;
   }).join('');
   if ($('queue')._h !== html) { $('queue')._h = html; $('queue').innerHTML = html; }
@@ -470,13 +475,13 @@ $('queue').onclick = e => {
   const r = e.target.closest('[data-id]'); if (!r) return; openIncident(r.dataset.id);
 };
 async function dismiss(cmd, id) {
-  const r = await post('/api/rc', { cmd, id });
+  const r = await post('/api/rc', { cmd, id, unconfirmed: showUnc });
   if (!r.ok) { if (r.error && r.error.includes('name')) $('steward').classList.add('need'); toast(r.error || 'It couldn\'t be done'); }
   else if (cmd === 'dismissall') toast(r.count ? `Dismissed ${r.count} incident${r.count === 1 ? '' : 's'}` : 'Nothing to dismiss');
   rcFetch();
 }
 $('clearList').onclick = () => {
-  const n = RC.queue.filter(q => here(q) && (q.status === 'new' || q.status === 'reviewing') && !RC.calls.some(c => c.incident === q.id && c.status === 'active')).length;
+  const n = RC.queue.filter(q => here(q) && !hidUnc(q) && (q.status === 'new' || q.status === 'reviewing') && !RC.calls.some(c => c.incident === q.id && c.status === 'active')).length;
   if (!n) return toast('Nothing to review');
   if (!confirm(`Dismiss ${n} incident${n === 1 ? '' : 's'}?\n\nThey come off To review with no call made. They stay under All, marked Dismissed, and can be put back.`)) return;
   dismiss('dismissall');
@@ -500,12 +505,15 @@ function renderTypes() {
   const n = (RC.types || []).filter(([k]) => k !== 'pit');
   $('typesBtn').textContent = `Types ${n.filter(([k]) => !off.has(k)).length}/${n.length} ▾`;
   const html = n.map(([k, lbl]) => { const [bg, fg] = COLORS[k] || ['#666'];
-    return `<label><input type="checkbox" data-k="${k}" ${off.has(k) ? '' : 'checked'}><span class="chip" style="--ic:${bg};--icx:${fg || '#fff'}">${esc(lbl)}</span></label>`; }).join('');
+    return `<label><input type="checkbox" data-k="${k}" ${off.has(k) ? '' : 'checked'}><span class="chip" style="--ic:${bg};--icx:${fg || '#fff'}">${esc(lbl)}</span></label>`; }).join('')
+    + `<label class="unc" title="Spins and contacts only the software saw, when iRacing's live incident points are coming in and it gave none. Usually cars braking. Always under All."><input type="checkbox" data-unc ${showUnc ? 'checked' : ''}><span>Unconfirmed (no iRacing points)</span></label>`;
   if ($('types')._h !== html) { $('types')._h = html; $('types').innerHTML = html; }
 }
 $('typesBtn').onclick = e => { e.stopPropagation(); $('types').hidden = !$('types').hidden; };
 document.addEventListener('click', e => { if (!$('types').hidden && !e.target.closest('#types') && e.target.id !== 'typesBtn') $('types').hidden = true; });
-$('types').onchange = e => { const k = e.target.dataset.k; if (!k) return; e.target.checked ? off.delete(k) : off.add(k); store('rcOff', [...off]); renderTypes(); renderQueue(); };
+$('types').onchange = e => {
+  if (e.target.hasAttribute('data-unc')) { showUnc = e.target.checked; store('rcUnc', showUnc); renderTypes(); renderQueue(); renderMap(); return; }
+  const k = e.target.dataset.k; if (!k) return; e.target.checked ? off.delete(k) : off.add(k); store('rcOff', [...off]); renderTypes(); renderQueue(); };
 
 /* ---------- decision panel ---------- */
 function carsFor(q) {
@@ -748,7 +756,7 @@ RCMap.mount($('mapPane'), {
   onCar: idx => post('/api/camera', { carIdx: idx }),
   onIncident: id => { if (SOLO) { replay(id); toast('Replaying it in the sim'); } else { openIncident(id); } },
 });
-function renderMap() { RCMap.update(L, Object.assign({}, RC, { queue: (RC.queue || []).filter(here) })); }
+function renderMap() { RCMap.update(L, Object.assign({}, RC, { queue: (RC.queue || []).filter(q => here(q) && !hidUnc(q)) })); }
 
 function render() { renderTypes(); renderQueue(); renderDet(); renderCalls(); renderMap(); }
 renderMap();

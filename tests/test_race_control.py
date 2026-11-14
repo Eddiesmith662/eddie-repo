@@ -354,6 +354,72 @@ class Dismissing(Base):
         self.assertEqual(saved["queue"][0]["status"], "dismissed")
 
 
+class Unconfirmed(Base):
+    """With iRacing's live incident points coming in, a spin or contact only the software saw is unconfirmed: under
+    All, but not on To review, the map or Clear list (Charlotte Roval, Nov 12, 2026: 80 in the race, 70 of them at
+    one braking zone, dismissed by hand)."""
+
+    def ev(self, type_, src="predicted", pts=None, idx=0, t=None, cars=None, live_points=True):
+        live = dict(self.race.live(), incLive=live_points)
+        e = {"type": type_, "src": src, "pts": pts, "idx": idx, "num": str(idx), "name": "Driver %d" % idx, "sess": 2,
+             "sessName": "RACE", "t": self.race.t if t is None else t, "lap": 3, "detail": "", "cars": cars or []}
+        with rc.LOCK:
+            q = rc._item_from(e, live)
+            rc._st["data"]["queue"].append(q)
+        return q["id"]
+
+    def unconfirmed(self):
+        return {q["id"] for q in rc.snapshot()["queue"] if q.get("unconfirmed")}
+
+    def test_a_spin_or_contact_only_the_software_saw_is_unconfirmed_when_points_are_coming_in(self):
+        spin, contact = self.ev("spin"), self.ev("contact", idx=1)
+        self.assertEqual(self.unconfirmed(), {spin, contact})
+
+    def test_without_live_points_nothing_is_unconfirmed(self):
+        self.ev("spin", live_points=False)                      # not an admin: the software's detection is all there is
+        self.assertEqual(self.unconfirmed(), set())
+
+    def test_points_from_iracing_confirm_it(self):
+        a = self.ev("spin")
+        self.ev("contact", src="iracing", pts=4, idx=1)
+        self.ev("spin", src="both", pts=2, idx=2)
+        self.assertEqual(self.unconfirmed(), {a})
+        with rc.LOCK:                                           # the incident log merges iRacing's points in a moment later
+            q = rc._st["data"]["queue"][0]
+            q["src"], q["pts"] = "both", 2
+        self.assertEqual(self.unconfirmed(), set())
+
+    def test_a_stopped_car_a_wall_hit_and_a_slow_car_always_show(self):
+        for kind in ("stopped", "wall", "slow", "mechanical", "meatball"):
+            self.ev(kind)
+        self.assertEqual(self.unconfirmed(), set())
+
+    def test_a_multi_car_incident_needs_one_of_its_cars_confirmed(self):
+        cars = [{"idx": 0, "num": "0", "name": "A"}, {"idx": 1, "num": "1", "name": "B"}]
+        self.ev("spin", idx=0, t=200)
+        self.ev("contact", idx=1, t=201)
+        braking = self.ev("multi", cars=cars, t=200)            # two cars braking together: nothing from iRacing
+        self.ev("contact", src="both", pts=4, idx=1, t=500)
+        self.ev("spin", idx=0, t=501)
+        real = self.ev("multi", cars=cars, t=500)               # one of them got 4x
+        self.assertIn(braking, self.unconfirmed())
+        self.assertNotIn(real, self.unconfirmed())
+
+    def test_clear_list_leaves_unconfirmed_ones_unless_they_are_showing(self):
+        a = self.ev("spin")
+        b = self.ev("contact", src="iracing", pts=4, idx=1)
+        status = lambda i: next(q["status"] for q in rc.snapshot()["queue"] if q["id"] == i)
+        self.assertEqual(rc.command({"cmd": "dismissall"}, self.race.live(), "Steward X")[2]["count"], 1)
+        self.assertEqual((status(a), status(b)), ("new", "dismissed"))
+        self.assertEqual(rc.command({"cmd": "dismissall", "unconfirmed": True}, self.race.live(), "Steward X")[2]["count"], 1)
+        self.assertEqual(status(a), "dismissed")
+
+    def test_an_incident_from_the_log_notes_whether_points_were_coming_in(self):
+        self.race.set(0, inc=4)
+        self.race.step()
+        self.assertFalse(rc.snapshot()["queue"][0]["ptsOn"])    # this made-up race has no live points
+
+
 class SessionActions(Base):
     """The Session strip: actions for the whole session, not one driver (a steward asked, Nov 8, 2026)."""
 

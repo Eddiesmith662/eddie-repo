@@ -173,7 +173,39 @@ def _item_from(ev, live):
         "idx": ev.get("idx"), "num": ev.get("num", ""), "name": ev.get("name", ""), "custId": c.get("custId", ""),
         "pos": ev.get("pos"), "cars": ev.get("cars") or [], "status": "logged" if auto or ev["type"] in INFO else "new", "auto": auto,
         "afterReview": False, "at": _now(), "lapPos": _lap_pos(c),
+        "ptsOn": bool((live or {}).get("incLive")),      # iRacing's live incident points were coming in (admin) when it happened
     }
+
+
+# Unconfirmed: with iRacing's live incident points coming in (the steward is an admin), a spin or car contact that only
+# the software's own detection saw, with no points from iRacing, is most likely not an incident. Charlotte Roval, Nov 12,
+# 2026 (Sports Car): 80 such spins and contacts in the race, 70 of them at the same braking zone, and the steward
+# dismissed them by hand. They stay in the queue (under All, marked Unconfirmed) but are kept out of To review, off the
+# map and out of Clear list. Points arriving a moment later (the incident log merges them: src becomes "both") make it
+# a normal incident. Without live points nothing is unconfirmed: the software's detection is all there is.
+UNCONFIRMABLE = {"spin", "contact"}
+MULTI_NEAR_S = 15            # a multi-car incident is confirmed by one of its cars' own incidents this close to it
+
+
+def _confirmed_alone(q):
+    return bool(q.get("pts")) or q.get("src") != "predicted" or q["type"] in ("wall", "stopped") or not q.get("ptsOn")
+
+
+def _unconfirmed_ids(d):
+    """The ids of the queue's unconfirmed incidents."""
+    out = set()
+    for q in d["queue"]:
+        if not q.get("ptsOn") or q.get("src") != "predicted" or q.get("pts"):
+            continue
+        if q["type"] in UNCONFIRMABLE:
+            out.add(q["id"])
+        elif q["type"] == "multi":       # unconfirmed unless one of its cars has a confirmed incident of its own then
+            cars = {c.get("idx") for c in q.get("cars") or []}
+            if not any(o is not q and o.get("sess") == q.get("sess") and o.get("idx") in cars and o["type"] != "multi"
+                       and o.get("t") is not None and q.get("t") is not None and abs(o["t"] - q["t"]) <= MULTI_NEAR_S
+                       and o["type"] in ("spin", "contact", "wall", "stopped") and _confirmed_alone(o) for o in d["queue"]):
+                out.add(q["id"])
+    return out
 
 
 _SYNC = ("type", "src", "detail", "pts", "cars")
@@ -617,8 +649,9 @@ def _where(path):
 def snapshot():
     with LOCK:
         d = _st["data"] or {"queue": [], "calls": [], "race": None, "track": "", "subId": None}
+        unc = _unconfirmed_ids(d)
         return {"ver": _st["ver"], "race": d.get("race"), "track": d.get("track", ""), "subId": d.get("subId"),
-                "queue": list(d["queue"]), "calls": list(d["calls"]), "clears": list(d.get("clears") or []),
+                "queue": [dict(q, unconfirmed=True) if q["id"] in unc else q for q in d["queue"]], "calls": list(d["calls"]), "clears": list(d.get("clears") or []),
                 "session": list(d.get("session") or []), "inReplay": _st["replay"],
                 "siteCalls": list(d.get("siteCalls") or []),
                 "kinds": [{"key": k, "label": lbl, "unit": u, "sim": k in SIM_KINDS} for k, lbl, u in KINDS], "types": incidents.TYPES,
@@ -666,8 +699,9 @@ def command(data, live, steward=""):
                 return False, "Type your name at the top first", None
             if cmd == "dismissall":            # this session's New and Reviewing incidents that have no call
                 sess = (live or {}).get("sessNum")
+                skip = set() if data.get("unconfirmed") else _unconfirmed_ids(d)      # not on To review: left alone
                 todo = [q for q in d["queue"] if q["status"] in ("new", "reviewing") and not _active_calls(d, q["id"])
-                        and (sess is None or q.get("sess") == sess)]
+                        and (sess is None or q.get("sess") == sess) and q["id"] not in skip]
             else:
                 q = by_id.get(str(data.get("id") or ""))
                 if not q:

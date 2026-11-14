@@ -12,3 +12,5 @@ How it works (CLAUDE.md, "Three chats, one repo"):
   VERSION bump).
 
 ## Notes
+
+Race control: when the steward is a session admin (so iRacing's live incident points are coming in), spins and car contacts that only the software's own detection saw, with no points from iRacing, no longer fill To review. They are usually cars braking (at the Charlotte Roval on Nov 12, 80 in one race). They stay under All, tagged unconfirmed, and a new Unconfirmed tick at the bottom of the Types menu brings them back. Stopped cars, wall hits and meatballs always show.

@@ -265,6 +265,13 @@ control from before v1.5.38 kept its calls in `data\race-control`; they're copie
 - **Replay and cameras** (bottom, between Calls and the map): the replay controls and **LIVE**, and under them
   iRacing's cameras (the same list as the overlay's live timing). Click one to switch camera in this PC's sim; the
   car being watched stays the same, and the current camera is lit. On a small screen the camera list scrolls.
+- **Unconfirmed incidents.** When the steward is a session admin, iRacing sends live incident points (1x, 2x, 4x). A
+  spin or car contact that only the software's own detection saw, with no points from iRacing, is then most likely a
+  car braking (Charlotte Roval, Nov 12, 2026: 80 in one race, 70 at the same braking zone). These are kept off **To
+  review**, the map and **Clear list**, and show under **All** tagged *unconfirmed*; if iRacing's points arrive a
+  moment later it becomes a normal incident. Tick **Unconfirmed** at the bottom of the **Types** menu to see them in
+  To review. Stopped cars, wall hits, slow cars and meatballs always show, and without live points (not an admin)
+  nothing is unconfirmed.
 - **Dismiss** (on an incident, or in the open incident) takes it off **To review** with no call: nothing goes to the
   league site, and who dismissed it is kept. It stays under **All**, marked Dismissed, and **Put back** returns it.
   **Clear list** dismisses every incident still New or Reviewing in this session at once, after asking (ones with a

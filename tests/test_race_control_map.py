@@ -199,6 +199,36 @@ class Placing(unittest.TestCase):
         finally:
             page.close()
 
+    def test_unconfirmed_incidents_are_off_to_review_and_the_map_until_ticked(self):
+        page = self.browser.new_page()
+        try:
+            with open(os.path.join(STATIC, "racecontrol.html"), encoding="utf-8") as f:
+                page.set_content(f.read())
+            got = page.evaluate("""() => {
+                const inc = (id, type, extra) => Object.assign({id, type, status: 'new', sess: 0, t: 100, lap: 3, lapPos: 0.4,
+                    num: '5', name: 'Driver', detail: '', cars: []}, extra);
+                RC.types = [['spin', 'Spin / Crash'], ['contact', 'Car Contact']];
+                RC.queue = [inc('i1', 'spin', {unconfirmed: true}), inc('i2', 'contact', {pts: 4})];
+                const seen = () => [...document.querySelectorAll('#queue .inc')].map(e => e.dataset.id);
+                const onMap = []; window.RCMap = {update: (live, rc) => { onMap.length = 0; rc.queue.forEach(q => onMap.push(q.id)); }};
+                const out = {};
+                view = 'review'; showUnc = false; renderQueue(); renderMap();
+                out.review = seen(); out.count = document.getElementById('qCount').textContent; out.map = [...onMap];
+                view = 'all'; renderQueue();
+                out.all = seen(); out.tag = !!document.querySelector('#queue [data-id="i1"] .tag');
+                renderTypes(); const box = document.querySelector('#types [data-unc]'); box.checked = true;
+                box.dispatchEvent(new Event('change', {bubbles: true}));
+                view = 'review'; renderQueue();
+                out.ticked = seen(); out.mapTicked = [...onMap];
+                return out;
+            }""")
+            self.assertEqual((got["review"], got["count"], got["map"]), (["i2"], "1", ["i2"]))
+            self.assertEqual(sorted(got["all"]), ["i1", "i2"])
+            self.assertTrue(got["tag"])
+            self.assertEqual((sorted(got["ticked"]), sorted(got["mapTicked"])), (["i1", "i2"], ["i1", "i2"]))
+        finally:
+            page.close()
+
     def test_the_page_leaves_the_browsers_own_functions_alone(self):
         # Nov 7, 2026: the page's open-an-incident function was called open(), which replaced window.open, so Pop out
         # map (and the Sign in window) did nothing.
