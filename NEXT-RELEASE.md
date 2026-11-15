@@ -1,4 +1,4 @@
-# Next release: v1.5.51 (draft)
+# Next release: v1.5.52 (draft)
 
 The release notes for the next overlay release, built up as changes land. Producers see the notes in the black window
 when the update is offered (the first 25 lines), so each change gets one short paragraph in plain words: what's
@@ -12,5 +12,3 @@ How it works (CLAUDE.md, "Three chats, one repo"):
   VERSION bump).
 
 ## Notes
-
-Series from GLR HUB in the playoffs: the standings graphic no longer shows regular-season winners as LOCKED IN. Once a series' playoffs have started, the Wins column pulled from the site counts only a win in the round being run, so a driver is locked in only after winning in that round. Press **Refresh from GLR HUB** once after updating. Regular-season standings are unchanged.
