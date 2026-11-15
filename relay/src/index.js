@@ -128,10 +128,13 @@ export class Channel {
     this.token = null;              // the current view code
     this.data = null;               // the latest update's data, as JSON text
     this.at = 0;                    // when it came in
+    this.cards = null;              // every driver's card (season, playoff line, bio), as JSON text: sent to a page when it
+                                    // connects and when the producer's overlay sends new ones, not with every update
     this.savedAt = 0;
     this.alarmOn = false;
     this.ready = ctx.blockConcurrencyWhile(async () => {
-      const s = await ctx.storage.get(["token", "data", "at"]);
+      const s = await ctx.storage.get(["token", "data", "at", "cards"]);
+      this.cards = s.get("cards") || null;
       this.token = s.get("token") || null;
       this.data = s.get("data") || null;
       this.at = s.get("at") || 0;
@@ -160,6 +163,11 @@ export class Channel {
     this.data = JSON.stringify(msg.data || {});
     this.at = now;
     this.send(this.message());
+    if (msg.cards && typeof msg.cards === "object") {                 // the drivers' cards came with this update
+      const cards = JSON.stringify(msg.cards);
+      if (cards !== this.cards) { this.cards = cards; await this.ctx.storage.put("cards", cards); }
+      this.send(this.cardsMessage());
+    }
     if (now - this.savedAt > SAVE_MS) { this.savedAt = now; await this.ctx.storage.put({ data: this.data, at: now }); }
     if (!this.alarmOn) { this.alarmOn = true; await this.ctx.storage.setAlarm(now + PING_MS); }
     return json({ ok: true, viewers: this.viewers.size });
@@ -173,18 +181,22 @@ export class Channel {
     }
     if (Date.now() - this.at > IDLE_CLOSE_MS) {
       // no show on right now: the last update (if any), then close; the page checks back once a minute
-      return new Response((this.data ? this.message() : "") + "event: idle\ndata: {}\n\n", { headers: head });
+      return new Response((this.data ? this.message() + this.cardsMessage() : "") + "event: idle\ndata: {}\n\n", { headers: head });
     }
     const { readable, writable } = new TransformStream();
     const v = { writer: writable.getWriter(), token };
     this.viewers.add(v);
-    this.write(v, "retry: 3000\n" + (this.data ? this.message() : "event: ping\ndata: {}\n\n"));
+    this.write(v, "retry: 3000\n" + (this.data ? this.message() + this.cardsMessage() : "event: ping\ndata: {}\n\n"));
     return new Response(readable, { headers: head });
   }
 
   // the update as sent to pages, with its age, so a page that connects later knows how old it is
   message() {
     return 'data: {"age":' + Math.max(0, Date.now() - this.at) + ',"data":' + this.data + "}\n\n";
+  }
+
+  cardsMessage() {
+    return this.cards ? "event: cards\ndata: " + this.cards + "\n\n" : "";
   }
 
   write(v, text) {

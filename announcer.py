@@ -160,6 +160,11 @@ SERIES_EVERY = 3600        # which iRacing league is which series on the site
 RETRY = 120                # after the site didn't answer: wait this long before asking again
 SITE_TIMEOUT = 10
 BIO_MAX = 1000             # the site's own limit
+MAX_CARDS = 64             # drivers' cards sent to the page (a full field)
+FIELD_AT_ONCE = 4          # other drivers' own info looked up per pass ...
+FIELD_PAUSE = 3            # ... with this many seconds between passes, so the site is never flooded
+CARDS_MIN = 10.0           # the cards go to the relay at most this often (they change when the site's numbers do) ...
+CARDS_EVERY = 120.0        # ... and at least this often while the feed is on, in case the relay lost them
 
 
 def _num(v, nd=1):
@@ -197,6 +202,148 @@ def championship(standings, cust):
     return None
 
 
+# ---------------------------------------------------------------- a driver's card: the season in a few lines
+# Nov 15, 2026 (F.O.E. Grand National, Round of 12): announcers wanted each driver's season in words and what they
+# need in the playoffs, not only the numbers. The lines are put together here from the site's numbers, by fixed rules:
+# they only say what the numbers say (no crashes, no rivalries), so nothing made up can reach an announcer.
+_WORDS = ("no", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten")
+
+
+def _word(n):
+    return _WORDS[n] if 0 <= n <= 10 else str(n)
+
+
+def _ord(n):
+    n = int(n)
+    return "%d%s" % (n, "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th"))
+
+
+def _plural(n, one, many=None):
+    return "%s %s" % (_word(n), one if n == 1 else (many or one + "s"))
+
+
+def _cap(s):
+    return s[:1].upper() + s[1:]
+
+
+def _whole(v):
+    return int(v) if isinstance(v, (int, float)) and float(v).is_integer() else v
+
+
+def _finishes(standings, cust):
+    """A driver's finishing positions this season, in race order, from the site's standings. In the playoffs the
+    round's row has the whole season; otherwise the regular season's."""
+    for g in (standings or {}).get("groups") or []:
+        po = g.get("playoffs") or {}
+        rows = list((po.get("current") or {}).get("rows") or []) + list(po.get("eliminated") or []) + list(g.get("regular") or [])
+        for r in rows:
+            if r.get("custId") == cust and r.get("finishes"):
+                return [f for f in r["finishes"] if isinstance(f, int) and f > 0]
+    return []
+
+
+def _regular_champion(standings, cust):
+    for g in (standings or {}).get("groups") or []:
+        if (g.get("playoffs") or {}).get("started"):
+            for r in g.get("regular") or []:
+                if r.get("custId") == cust:
+                    return r.get("pos") == 1
+    return False
+
+
+def blurb(row, finishes=None, led_rank=0, regular_champion=False):
+    """The season in two to four short sentences, from the site's season stats for one driver and their finishes in
+    race order. led_rank: 1 when nobody in the series has led more laps, 2 for the second most."""
+    r = row or {}
+    st, w, t5, t10 = (int(r.get(k) or 0) for k in ("starts", "wins", "top5", "top10"))
+    if not st:
+        return ""
+    fin = [f for f in finishes or [] if isinstance(f, int) and f > 0]
+    best = int(r.get("best") or (min(fin) if fin else 0) or 0)
+    starts = "%d start%s" % (st, "" if st == 1 else "s")
+    streak = 0                                   # wins in a row, up to the latest start
+    for f in reversed(fin):
+        if f != 1:
+            break
+        streak += 1
+    out = ["Regular season champion."] if regular_champion else []
+    if w >= 2:
+        out.append("%s wins in %s%s." % (_cap(_word(w)), starts,
+                                         "" if streak < 2 else ", all of them" if streak == st else ", including the last %s" % _word(streak)))
+    elif w == 1:
+        out.append("One win in %s, and no other top five." % starts if t5 == 1 else
+                   "One win in %s, with %s." % (starts, _plural(t5, "top five")))
+    elif t5:
+        times = fin.count(best)
+        out.append("No wins in %s. Best finish is %s%s, with %s." % (
+            starts, _ord(best) if best else "a top five", "" if times < 2 else ", twice" if times == 2 else ", %s times" % _word(times),
+            _plural(t5, "top five")))
+    elif t10:
+        out.append("%s in %s, but no top five.%s" % (_cap(_plural(t10, "top 10")), starts, " Best finish is %s." % _ord(best) if best else ""))
+    else:
+        out.append("No top 10s in %s.%s" % (starts, " Best finish is %s." % _ord(best) if best else ""))
+    # up to two things that stand out
+    led, poles, dnf = int(r.get("lapsLed") or 0), int(r.get("poles") or 0), int(r.get("dnf") or 0)
+    facts = []
+    if led and led_rank in (1, 2):
+        facts.append("Has led %d lap%s, the %s in the series." % (led, "" if led == 1 else "s", "most" if led_rank == 1 else "second most"))
+    if poles:
+        facts.append("%s." % _cap(_plural(poles, "pole")))
+    if st >= 4 and t10 >= max(4, st - 1) and (w or t5):
+        facts.append("Top 10 in every start." if t10 == st else "Top 10 in %d of %d starts." % (t10, st))
+    if dnf >= 2:
+        facts.append("%s." % _cap(_plural(dnf, "DNF")))
+    if not led and st >= 3:
+        facts.append("Hasn't led a lap.")
+    out += facts[:2]
+    # how it's going lately
+    if len(fin) >= 3 and streak < 2:
+        out.append("Won last time out." if streak == 1 else
+                   "Last three finishes: %s, %s and %s." % tuple(_ord(f) for f in fin[-3:]))
+    return " ".join(out)
+
+
+def tonight(standings, cust):
+    """What a playoff driver needs, before the race: (the line, points to the cut line or None). ("", None) for a
+    driver who isn't in the current round, or when the round is over."""
+    for g in (standings or {}).get("groups") or []:
+        po = g.get("playoffs") or {}
+        if not po.get("started"):
+            continue
+        cur = po.get("current") or {}
+        rows = cur.get("rows") or []
+        r = next((x for x in rows if x.get("custId") == cust), None)
+        if not r:
+            continue
+        left = int(cur.get("races") or 0) - int(cur.get("ran") or 0)
+        if cur.get("complete") or left < 1:
+            return "", None
+        if cur.get("finale"):
+            return "Championship race: the best finisher of the %s title drivers is champion." % _word(len(rows)), None
+        win = bool(cur.get("winAdvances"))
+        if win and r.get("won"):
+            return "Already through to the next round on a win.", None
+        if cur.get("missMustWin") and r.get("missed"):
+            return "Missed a race in this round: must win to go through.", None
+        cut = r.get("toCut")
+        if not isinstance(cut, (int, float)):
+            return "", None
+        cut = _whole(cut)
+        pts = lambda n: "%s point%s" % (n, "" if n == 1 else "s")
+        if cut > 0:
+            line = "%s over the cut line." % _cap(pts(cut))
+        elif cut < 0:
+            line = "%s below the cut line." % _cap(pts(-cut))
+        else:
+            level = sum(1 for x in rows if x is not r and x.get("points") == r.get("points"))
+            line = "On the cut line%s." % (", level with %s" % _plural(level, "other") if level else "")
+        line += " Last race of the round." if left == 1 else " %s races left in the round." % _cap(_word(left))
+        if win:
+            line += " A win goes straight through."
+        return line, cut
+    return "", None
+
+
 def profile_line(profile):
     p = profile or {}
     out = {k: str(p.get(src) or "").strip() for k, src in (("team", "team"), ("sp", "sponsor"), ("home", "hometown"), ("bio", "bio"))}
@@ -221,6 +368,7 @@ class SiteInfo:
         self.drivers = {}         # cust -> {"at", "profile"}
         self.failed = {}          # what -> time the site last didn't answer it
         self.wanted = (None, None)
+        self.field = []           # every driver in the session (cards()), for looking up their own info ahead of a tap
         self.logged = set()
 
     @staticmethod
@@ -240,6 +388,9 @@ class SiteInfo:
         if self.wanted != (league, cust):
             self.wanted = (league, cust)
             self.wake.set()
+        return self._card(league, cust)
+
+    def _card(self, league, cust):
         with self.lock:
             slug = self.series.get(league)
             season = self.seasons.get(slug) if slug else None
@@ -250,12 +401,59 @@ class SiteInfo:
             if row:
                 out["season"] = season["name"]
                 out["s"] = season_line(row)
+                try:                     # the season in words: never worth losing the numbers over
+                    text = blurb(row, _finishes(season["standings"], cust), season.get("led", {}).get(cust, 0),
+                                 _regular_champion(season["standings"], cust))
+                    if text:
+                        out["bl"] = text
+                except Exception as e:
+                    self._once("blurb", "Announcer page: couldn't write a driver's season line (%r)" % (e,))
             ch = championship(season["standings"], cust)
             if ch:
                 out["ch"] = ch
+            try:
+                line, cut = tonight(season["standings"], cust)
+                if line:
+                    out["to"] = line
+                if cut is not None:
+                    out["cut"] = cut
+            except Exception as e:
+                self._once("tonight", "Announcer page: couldn't work out a driver's playoff line (%r)" % (e,))
         if drv:
             out.update(profile_line(drv["profile"]))
         return out or None
+
+    def _once(self, what, text):
+        if what not in self.logged:
+            self.logged.add(what)
+            self.log(text)
+
+    def cards(self, league, cars):
+        """-> {car number: card} for every car in the session the site knows, for the page's tap-to-open cards.
+        Never waits: a driver's own info (bio, team) is in their card once it has been looked up (a few drivers
+        at a time, in the lookup thread)."""
+        try:
+            league = int(league or 0)
+        except (TypeError, ValueError):
+            return {}
+        if not league:
+            self.field = []
+            return {}
+        out, field = {}, []
+        for c in (cars or [])[:MAX_CARDS]:
+            try:
+                cust = int(c.get("custId") or 0)
+            except (TypeError, ValueError):
+                continue
+            num = str(c.get("num") or "")
+            if not cust or not num:
+                continue
+            field.append(cust)
+            card = self._card(league, cust)
+            if card:
+                out[num] = card
+        self.field = field
+        return out
 
     def _due(self, what, at, every, now):
         return now - at >= every and now - self.failed.get(what, 0) >= RETRY
@@ -294,12 +492,16 @@ class SiteInfo:
                 stats = self.fetch("/api/series/%s/stats" % slug)
                 standings = self.fetch("/api/standings/%s" % slug)
                 rows = {int(r["custId"]): r for r in stats.get("drivers") or [] if r.get("custId")}
+                # who has led the most laps in the series, and the second most (for the season in words)
+                by_led = sorted((r for r in rows.values() if (r.get("lapsLed") or 0) > 0), key=lambda r: -r["lapsLed"])
+                led = {int(r["custId"]): k + 1 for k, r in enumerate(by_led[:2])}
                 with self.lock:
                     self.seasons[slug] = {"at": time.time(), "name": ((stats.get("season") or {}).get("name") or ""),
-                                          "stats": rows, "standings": standings}
+                                          "stats": rows, "standings": standings, "led": led}
             self._try("the season for " + slug, season)
-        if slug and self._due("driver %d" % cust, drv_at, DRIVER_EVERY, now):
-            def driver():
+
+        def driver(cust):
+            def ask():
                 try:
                     j = self.fetch("/api/drivers/%d" % cust)
                     profile = (j.get("driver") or {}).get("profile")
@@ -309,15 +511,28 @@ class SiteInfo:
                     profile = None           # a driver the site has never seen
                 with self.lock:
                     self.drivers[cust] = {"at": time.time(), "profile": profile}
-            self._try("driver %d" % cust, driver)
+            self._try("driver %d" % cust, ask)
+
+        if slug and self._due("driver %d" % cust, drv_at, DRIVER_EVERY, now):
+            driver(cust)
+        # the rest of the field, a few at a time, so a tapped driver's card has their team and bio too
+        if not slug:
+            return False
+        with self.lock:
+            due = [c for c in self.field if c != cust and self._due("driver %d" % c, self.drivers.get(c, {}).get("at", 0), DRIVER_EVERY, now)]
+        for c in due[:FIELD_AT_ONCE]:
+            driver(c)
+        return len(due) > FIELD_AT_ONCE
 
     def run(self):
+        more = False
         while True:
-            self.wake.wait(30)
+            self.wake.wait(FIELD_PAUSE if more else 30)
             self.wake.clear()
             try:
-                self.refresh()
+                more = bool(self.refresh())
             except Exception as e:           # never let the lookup take anything else down
+                more = False
                 self.log("Announcer page: league site lookup error %r" % (e,))
 
 
@@ -330,6 +545,8 @@ class Sender:
         self.host = None
         self.last_text = None
         self.last_sent = 0.0
+        self.cards_text = "{}"    # the drivers' cards the relay last got (as text), and when
+        self.cards_sent = 0.0
         self.backoff_until = 0.0
         self.fails = 0
         self.code_for = None      # the producer (site user id) the league site last gave the producer code for
@@ -426,6 +643,7 @@ class Sender:
         if not cfg.get("on") or not p or not cfg.get("token"):
             self._close()
             self.last_text = None
+            self.cards_text, self.cards_sent = "{}", 0.0
             if not cfg.get("on"):
                 return self._set(state="off", viewers=0, error="", link=link_for(cfg))
             return self._set(state="setup", viewers=0, link=link_for(cfg),
@@ -436,9 +654,23 @@ class Sender:
             return
         data = build(live, settings, self.on_air, self.site)
         text = json.dumps(data, separators=(",", ":"), ensure_ascii=False)
-        if text == self.last_text and now - self.last_sent < HEARTBEAT:
+        # every driver's card, for the page's tap-to-open: sent beside the update only when it changes (and now and
+        # then), not twice a second, so the feed stays small
+        cards, cards_text = None, self.cards_text
+        try:
+            found = self.site.cards((live or {}).get("leagueId"), (live or {}).get("cars"))
+            found_text = json.dumps(found, separators=(",", ":"), ensure_ascii=False, sort_keys=True)
+            since = now - self.cards_sent
+            if (found_text != self.cards_text and since >= CARDS_MIN) or (found and since >= CARDS_EVERY):
+                cards, cards_text = found, found_text
+        except Exception as e:
+            self.log("Announcer feed: couldn't put the drivers' cards together (%r)" % (e,))
+        if cards is None and text == self.last_text and now - self.last_sent < HEARTBEAT:
             return
-        body = json.dumps({"token": cfg["token"], "data": data}, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
+        msg = {"token": cfg["token"], "data": data}
+        if cards is not None:
+            msg["cards"] = cards
+        body = json.dumps(msg, separators=(",", ":"), ensure_ascii=False).encode("utf-8")
         base, _, key = p
         try:
             status, resp = self._post(base, key, body)
@@ -464,6 +696,8 @@ class Sender:
             self.log("Announcer feed: live (%s)" % link_for(cfg))
         self.fails = 0
         self.last_text, self.last_sent = text, now
+        if cards is not None:
+            self.cards_text, self.cards_sent = cards_text, now
         self._set(state="live", viewers=int(resp.get("viewers") or 0), error="", link=link_for(cfg), sentAt=now,
                   sent=STATUS.get("sent", 0) + 1)
 

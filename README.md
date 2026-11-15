@@ -239,6 +239,11 @@ Nothing on their page can change anything on your PC.
 2. **Copy the announcer link** (Setup tab, or **Copy announcer link** on the Race tab) and send it to your announcers.
 3. **Notes** (Race tab) go out as you type, e.g. "Sponsor read after the restart".
 
+In a league race on GLR HUB, the driver on camera has a card: their place and points, the season's numbers, the season
+in a few words, and in the playoffs what they need (before the race) or where they stand as they run (during it, with
+Live points on), beside their team, sponsor, hometown and bio. Announcers can tap any driver in the running order or
+live points to open that driver's card under it; a second tap or **Close** puts it away.
+
 If a link gets passed around, **New link** (Setup tab) makes a fresh one and the old one stops working straight away.
 The relay itself runs on Cloudflare and is looked after by VSPEED.
 

@@ -12,3 +12,5 @@ How it works (CLAUDE.md, "Three chats, one repo"):
   VERSION bump).
 
 ## Notes
+
+Announcer page (league races on GLR HUB): the driver on camera now has a card in place of the column of numbers: the season's numbers in one strip, the season in a few words, and in the playoffs what the driver needs to go through. During the race, with Live points on, that line follows the race ("Running 3rd. 12 points over the cut line as they run."). Announcers can tap any driver in the running order or live points to open that driver's card. Nothing to set up.
