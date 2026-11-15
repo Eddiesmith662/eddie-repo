@@ -1,4 +1,4 @@
-# Next release: v1.5.53 (draft)
+# Next release: v1.5.54 (draft)
 
 The release notes for the next overlay release, built up as changes land. Producers see the notes in the black window
 when the update is offered (the first 25 lines), so each change gets one short paragraph in plain words: what's
@@ -12,7 +12,3 @@ How it works (CLAUDE.md, "Three chats, one repo"):
   VERSION bump).
 
 ## Notes
-
-A race name too long for the ticker's title bar is no longer cut off with "…": it is drawn smaller until it fits (down to about half size; a name longer than that still ends in "…").
-
-Layout tab: each graphic's size is now a box you type a percent into (40 to 180, the up and down arrow keys change it by 1) instead of a slider.
