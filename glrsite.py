@@ -3,8 +3,9 @@
 GLR HUB (the league site, glr/) is the replacement for Xtreme Scoring: it works the standings out from the results the
 overlay sends it. This reads the site's public data, with no sign-in:
 
-  /api/series               the series on the site (a series' number is its iRacing league ID)
+  /api/series               the series on the site (a series' number is its iRacing league ID), each with its logo
   /api/standings/<series>   the current season's standings, one group per class when classes race together
+  /api/series/<series>/points   the season's scoring rules: points table, bonuses, playoff field
 
 and turns a series' standings into the table the standings graphic, the bracket and live points already use (a header
 row and driver rows, the same shape as an Xtreme pull or a CSV), plus each driver's iRacing ID, so live points can
@@ -24,6 +25,9 @@ import leagueupload
 import net
 
 HEADER = ["Pos", "#", "Driver", "Pts", "To Ldr", "To Nxt", "Wins", "Top 5", "Top 10", "Starts"]
+TABLE_PLACES = 60        # the live points table in the control panel has this many places
+LOGO_MAX = 3 * 1024 * 1024
+LOGO_EXT = {"image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp", "image/svg+xml": ".svg"}
 MAX_ROWS = 200           # more than any field: live points needs everyone who races
 
 LOCK = threading.Lock()
@@ -62,8 +66,78 @@ def fetch_list():
         if not slug or s.get("past"):
             continue
         out.append({"slug": slug, "id": s.get("id"), "name": str(s.get("name") or s.get("short_name") or slug)[:80],
-                    "short": str(s.get("short_name") or s.get("name") or slug)[:40], "hidden": bool(s.get("hidden"))})
+                    "short": str(s.get("short_name") or s.get("name") or slug)[:40], "hidden": bool(s.get("hidden")),
+                    "logo": _logo_path(s.get("logo"))})
     return out
+
+
+def _logo_path(v):
+    """A logo's address on the site ("/logo/123?v=..." or "/theme/series-123.png"), or "" for none or anything else."""
+    v = str(v or "")
+    return v if re.match(r"^/(logo|theme)/[A-Za-z0-9._~%?=&:+-]+$", v) else ""
+
+
+def logo_address(slug):
+    """Where a series' logo is on the site now ("" = it has none)."""
+    d = _get("/api/series/" + _slug(slug))
+    return _logo_path((d.get("series") or {}).get("logo"))
+
+
+def fetch_logo(address):
+    """Download a series' logo. Returns (the image, its file ending like ".png")."""
+    address = _logo_path(address)
+    if not address:
+        raise SiteError("That isn't a logo on GLR HUB")
+    req = urllib.request.Request(leagueupload.SITE + address, headers={"User-Agent": "VSPEED-Overlay"})
+    try:
+        r = net.urlopen(req, 20)
+        kind = (r.headers.get("content-type") or "").split(";")[0].strip().lower()
+        body = r.read(LOGO_MAX + 1)
+    except urllib.error.HTTPError as e:
+        raise SiteError("GLR HUB has no logo there (error %d)" % e.code)
+    except OSError as e:
+        raise SiteError("Couldn't download the logo (%s)" % (getattr(e, "reason", None) or e))
+    if kind not in LOGO_EXT or not body or len(body) > LOGO_MAX:
+        raise SiteError("The series logo on GLR HUB isn't an image the overlay can use")
+    return body, LOGO_EXT[kind]
+
+
+def _n(v):
+    try:
+        v = float(v)
+    except (TypeError, ValueError):
+        return 0
+    return int(v) if v == int(v) else v
+
+
+def to_rules(resp):
+    """A series' scoring rules as the overlay's live points settings. Returns a dict:
+      source      "table" (the site has a points table), or "iracing" / "field" (it doesn't: the overlay keeps its own)
+      livePoints  the settings to use (table, bonuses, 0-laps rule), or None when the site has no table
+      field       the playoff field size when the series has playoffs, else None (the cutoff line)
+      skipped     rules the overlay's live points doesn't have (named, for the producer)"""
+    source = str(resp.get("source") or "iracing")
+    po = resp.get("playoffs") or {}
+    field = int(_n(po.get("field"))) if po.get("enabled") and _n(po.get("field")) >= 1 else None
+    out = {"source": source, "livePoints": None, "field": field, "skipped": []}
+    table = resp.get("table") if isinstance(resp.get("table"), list) else []
+    if source != "table" or not table:
+        return out
+    b = resp.get("bonus") or {}
+    others = _n(resp.get("others"))
+    out["livePoints"] = {"table": ([_n(x) for x in table] + [others] * TABLE_PLACES)[:max(TABLE_PLACES, 0)], "others": others,
+                         "zeroLaps": bool(resp.get("zeroLaps")), "bonusLed": _n(b.get("led")), "bonusMost": _n(b.get("mostLed")),
+                         "bonusPole": _n(b.get("pole")), "bonusWin": _n(b.get("win"))}
+    if _n(b.get("fastLap")):
+        out["skipped"].append("the fastest-lap bonus (+%s)" % _n(b.get("fastLap")))
+    return out
+
+
+def fetch_rules(slug):
+    resp = _get("/api/series/%s/points" % _slug(slug))
+    if not resp.get("ok", True):
+        raise SiteError(resp.get("error") or "GLR HUB couldn't give the points rules")
+    return to_rules(resp)
 
 
 def refresh_list():

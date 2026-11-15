@@ -24,7 +24,11 @@ import re
 # VSPEED's points table: P1 46, P2 42, P3 41, then one point less per place to P43 = 1, 0 after that
 DEFAULT_TABLE = [46] + [44 - p for p in range(2, 44)] + [0] * 17      # 60 places
 # from / to = the places shown on the graphic (e.g. 3 and 16 = 3rd to 16th), at most MAX_ROWS of them
-DEFAULTS = {"cutoff": 12, "from": 1, "to": 15, "table": DEFAULT_TABLE, "bonusLed": 1, "bonusMost": 1, "bonusPole": 1, "playoff": False}
+# bonusWin, others and zeroLaps (Nov 2026) are GLR HUB's other scoring rules, so live points adds up the way the site
+# will: a bonus for the win, the points for places past the end of the table, and "a car with 0 laps scores nothing"
+# (Phoenix, Nov 8, 2026: cars that never took the green scored points until the Grand National turned this on).
+DEFAULTS = {"cutoff": 12, "from": 1, "to": 15, "table": DEFAULT_TABLE, "bonusLed": 1, "bonusMost": 1, "bonusPole": 1, "playoff": False,
+            "bonusWin": 0, "others": 0, "zeroLaps": False}
 ROUNDS = ["ROUND OF 12", "ROUND OF 8", "CHAMPIONSHIP 4"]
 ADVANCE = [8, 4]             # drivers who go through from the Round of 12 and the Round of 8
 MAX_ROWS = 15
@@ -79,9 +83,12 @@ def _score(live, cfg, header, srows, excluded, counted=False, ids=None):
                            _col(header, "wins", "w"), _col(header, "pos"))
     table = [_num(x) for x in (cfg.get("table") or DEFAULT_TABLE)]
     b_led, b_most, b_pole = _num(cfg.get("bonusLed")), _num(cfg.get("bonusMost")), _num(cfg.get("bonusPole"))
+    b_win, others, zero_laps = _num(cfg.get("bonusWin")), _num(cfg.get("others")), bool(cfg.get("zeroLaps"))
     racing = (live.get("sessionState") or 0) >= 4
     cars = live.get("cars") or []
     most = max((c.get("lapsLed") or 0) for c in cars) if cars else 0
+    # "0 laps scores nothing" only counts once somebody has finished a lap (on lap 1 nobody has)
+    lap_done = any((c.get("lapsCompleted") or 0) > 0 for c in cars)
 
     # the standings, in their own order
     people = []
@@ -126,7 +133,11 @@ def _score(live, cfg, header, srows, excluded, counted=False, ids=None):
         if c is not None:
             pos = c.get("pos") or 0
             if racing and pos > 0:
-                race = table[pos - 1] if pos <= len(table) else 0.0
+                race = table[pos - 1] if pos <= len(table) else others
+                if zero_laps and lap_done and not (c.get("lapsCompleted") or 0) > 0:
+                    race = 0.0
+                if pos == 1:
+                    bonus += b_win
             led = c.get("lapsLed") or 0
             if led >= 1:
                 bonus += b_led

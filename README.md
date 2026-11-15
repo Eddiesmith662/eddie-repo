@@ -175,8 +175,11 @@ Shared by every series: race info, the broadcast team, sponsors, the layout and 
 
 **Series from GLR HUB.** Under your own series the picker lists the series on the league site (glrhub.app). Pick one
 and the overlay makes a series for it here, marked **· GLR HUB**: its standings come from the site, and the standings
-title and ticker header start as the series' name (change them as you like). Picking it again later pulls its
-standings again. With no internet it opens from its saved copy. Everything else about it works like any other series,
+title and ticker header start as the series' name (change them as you like). With the standings come the series'
+**live points scoring** (when the series has its own points table on the site; a series on iRacing points keeps the
+table on the Setup tab), its **playoff cutoff**, and its **logo**, as the standings logo and the league logo at the
+top right. The site's standings, scoring and cutoff replace what's here at each refresh; a logo you pick yourself is
+kept. Picking it again later pulls all of it again. With no internet it opens from its saved copy. Everything else about it works like any other series,
 and your own series (Xtreme Scoring, CSV) are unchanged. The list is read when the overlay starts; **⋯ → Refresh the
 GLR HUB series list** reads it again. Nothing is pulled by itself during a broadcast.
 

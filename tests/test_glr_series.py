@@ -1,10 +1,13 @@
 """GLR HUB series in the overlay's Series list (Nov 2026): the list from the league site, linking a series, its
 standings as the overlay's table, refresh, classes, no internet, and live points matching drivers by iRacing ID.
+Stage 2: the site's scoring rules for live points, the playoff cutoff and the series logo.
 The site is a stand-in (made-up series and drivers): nothing here goes on the internet."""
 import copy
+import os
 import unittest
 
 import support  # noqa: F401  (first: throwaway data folder)
+import datafiles
 import glrsite
 import livepoints
 import profiles
@@ -25,9 +28,19 @@ SPORTS = {"ok": True, "series": "Test Sports Cars", "season": {"id": 9, "name": 
     {"carClass": "GT3", "playoffs": None, "regular": [driver(900011, "Test Echo", "11", 90, 1), driver(900012, "Test Foxtrot", "12", 70, 2)]},
     {"carClass": "GT4", "playoffs": None, "regular": [driver(900021, "Test Golf", "21", 60, 1)]}]}
 SERIES = {"ok": True, "series": [
-    {"id": 5001, "name": "Test Truck Series", "short_name": "Test Trucks", "slug": "test-trucks", "hidden": 0},
-    {"id": 5002, "name": "Test Sports Car Championship", "short_name": "Test Sports Cars", "slug": "test-sports", "hidden": 1},
+    {"id": 5001, "name": "Test Truck Series", "short_name": "Test Trucks", "slug": "test-trucks", "hidden": 0, "logo": "/theme/series-5001.png"},
+    {"id": 5002, "name": "Test Sports Car Championship", "short_name": "Test Sports Cars", "slug": "test-sports", "hidden": 1, "logo": ""},
     {"id": 1000000001, "name": "Old Test Series", "short_name": "Old", "slug": "old-test", "past": True}]}
+
+
+# the Trucks score from a table on the site, with playoffs; the Sports Cars take iRacing's points (no table to give)
+TRUCK_RULES = {"ok": True, "series": "Test Trucks", "source": "table", "table": [40, 35, 34, 33], "others": 1, "zeroLaps": True,
+               "bonus": {"win": 5, "pole": 0, "led": 1, "mostLed": 1, "fastLap": 0}, "drops": 2, "byClass": True, "ties": "share",
+               "playoffs": {"enabled": True, "field": 10, "regularRaces": 8, "minStarts": 0, "winIn": True, "seedBonus": [], "winBonus": 0,
+                            "rounds": [{"name": "Round of 10", "races": 2, "drivers": 10}]}}
+SPORTS_RULES = {"ok": True, "series": "Test Sports Cars", "source": "iracing", "table": [], "others": 0, "zeroLaps": False,
+                "bonus": {"win": 0, "pole": 0, "led": 0, "mostLed": 0, "fastLap": 0}, "playoffs": {"enabled": False, "field": 12, "rounds": []}}
+PNG = b"\x89PNG\r\n\x1a\n" + b"made-up logo"
 
 
 class Site:
@@ -36,17 +49,31 @@ class Site:
     def __init__(self):
         self.down = False
         self.standings = {"test-trucks": copy.deepcopy(TRUCKS), "test-sports": copy.deepcopy(SPORTS)}
-        self.asked = []
+        self.rules = {"test-trucks": copy.deepcopy(TRUCK_RULES), "test-sports": copy.deepcopy(SPORTS_RULES)}
+        self.series = copy.deepcopy(SERIES)
+        self.logo_bytes = PNG
+        self.asked, self.logos = [], []
 
     def get(self, path, timeout=15):
         self.asked.append(path)
         if self.down:
             raise glrsite.SiteError("Couldn't reach GLR HUB (no internet)")
         if path == "/api/series":
-            return copy.deepcopy(SERIES)
+            return copy.deepcopy(self.series)
+        if path.endswith("/points") and path.split("/")[3] in self.rules:
+            return copy.deepcopy(self.rules[path.split("/")[3]])
+        one = next((x for x in self.series["series"] if path == "/api/series/" + x["slug"]), None)
+        if one:
+            return {"ok": True, "series": copy.deepcopy(one)}
         if path.startswith("/api/standings/") and path.rsplit("/", 1)[1] in self.standings:
             return copy.deepcopy(self.standings[path.rsplit("/", 1)[1]])
         raise glrsite.SiteError("No such series")
+
+    def logo(self, address):
+        self.logos.append(address)
+        if self.down:
+            raise glrsite.SiteError("Couldn't download the logo (no internet)")
+        return self.logo_bytes, ".png"
 
 
 class Table(unittest.TestCase):
@@ -84,7 +111,7 @@ class Table(unittest.TestCase):
 class Linked(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
-        cls.real_get = glrsite._get
+        cls.real_get, cls.real_logo = glrsite._get, glrsite.fetch_logo
         server.STATE.settings["raceName"] = "TEST SERIES"
         if not standings.data_snapshot()["rows"]:
             standings.set_data(["Pos", "Driver", "Pts"], [["1", "Test A", "10"]], "csv")
@@ -93,11 +120,11 @@ class Linked(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls):
-        glrsite._get = cls.real_get
+        glrsite._get, glrsite.fetch_logo = cls.real_get, cls.real_logo
 
     def setUp(self):
         self.site = Site()
-        glrsite._get = self.site.get
+        glrsite._get, glrsite.fetch_logo = self.site.get, self.site.logo
         ok, msg = glrsite.refresh_list()
         self.assertTrue(ok, msg)
 
@@ -116,8 +143,8 @@ class Linked(unittest.TestCase):
 
     def test_the_list_has_the_sites_series_but_not_past_ones(self):
         s = profiles.summary()
-        self.assertEqual([(x["slug"], x["short"], x["hidden"]) for x in s["site"]],
-                         [("test-trucks", "Test Trucks", False), ("test-sports", "Test Sports Cars", True)])
+        self.assertEqual([(x["slug"], x["short"], x["hidden"], x["logo"]) for x in s["site"]],
+                         [("test-trucks", "Test Trucks", False, "/theme/series-5001.png"), ("test-sports", "Test Sports Cars", True, "")])
         self.assertEqual(s["siteError"], "")
 
     def test_the_list_survives_the_site_being_down(self):
@@ -223,6 +250,133 @@ class Linked(unittest.TestCase):
         finally:
             profiles.command({"cmd": "switch", "id": self.home})
             profiles.command({"cmd": "delete", "id": mine})
+
+
+class RulesAndLogo(Linked):
+    """Stage 2: with the standings come the site's scoring rules, the playoff cutoff and the series logo."""
+
+    def lp(self):
+        return server.STATE.settings["livePoints"]
+
+    def league_logo(self):
+        return server.STATE.settings.get("leagueLogo")
+
+    def test_the_sites_points_table_becomes_the_live_points_rules(self):
+        ok, msg = profiles.command({"cmd": "link", "slug": "test-trucks"})
+        self.assertTrue(ok, msg)
+        lp = self.lp()
+        self.assertEqual(lp["table"][:6], [40, 35, 34, 33, 1, 1])              # past the table: the site's "others"
+        self.assertEqual(len(lp["table"]), 60)
+        self.assertEqual((lp["bonusWin"], lp["bonusLed"], lp["bonusMost"], lp["bonusPole"], lp["zeroLaps"], lp["others"]), (5, 1, 1, 0, True, 1))
+        self.assertEqual(self.linked()["site"]["points"], "table")
+
+    def test_the_playoff_field_sets_the_cutoff_and_nothing_goes_on_air(self):
+        profiles.command({"cmd": "link", "slug": "test-trucks"})
+        self.assertEqual(self.lp()["cutoff"], 10)
+        self.assertEqual((standings.STATE["cutoff"], standings.STATE["playoff"], standings.STATE["visible"]), (10, True, False))
+        self.assertFalse(self.lp().get("playoff"), "live points' playoff mode reads the bracket: left off")
+
+    def test_a_series_on_iracing_points_keeps_the_overlays_own_table(self):
+        ok, msg = profiles.command({"cmd": "link", "slug": "test-sports"})
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.lp()["table"][:3], livepoints.DEFAULT_TABLE[:3])
+        self.assertEqual(self.linked("test-sports")["site"]["points"], "iracing")
+        self.assertFalse(standings.STATE["playoff"])
+
+    def test_a_refresh_replaces_points_changed_here(self):
+        profiles.command({"cmd": "link", "slug": "test-trucks"})
+        server.STATE.update_settings({"livePoints": {"bonusWin": 99}})
+        self.site.rules["test-trucks"]["bonus"]["win"] = 6
+        ok, msg = profiles.command({"cmd": "siteRefresh"})
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.lp()["bonusWin"], 6)
+
+    def test_the_series_logo_becomes_the_standings_logo_and_the_league_logo(self):
+        profiles.command({"cmd": "link", "slug": "test-trucks"})
+        self.assertEqual(self.site.logos, ["/theme/series-5001.png"])
+        cfg = standings.load_config()
+        self.assertEqual(cfg["logo_name"], profiles.SITE_LOGO_NAME)
+        with open(standings.logo_file(cfg), "rb") as f:
+            self.assertEqual(f.read(), PNG)
+        self.assertEqual(self.league_logo(), "glrhub-test-trucks.png")
+        with open(os.path.join(datafiles.LOGO_DIR, "glrhub-test-trucks.png"), "rb") as f:
+            self.assertEqual(f.read(), PNG)
+
+    def test_the_logo_is_downloaded_again_only_when_the_site_changes_it(self):
+        profiles.command({"cmd": "link", "slug": "test-trucks"})
+        profiles.command({"cmd": "siteRefresh"})
+        self.assertEqual(len(self.site.logos), 1)
+        self.site.series["series"][0]["logo"] = "/logo/5001?v=2026-11-15"
+        self.site.logo_bytes = PNG + b" 2"
+        profiles.command({"cmd": "siteRefresh"})
+        self.assertEqual(self.site.logos[-1], "/logo/5001?v=2026-11-15")
+        with open(standings.logo_file(standings.load_config()), "rb") as f:
+            self.assertEqual(f.read(), PNG + b" 2")
+
+    def test_logos_the_producer_picked_are_left_alone(self):
+        profiles.command({"cmd": "link", "slug": "test-trucks"})
+        server.STATE.update_settings({"leagueLogo": "my-league.png"})
+        standings.update_config(logo_name="my-own.png")
+        self.site.series["series"][0]["logo"] = "/logo/5001?v=2026-11-15"
+        self.site.logo_bytes = PNG + b" 2"
+        ok, msg = profiles.command({"cmd": "siteRefresh"})
+        self.assertTrue(ok, msg)
+        self.assertEqual(self.league_logo(), "my-league.png")
+        self.assertEqual(standings.load_config()["logo_name"], "my-own.png")
+        with open(standings.logo_file(standings.load_config()), "rb") as f:
+            self.assertEqual(f.read(), PNG, "the producer's standings logo file isn't overwritten")
+
+    def test_the_series_before_keeps_its_own_logo_and_points(self):
+        before = (self.league_logo(), copy.deepcopy(self.lp()))
+        profiles.command({"cmd": "link", "slug": "test-trucks"})
+        profiles.command({"cmd": "switch", "id": self.home})
+        self.assertEqual((self.league_logo(), self.lp()), before)
+
+    def test_a_problem_with_the_rules_or_logo_still_loads_the_standings(self):
+        del self.site.rules["test-trucks"]
+        self.site.series["series"][0]["logo"] = "https://elsewhere.example/logo.png"      # not an address on the site: ignored
+        ok, msg = profiles.command({"cmd": "link", "slug": "test-trucks"})
+        self.assertTrue(ok, msg)
+        self.assertIn("Points rules not read", msg)
+        self.assertEqual(self.site.logos, [])
+        self.assertEqual(standings.data_snapshot()["rows"][0][2], "Test Alpha")
+
+    def test_a_fastest_lap_bonus_is_named_as_not_counted(self):
+        self.site.rules["test-trucks"]["bonus"]["fastLap"] = 2
+        ok, msg = profiles.command({"cmd": "link", "slug": "test-trucks"})
+        self.assertTrue(ok, msg)
+        self.assertIn("fastest-lap bonus", msg)
+
+
+class SiteScoring(unittest.TestCase):
+    """Live points with GLR HUB's other rules: a win bonus, points past the end of the table, 0 laps scores nothing."""
+    HEADER, ROWS = ["Pos", "#", "Driver", "Pts", "Wins"], [["1", "10", "Test Alpha", "100", "0"], ["2", "20", "Test Bravo", "90", "0"],
+                                                            ["3", "30", "Test Charlie", "80", "0"]]
+
+    def pts(self, cfg, cars):
+        live = {"connected": True, "isRace": True, "sessionState": 4, "lap": 30, "subId": 1, "track": "Test Speedway", "sessNum": 2,
+                "cars": [{"num": n, "name": name, "pos": pos, "lapsLed": 0, "startPos": None, "lapsCompleted": laps} for n, name, pos, laps in cars]}
+        out = livepoints.compute(live, dict({"cutoff": 2, "bonusLed": 0, "bonusMost": 0, "bonusPole": 0}, **cfg), {"header": self.HEADER, "rows": self.ROWS})
+        self.assertTrue(out["ok"], out.get("why"))
+        return {r["name"]: r["pts"] for r in out["rows"]}
+
+    CARS = [("10", "Test Alpha", 1, 20), ("20", "Test Bravo", 2, 20), ("30", "Test Charlie", 3, 0)]
+
+    def test_win_bonus_and_points_past_the_table(self):
+        got = self.pts({"table": [40, 35], "bonusWin": 5, "others": 2}, self.CARS)
+        self.assertEqual(got, {"Test Alpha": "145", "Test Bravo": "125", "Test Charlie": "82"})
+
+    def test_a_car_with_no_laps_scores_nothing_for_its_place(self):
+        got = self.pts({"table": [40, 35, 34], "zeroLaps": True}, self.CARS)
+        self.assertEqual(got["Test Charlie"], "80")
+        self.assertEqual(self.pts({"table": [40, 35, 34]}, self.CARS)["Test Charlie"], "114")       # the rule off: as before
+
+    def test_on_lap_one_nobody_has_a_lap_yet_so_everyone_scores(self):
+        cars = [(n, name, pos, 0) for n, name, pos, _ in self.CARS]
+        self.assertEqual(self.pts({"table": [40, 35, 34], "zeroLaps": True}, cars)["Test Charlie"], "114")
+
+    def test_the_default_settings_score_as_before(self):
+        self.assertEqual((livepoints.DEFAULTS["bonusWin"], livepoints.DEFAULTS["others"], livepoints.DEFAULTS["zeroLaps"]), (0, 0, False))
 
 
 class MatchById(unittest.TestCase):

@@ -719,6 +719,7 @@
       <div><b>From GLR HUB:</b> <span id="glrName"></span> <span class="hint" id="glrSeason" style="margin:0"></span></div>
       <div class="row" id="glrClassRow" hidden style="margin:8px 0 0;align-items:center"><label style="margin:0;flex:0 0 auto">Class</label><select id="glrClass" style="width:auto"></select></div>
       <button class="save" id="glrRefresh" style="margin-top:8px">Refresh from GLR HUB</button>
+      <p class="hint" id="glrPoints" hidden></p>
       <p class="hint" style="margin-bottom:0">This series' standings come from the league site. They are pulled when you pick the series and when you press <b>Refresh from GLR HUB</b>, never by themselves. Edits made here last until the next refresh.</p>
     </div>
     <label>Xtreme Scoring widget link</label>
@@ -792,7 +793,10 @@
       <div><label>Led a lap (bonus)</label><input type="number" step="any" id="lpLed"></div>
       <div><label>Most laps led (bonus)</label><input type="number" step="any" id="lpMost"></div>
       <div><label>Pole (bonus)</label><input type="number" step="any" id="lpPole"></div>
+      <div><label>Win (bonus)</label><input type="number" step="any" id="lpWin"></div>
+      <div style="grid-column:span 2;align-self:end"><label style="display:flex;align-items:center;gap:8px;text-transform:none;letter-spacing:0;font-size:14px;color:#ddd"><input type="checkbox" id="lpZero" style="width:auto"> A car with 0 laps scores no points for its place</label></div>
     </div>
+    <p class="hint" id="lpFromSite" hidden></p>
     <div class="row" style="margin-top:10px"><button class="go" id="lpSave">Save points</button><button id="lpDefault">VSPEED default</button></div>
     <p class="hint">Used by Live points on the Race tab. Places with 0 score nothing. Most laps led goes to everyone tied for the most, on top of the led-a-lap bonus.</p>
   </section>
@@ -1410,12 +1414,14 @@ $('lpTable').innerHTML = Array.from({ length: 60 }, (_, i) => `<div><label>P${St
 function lpFill(table, b) {
   document.querySelectorAll('[data-lp]').forEach(x => { x.value = table[+x.dataset.lp] ?? 0; });
   $('lpLed').value = b.bonusLed ?? 1; $('lpMost').value = b.bonusMost ?? 1; $('lpPole').value = b.bonusPole ?? 1;
+  $('lpWin').value = b.bonusWin ?? 0; $('lpZero').checked = !!b.zeroLaps;
 }
 $('lpSave').onclick = async () => {
   const table = [...document.querySelectorAll('[data-lp]')].map(x => +x.value || 0);
-  if (await set({ livePoints: { table, bonusLed: +$('lpLed').value || 0, bonusMost: +$('lpMost').value || 0, bonusPole: +$('lpPole').value || 0 } })) toast('Points saved');
+  if (await set({ livePoints: { table, bonusLed: +$('lpLed').value || 0, bonusMost: +$('lpMost').value || 0, bonusPole: +$('lpPole').value || 0,
+                                bonusWin: +$('lpWin').value || 0, zeroLaps: $('lpZero').checked, others: table[table.length - 1] || 0 } })) toast('Points saved');
 };
-$('lpDefault').onclick = () => { lpFill(LP_DEFAULT, { bonusLed: 1, bonusMost: 1, bonusPole: 1 }); toast('VSPEED default filled in: press Save points to use it'); };
+$('lpDefault').onclick = () => { lpFill(LP_DEFAULT, { bonusLed: 1, bonusMost: 1, bonusPole: 1, bonusWin: 0, zeroLaps: false }); toast('VSPEED default filled in: press Save points to use it'); };
 let lpFilled = false;
 function livePointsRender() {
   const P = (L && L.livePoints) || {}, lp = S.livePoints || {};
@@ -2159,12 +2165,20 @@ async function seriesCmd(body) {
     r = await post('/api/profile', Object.assign({ force: true }, body));
   }
   toast(r.msg || (r.ok ? 'Done' : 'Could not do that'));
+  if (r.ok) lpFilled = false;       // a pull from GLR HUB may have brought new points rules: show them on the Setup tab
   return r.ok;
 }
 // Standings tab: the box for a series that is linked to GLR HUB (its name there, its class when it has several, Refresh)
 function glrBox() {
   const cur = SERIES.list.find(p => p.id === SERIES.active) || {}, link = cur.site;
   $('glrBox').hidden = !link;
+  // where this series' points rules come from, on the Standings tab and by the points table on the Setup tab
+  const pts = !link || !link.points ? '' : link.points === 'table'
+    ? 'Live points scoring, the playoff cutoff and the series logo come from GLR HUB too, and are replaced at each refresh (the logos only while you haven\'t picked your own).'
+    : 'On GLR HUB this series takes its points from iRacing, so the site has no points table to give: live points uses the table on the Setup tab.';
+  $('glrPoints').textContent = pts; $('glrPoints').hidden = !pts;
+  $('lpFromSite').hidden = !(link && link.points === 'table');
+  $('lpFromSite').textContent = link && link.points === 'table' ? `These are ${link.name || cur.name}'s rules from GLR HUB. A change saved here lasts until the next Refresh from GLR HUB; to change them for good, change the series' rules on the site.` : '';
   if (!link) return;
   $('glrName').textContent = link.name || cur.name;
   $('glrSeason').textContent = link.season ? '· ' + link.season : '';

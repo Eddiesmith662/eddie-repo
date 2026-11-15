@@ -17,6 +17,10 @@ GLR HUB series (Nov 2026): the Series list also shows the series on the league s
 series here that is linked to it (index.json: "site": the site's address for it, its class when it has several), with
 its standings pulled from the site and its names from the site's. It is a series like any other: it switches, saves
 and opens without internet from its saved copy. Refresh pulls its standings again; nothing is pulled by itself.
+With the standings come the site's scoring rules for live points (when the series has a points table there), the
+playoff cutoff, and the series' logo. The site wins for standings, points and the cutoff. The logos are the producer's
+to change: the standings logo is only set when there is none or it is still the site's, and the league logo (top
+right of the broadcast) the first time and after that only while it is still the site's.
 """
 import json
 import os
@@ -231,6 +235,75 @@ def _unique_name(name, idx):
     return name
 
 
+SITE_LOGO_NAME = "GLR HUB series logo"       # the standings logo's name when it came from the site
+
+
+def _fetch_extras(slug, link):
+    """The scoring rules and the logo from the site, read before anything changes. A problem with either is a note for
+    the producer, never a reason to stop: the standings still load."""
+    ex = {"rules": None, "logoAddr": None, "logo": None, "notes": []}
+    try:
+        ex["rules"] = glrsite.fetch_rules(slug)
+    except glrsite.SiteError as e:
+        ex["notes"].append("Points rules not read (%s)" % e)
+    try:
+        ex["logoAddr"] = glrsite.logo_address(slug)
+        if ex["logoAddr"] and ex["logoAddr"] != (link or {}).get("logo"):
+            ex["logo"] = glrsite.fetch_logo(ex["logoAddr"])
+    except glrsite.SiteError as e:
+        ex["notes"].append("Logo not read (%s)" % e)
+    return ex
+
+
+def _write_image(path, body):
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = path + ".tmp"
+    with open(tmp, "wb") as f:
+        f.write(body)
+    os.replace(tmp, path)
+
+
+def _apply_extras(entry, ex):
+    """Put the site's scoring rules, cutoff and logo live for the loaded series `entry`. Returns notes for the producer."""
+    link, notes = entry["site"], list(ex["notes"])
+    rules = ex["rules"]
+    if rules:
+        link["points"] = rules["source"]
+        if rules["livePoints"]:
+            _state.update_settings({"livePoints": rules["livePoints"]})
+            for what in rules["skipped"]:
+                notes.append("Live points doesn't count %s" % what)
+        if rules["field"]:
+            n = max(1, min(60, rules["field"]))
+            _state.update_settings({"livePoints": {"cutoff": n}})
+            standings.set_state(playoff=True, cutoff=min(20, n))
+            standings.update_config(cutoff=min(20, n))
+    if ex["logo"]:
+        body, ext = ex["logo"]
+        try:
+            cfg = standings.load_config()
+            if not standings.logo_file(cfg) or cfg.get("logo_name") == SITE_LOGO_NAME:     # none, or still the site's
+                for f in _logo_files(standings.CONFIG_DIR):
+                    os.remove(os.path.join(standings.CONFIG_DIR, f))
+                dest = os.path.join(standings.CONFIG_DIR, "logo" + ext)
+                _write_image(dest, body)
+                standings.update_config(logo=os.path.basename(dest), logo_name=SITE_LOGO_NAME)
+                standings.set_logo(dest)
+            fname = "glrhub-%s%s" % (link["slug"], ext)
+            with _state.lock:
+                current = _state.settings.get("leagueLogo") or ""
+            if "logo" not in link or current == link.get("logoFile"):                      # the first time, or still the site's
+                _write_image(os.path.join(datafiles.LOGO_DIR, fname), body)
+                _state.update_settings({"leagueLogo": fname})
+                link["logoFile"] = fname
+        except OSError as e:
+            notes.append("Logo not saved (%s)" % e)
+            return notes
+    if ex["logoAddr"] is not None:
+        link["logo"] = ex["logoAddr"]
+    return notes
+
+
 def _apply_site(table):
     """Put standings from GLR HUB live (the loaded series must be the linked one)."""
     standings.set_data(table["header"], table["rows"], "glrhub", pulled_at=time.time(), edited_at=None, ids=table["ids"])
@@ -269,6 +342,8 @@ def _site_command(cmd, d):
             ok, msg = command({"cmd": "switch", "id": have["id"]})
             return ok, ("%s. Couldn't refresh from GLR HUB: %s" % (msg or "Loaded the saved copy", e)) if ok else msg
         return False, str(e)
+    extras = _fetch_extras(slug, (have or {}).get("site"))
+    more = lambda notes: (". " + ". ".join(notes)) if notes else ""
     with LOCK:
         idx = _index()
         ids = {p["id"]: p for p in idx["list"]}
@@ -281,8 +356,9 @@ def _site_command(cmd, d):
                 return False, "Another series was loaded while GLR HUB was answering. Nothing was changed."
             have["site"] = dict(have["site"], **link)
             _apply_site(table)
+            notes = _apply_extras(have, extras)
             _write(INDEX, idx)
-            return True, "Pulled %d drivers from GLR HUB" % len(table["rows"])
+            return True, "Pulled %d drivers from GLR HUB%s" % (len(table["rows"]), more(notes))
         if have:                                    # linked before: switch to it, then bring its standings up to date
             if have["id"] != act or _mixed:
                 if act in ids:
@@ -292,13 +368,14 @@ def _site_command(cmd, d):
                     return False, problem
                 idx["active"] = have["id"]
             have["site"] = dict(have["site"], **link)
+            notes = _apply_extras(have, extras)
             if standings.data_snapshot()["edited_at"]:      # hand edits stay until Refresh is pressed for this series
                 _write(INDEX, idx)
                 return True, ("Switched to %s. Its standings were edited by hand, so they weren't replaced: press "
-                              "Refresh from GLR HUB to pull." % have["name"])
+                              "Refresh from GLR HUB to pull%s" % (have["name"], more(notes)))
             _apply_site(table)
             _write(INDEX, idx)
-            return True, "Switched to %s: %d drivers from GLR HUB" % (have["name"], len(table["rows"]))
+            return True, "Switched to %s: %d drivers from GLR HUB%s" % (have["name"], len(table["rows"]), more(notes))
         listed = next((s for s in glrsite.list_snapshot()["series"] if s["slug"] == slug), None) or {"short": slug, "name": slug}
         name = _unique_name(listed["short"], idx)
         pid = _new_id(name, idx)
@@ -322,9 +399,10 @@ def _site_command(cmd, d):
             return False, problem
         idx["active"] = pid
         _apply_site(table)
+        notes = _apply_extras(idx["list"][-1], extras)
         _write(INDEX, idx)
         _save(pid)
-        return True, "%s added from GLR HUB: %d drivers" % (name, len(table["rows"]))
+        return True, "%s added from GLR HUB: %d drivers%s" % (name, len(table["rows"]), more(notes))
 
 
 def command(d):
