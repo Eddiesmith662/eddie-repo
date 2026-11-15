@@ -176,3 +176,17 @@ test("a driver taken out of the playoffs is skipped and the next one moves in", 
   const r = computeStandings({ playoffs: po }, [...playoffSeason(), ...season(1, () => ({ sub: 9999 }))]).groups[0].playoffs.current.rows;
   assert.equal(r.find(x => x.custId === 102).bonus, 3);
 });
+
+test("a win in a playoff round shows as bonus for the next round, and is added when that round starts", () => {
+  const order = [...Array(14).keys()];
+  // 10 regular-season races and race 1 of the Round of 12, all won by driver 100: 10 wins x 3 + 5 for 1st = 35 bonus
+  let rows = computeStandings({ playoffs: GLR_PLAYOFFS }, season(11, () => ({ order }))).groups[0].playoffs.current.rows;
+  assert.deepEqual([rows[0].custId, rows[0].bonus, rows[0].bonusNext], [100, 35, 3]);
+  assert.equal(rows[1].bonusNext, 0);                                      // no win, nothing more to come
+  // both Round of 12 races won: 6 to come; then the Round of 8 starts with them in the bonus
+  rows = computeStandings({ playoffs: GLR_PLAYOFFS }, season(12, () => ({ order }))).groups[0].playoffs.rounds[0].rows;
+  assert.deepEqual([rows[0].bonus, rows[0].bonusNext], [35, 6]);
+  const r8 = computeStandings({ playoffs: GLR_PLAYOFFS }, season(13, () => ({ order }))).groups[0].playoffs.current;
+  assert.equal(r8.name, "Round of 8");
+  assert.deepEqual([r8.rows[0].bonus, r8.rows[0].bonusNext], [41, 0]);     // 35 + 6; the Championship takes no bonuses, so none to come
+});

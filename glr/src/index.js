@@ -985,7 +985,7 @@ function roundTable(rd) {
     <th class="n">Wins</th><th class="n">Starts</th><th>Status</th></tr>` +
     rd.rows.map((r, i) => `<tr${cutIdx > 0 && i === cutIdx ? ' class="cut"' : ""}><td class="n">${r.pos}</td>${chgCell(r.chg)}<td>${esc(r.number)}</td><td>${driverLink(r.custId, r.name)}</td>
       <td class="n"><b>${r.points}</b></td><td class="n">${rd.finale ? (r.behind ? -r.behind : "") : r.toCut != null && !/win/.test(r.status) ? num(r.toCut) : ""}</td>
-      <td class="n tag">${r.bonus || ""}</td><td class="n">${r.wins || ""}</td><td class="n">${r.starts}</td>
+      <td class="n tag">${r.bonus || ""}${r.bonusNext > 0 && !/Out/.test(r.status || "") ? ` <span title="Bonus points for winning in this round: added when the next round starts">(+${r.bonusNext} next round)</span>` : ""}</td><td class="n">${r.wins || ""}</td><td class="n">${r.starts}</td>
       <td>${r.status ? `<span class="st ${statusCls(r.status)}">${esc(r.status)}</span>` : ""}</td></tr>`).join("") + `</table></div>`;
 }
 

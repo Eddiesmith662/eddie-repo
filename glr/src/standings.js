@@ -178,11 +178,14 @@ function standingsFor(rules, races) {
       const pts = ran.map(r => (r.by.get(id) || { pts: 0 }).pts).reduce((a, b) => a + b, 0);
       const started = ran.filter(r => r.by.has(id)).length;
       const won = ran.some(r => (r.by.get(id) || {}).pos === 1);
+      // bonus points won in this round (a race win): they join the driver's bonus when the next round starts, so the
+      // standings say so here (Nov 2026: a round winner's Bonus column looked like it had missed the win)
+      const roundWins = ran.filter(r => (r.by.get(id) || {}).pos === 1).length;
       const fin = ran.map(r => (r.by.get(id) || {}).pos).filter(Boolean);
       return { custId: id, name: reg.name, number: reg.number, wins: (all.get(id) || reg).wins, starts: (all.get(id) || reg).starts,
         top5: (all.get(id) || reg).top5, top10: (all.get(id) || reg).top10, lapsLed: (all.get(id) || reg).lapsLed, finishes: (all.get(id) || reg).finishes,
         bonus: rd.bonuses ? bonus.get(id) || 0 : 0, roundPts: pts, points: rd.reset + (rd.bonuses ? bonus.get(id) || 0 : 0) + pts,
-        won, missed: started < ran.length, best: fin.length ? Math.min(...fin) : 999 };
+        bonusNext: next && next.bonuses ? po.winBonus * roundWins : 0, won, missed: started < ran.length, best: fin.length ? Math.min(...fin) : 999 };
     });
     const complete = ran.length >= rd.races;
     // wins in this round count toward later rounds' bonus
