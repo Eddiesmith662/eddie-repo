@@ -38,6 +38,7 @@ import recap      # race recap: cautions and lead changes so far
 import pitrace
 import livepoints
 import profiles
+import glrsite    # the series on GLR HUB, for the Series list
 import raceresults
 import announcer
 import leagueupload
@@ -3150,6 +3151,7 @@ def main():
         profiles.init(STATE)          # series profiles: the first time, the current setup becomes the first series
     except Exception as e:
         diag.error("Series profiles could not start: %r" % (e,), e)
+    glrsite.refresh_list_in_background()     # the series on GLR HUB, for the Series list (read once; the site may be down)
     threading.Thread(target=update_watch, daemon=True).start()
     if RC["on"]:
         racecontrol.start(diag.log)       # the steward's queue and calls (data/race-control)

@@ -67,12 +67,14 @@ def race_key(live):
     return "%s|%s|%s" % (live.get("subId") or "", live.get("track") or "", live.get("sessNum"))
 
 
-def _score(live, cfg, header, srows, excluded, counted=False):
+def _score(live, cfg, header, srows, excluded, counted=False, ids=None):
     """Match each car in the race to a standings row and work out tonight's points. Returns (people, racing):
     every standings row in its own order, then the cars that aren't in the standings, each with base (standings
     points), race (points for the running position), bonus, pts (the total), car (the car in this race, or None)
     and excl (left out by hand). counted: tonight's race is already in the standings (added after the checkered
-    flag), so it isn't added again: everyone stays on their standings points."""
+    flag), so it isn't added again: everyone stays on their standings points.
+    ids: {name key: iRacing ID} for standings from GLR HUB. A car is matched by its driver's iRacing ID first, so a
+    driver whose iRacing name isn't the one on the site still lands on their own row; then by name, then car number."""
     di, ni, pi, wi, posi = (_col(header, "driver"), _col(header, "#", "no", "num", "car"), _col(header, "pts", "points"),
                            _col(header, "wins", "w"), _col(header, "pos"))
     table = [_num(x) for x in (cfg.get("table") or DEFAULT_TABLE)]
@@ -95,9 +97,19 @@ def _score(live, cfg, header, srows, excluded, counted=False):
         if p["num"]:
             by_num.setdefault(p["num"], p)
 
+    by_id = {}
+    for p in people:
+        cust = (ids or {}).get(_key(p["name"]))
+        if cust:
+            by_id.setdefault(str(cust), p)
+
     # match each car in the race to a standings row
     for c in cars:
-        p = by_name.get(_key(c.get("name")))
+        p = by_id.get(str(c.get("custId") or "")) if by_id else None
+        if p is not None and p["car"] is not None:
+            p = None
+        if p is None:
+            p = by_name.get(_key(c.get("name")))
         if p is None or p["car"] is not None:
             p = by_num.get(str(c.get("num") or ""))
             if p is not None and p["car"] is not None:
@@ -159,7 +171,7 @@ def compute(live, cfg, standings_data, bracket=None, excluded=None):
 
     cars = live.get("cars") or []
     counted = bool(standings_data.get("race_added")) and standings_data.get("race_added") == race_key(live)
-    people, racing = _score(live, cfg, header, srows, excluded, counted)
+    people, racing = _score(live, cfg, header, srows, excluded, counted, ids=standings_data.get("ids"))
     out["counted"] = counted
 
     # excluded drivers: matched above, now left out (drivers in this race who aren't in the standings and were left out
@@ -276,7 +288,7 @@ def race_result(live, cfg, standings_data):
                                _col(header, "wins", "w"), _col(header, "pos"), _col(header, "chg", "change"))
     if not srows or di < 0 or pi < 0:
         raise ValueError("Pull or load the standings first (they need Driver and Pts columns).")
-    people, _ = _score(live, cfg, header, srows, set())
+    people, _ = _score(live, cfg, header, srows, set(), ids=standings_data.get("ids"))
     width = len(header)
     out, summary = [], {"winner": "", "new": [], "moves": [], "drivers": 0}
     for k, p in enumerate(people):

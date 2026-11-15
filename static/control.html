@@ -715,6 +715,12 @@
     <h2><span class="t">Standings data</span></h2>
     <div class="age" id="sAge"></div>
     <div class="note" id="sNote"></div>
+    <div id="glrBox" hidden style="margin:10px 0 4px;padding:10px 12px;border:1px solid #3a3a3b;border-radius:6px;background:#1b1b1c">
+      <div><b>From GLR HUB:</b> <span id="glrName"></span> <span class="hint" id="glrSeason" style="margin:0"></span></div>
+      <div class="row" id="glrClassRow" hidden style="margin:8px 0 0;align-items:center"><label style="margin:0;flex:0 0 auto">Class</label><select id="glrClass" style="width:auto"></select></div>
+      <button class="save" id="glrRefresh" style="margin-top:8px">Refresh from GLR HUB</button>
+      <p class="hint" style="margin-bottom:0">This series' standings come from the league site. They are pulled when you pick the series and when you press <b>Refresh from GLR HUB</b>, never by themselves. Edits made here last until the next refresh.</p>
+    </div>
     <label>Xtreme Scoring widget link</label>
     <input id="xtreme" placeholder="https://app.xtremescoring.com/api/Widget/...">
     <button class="save" id="pullBtn">Pull standings now</button>
@@ -2137,24 +2143,51 @@ function seriesUpdate(sr) {
   if (key !== seriesKey) {
     seriesKey = key;
     const sel = $('seriesSel');
-    sel.innerHTML = sr.list.map(p => `<option value="${esc(p.id)}" ${p.id === sr.active ? 'selected' : ''}>${esc(p.name)}</option>`).join('');
+    const mine = sr.list.map(p => `<option value="${esc(p.id)}" ${p.id === sr.active ? 'selected' : ''}>${esc(p.name)}${p.site ? ' · GLR HUB' : ''}</option>`).join('');
+    const site = (sr.site || []).map(s => `<option value="site:${esc(s.slug)}" title="${esc(s.name)}">${esc(s.short)}${s.hidden ? ' (hidden on the site)' : ''}</option>`).join('');
+    sel.innerHTML = site ? `<optgroup label="On this PC">${mine}</optgroup><optgroup label="From GLR HUB (pick to add)">${site}</optgroup>` : mine;
     sel.value = sr.active || '';
+    glrBox();
   }
   if (changed) { filled = false; sFilled = false; lpFilled = false; }   // another series is loaded: refill the text boxes from it
 }
+// a CONFIRM: reply asks first and sends again with force (the same as the standings commands)
 async function seriesCmd(body) {
-  const r = await post('/api/profile', body);
+  let r = await post('/api/profile', body);
+  if (!r.ok && r.msg && r.msg.startsWith('CONFIRM:')) {
+    if (!confirm(r.msg.slice(8))) return false;
+    r = await post('/api/profile', Object.assign({ force: true }, body));
+  }
   toast(r.msg || (r.ok ? 'Done' : 'Could not do that'));
   return r.ok;
 }
+// Standings tab: the box for a series that is linked to GLR HUB (its name there, its class when it has several, Refresh)
+function glrBox() {
+  const cur = SERIES.list.find(p => p.id === SERIES.active) || {}, link = cur.site;
+  $('glrBox').hidden = !link;
+  if (!link) return;
+  $('glrName').textContent = link.name || cur.name;
+  $('glrSeason').textContent = link.season ? '· ' + link.season : '';
+  const classes = link.classes || [];
+  $('glrClassRow').hidden = classes.length < 2;
+  const html = classes.map(c => `<option ${c === link.cls ? 'selected' : ''}>${esc(c)}</option>`).join('');
+  if ($('glrClass')._h !== html) { $('glrClass')._h = html; $('glrClass').innerHTML = html; }
+}
+$('glrRefresh').onclick = async () => { $('glrRefresh').disabled = true; try { await seriesCmd({ cmd: 'siteRefresh' }); } finally { $('glrRefresh').disabled = false; } };
+$('glrClass').onchange = async () => { if (!(await seriesCmd({ cmd: 'siteClass', cls: $('glrClass').value }))) { $('glrClass')._h = ''; glrBox(); } };
 $('seriesSel').onchange = async () => {
-  const sel = $('seriesSel'), id = sel.value, to = (SERIES.list.find(p => p.id === id) || {}).name || id;
+  const sel = $('seriesSel'), id = sel.value, fromSite = id.startsWith('site:') ? (SERIES.site || []).find(s => 'site:' + s.slug === id) : null;
+  const local = SERIES.list.find(p => p.id === id) || {}, to = fromSite ? fromSite.short : local.name || id;
   let onAir = [];
   try { onAir = (await (await fetch('/api/profiles')).json()).onAir || []; } catch (e) {}
   if (onAir.length && !confirm(`On air now: ${onAir.join(', ')}.\n\nSwitch to ${to} anyway? The standings, live points, ticker header and league logo change straight away.`)) {
     sel.value = SERIES.active || ''; return;
   }
-  if (!(await seriesCmd({ cmd: 'switch', id }))) sel.value = SERIES.active || '';
+  // a series from GLR HUB (new here, or linked before): its standings are pulled from the site as it loads
+  const slug = fromSite ? fromSite.slug : local.site && local.site.slug;
+  sel.disabled = true;
+  try { if (!(await seriesCmd(slug ? { cmd: 'link', slug } : { cmd: 'switch', id }))) sel.value = SERIES.active || ''; }
+  finally { sel.disabled = false; }
 };
 $('seriesMenuBtn').onclick = e => {
   e.stopPropagation();
@@ -2162,6 +2195,7 @@ $('seriesMenuBtn').onclick = e => {
   const others = SERIES.list.filter(p => p.id !== SERIES.active);
   m.innerHTML = `<button data-sm="copy">New series (a copy of ${esc(cur.name || 'this one')})…</button><button data-sm="blank">New empty series…</button>` +
     `<button data-sm="rename">Rename ${esc(cur.name || 'this series')}…</button>` +
+    `<button data-sm="sitelist" title="${esc(SERIES.siteError ? 'Last try: ' + SERIES.siteError : 'Read the list of series on the league site again')}">Refresh the GLR HUB series list</button>` +
     (others.length ? '<div class="hd">Delete</div>' + others.map(p => `<button data-sm="delete" data-id="${esc(p.id)}">Delete ${esc(p.name)}…</button>`).join('') : '');
   m.hidden = !m.hidden;
   const r = $('seriesMenuBtn').getBoundingClientRect();     // under the ⋯ button (the tab row would clip a dropdown inside it)
@@ -2175,6 +2209,8 @@ $('seriesMenu').onclick = async e => {
   if (b.dataset.sm === 'copy' || b.dataset.sm === 'blank') {
     const name = prompt(b.dataset.sm === 'copy' ? `Name for the new series (it starts as a copy of ${cur.name})` : 'Name for the new series (it starts empty: pull its standings and set its points)');
     if (name && name.trim()) await seriesCmd({ cmd: 'new', name, blank: b.dataset.sm === 'blank' });
+  } else if (b.dataset.sm === 'sitelist') {
+    await seriesCmd({ cmd: 'siteList' });
   } else if (b.dataset.sm === 'rename') {
     const name = prompt('New name for ' + cur.name, cur.name);
     if (name && name.trim() && name !== cur.name) await seriesCmd({ cmd: 'rename', id: SERIES.active, name });

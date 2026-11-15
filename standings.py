@@ -109,7 +109,9 @@ def bump(key):
 # ----------------------------------------------------------------------------
 # Standings data: pulled from Xtreme Scoring, loaded from CSV, or edited by hand
 # ----------------------------------------------------------------------------
-DATA = {"header": [], "rows": [], "pulled_at": 0.0, "source": "", "edited_at": None, "race_added": None}
+# ids: {name key: iRacing ID} for the drivers in standings pulled from GLR HUB (glrsite.py), so live points can match
+# a car to its row by ID. Empty for Xtreme and CSV standings, which only have names.
+DATA = {"header": [], "rows": [], "pulled_at": 0.0, "source": "", "edited_at": None, "race_added": None, "ids": {}}
 DATA_LOCK = threading.Lock()
 
 _TR = re.compile(r"<tr\b[^>]*>[\s\S]*?</tr>", re.I)
@@ -299,9 +301,14 @@ def save_data():
             print("Could not save the standings (standings.json): %s" % e)
 
 
-def set_data(header, rows, source, pulled_at=None, edited_at=None, save=True, race_added=None):
-    """race_added: the race added to these standings with 'Add tonight's race' (cleared by anything else, e.g. a pull)."""
+def set_data(header, rows, source, pulled_at=None, edited_at=None, save=True, race_added=None, ids=None):
+    """race_added: the race added to these standings with 'Add tonight's race' (cleared by anything else, e.g. a pull).
+    ids: the drivers' iRacing IDs from GLR HUB. Left out, the ones there stay while the standings are still the GLR HUB
+    ones (a hand edit, tonight's race added) and go when another source replaces them."""
     with DATA_LOCK:
+        if ids is None:
+            ids = DATA.get("ids") if source == "glrhub" and DATA.get("source") == "glrhub" else {}
+        DATA["ids"] = dict(ids or {})
         DATA["header"] = list(header)
         DATA["rows"] = [list(r) for r in rows]
         DATA["race_added"] = race_added
@@ -426,11 +433,12 @@ def load_data(backup=False):
         edited = float(d["edited_at"]) if d.get("edited_at") else None
         source = str(d.get("source") or "")
         added = d.get("race_added") or None
+        ids = {str(k): str(v) for k, v in (d.get("ids") or {}).items()} if isinstance(d.get("ids"), dict) else {}
     except (ValueError, KeyError, TypeError):
         return False
     if not header or not rows:
         return False
-    set_data(header, rows, source, pulled, edited, save=False, race_added=added)
+    set_data(header, rows, source, pulled, edited, save=False, race_added=added, ids=ids)
     return True
 
 
@@ -599,7 +607,7 @@ def age_text():
         return "No standings loaded yet", True, ""
     age = time.time() - snap["pulled_at"]
     stale = age >= STALE_HOURS * 3600
-    verb = "Pulled" if snap["source"] == "xtreme" else "Loaded from a file"
+    verb = "Pulled" if snap["source"] == "xtreme" else "From GLR HUB" if snap["source"] == "glrhub" else "Loaded from a file"
     note = ("Hand-edited %s. Pulling again replaces the edits." % fmt_time(snap["edited_at"])) if snap["edited_at"] else ""
     return "%s %s · %s%s" % (verb, fmt_time(snap["pulled_at"]), describe_age(age), " — OLD, pull again" if stale else ""), stale, note
 

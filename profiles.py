@@ -12,6 +12,11 @@ Race info, the broadcast team and the sponsor images are shared by every series 
 Profiles live in data/profiles/<id>/ (settings.json + a copy of that series' standings files), so updates never
 touch them. Switching saves the current series first (anything changed since it was loaded is kept), then loads
 the other one. The first time this runs, whatever is set up now becomes the first profile.
+
+GLR HUB series (Nov 2026): the Series list also shows the series on the league site (glrsite.py). Picking one makes a
+series here that is linked to it (index.json: "site": the site's address for it, its class when it has several), with
+its standings pulled from the site and its names from the site's. It is a series like any other: it switches, saves
+and opens without internet from its saved copy. Refresh pulls its standings again; nothing is pulled by itself.
 """
 import json
 import os
@@ -21,6 +26,7 @@ import threading
 import time
 
 import datafiles
+import glrsite
 import standings
 
 DIR = os.path.join(datafiles.DATA, "profiles")
@@ -204,13 +210,129 @@ def init(state):
 
 
 def summary():
+    """For the control panel's Series picker: the series here, and the ones on GLR HUB that aren't linked to one yet."""
     idx = _index()
-    return {"active": idx.get("active"), "list": idx["list"]}
+    site = glrsite.list_snapshot()
+    linked = {(p.get("site") or {}).get("slug") for p in idx["list"]}
+    return {"active": idx.get("active"), "list": idx["list"],
+            "site": [s for s in site["series"] if s["slug"] not in linked], "siteError": site["error"], "siteAt": site["at"]}
+
+
+def _unique_name(name, idx):
+    """A series name that isn't taken here: 'Trucks', else 'Trucks (GLR HUB)', else with a number."""
+    taken = {p["name"].lower() for p in idx["list"]}
+    name = " ".join(str(name or "").split())[:40] or "Series"
+    if name.lower() not in taken:
+        return name
+    for extra in ["(GLR HUB)"] + ["(GLR HUB %d)" % n for n in range(2, 50)]:
+        cand = "%s %s" % (name[:40 - len(extra) - 1], extra)
+        if cand.lower() not in taken:
+            return cand
+    return name
+
+
+def _apply_site(table):
+    """Put standings from GLR HUB live (the loaded series must be the linked one)."""
+    standings.set_data(table["header"], table["rows"], "glrhub", pulled_at=time.time(), edited_at=None, ids=table["ids"])
+    standings.log("Pulled %d drivers from GLR HUB%s%s. The graphic updates by itself." % (
+        len(table["rows"]), (" (%s)" % table["cls"]) if table["cls"] else "", ", playoff standings" if table["playoffs"] else ""))
+
+
+def _site_command(cmd, d):
+    """link / siteRefresh / siteClass / siteList. The site is read before anything here changes, and never with LOCK
+    held, so a slow or missing site can't leave a half-made series or hold up switching."""
+    if cmd == "siteList":
+        return glrsite.refresh_list()
+    force = bool(d.get("force"))
+    with LOCK:
+        idx = _index()
+        act = idx.get("active")
+        cur = next((p for p in idx["list"] if p["id"] == act), None)
+        if cmd == "link":
+            slug = str(d.get("slug") or "")
+            have = next((p for p in idx["list"] if (p.get("site") or {}).get("slug") == slug), None)
+            listed = next((s for s in glrsite.list_snapshot()["series"] if s["slug"] == slug), None)
+            if not have and not listed:
+                return False, "That series isn't in the GLR HUB list any more. Refresh the list and pick again."
+            cls = ((have or {}).get("site") or {}).get("cls", "")
+        else:
+            if not cur or not cur.get("site"):
+                return False, "This series isn't linked to GLR HUB."
+            have, slug = cur, cur["site"]["slug"]
+            cls = str(d.get("cls") or "") if cmd == "siteClass" else cur["site"].get("cls", "")
+            if standings.data_snapshot()["edited_at"] and not force:
+                return False, "CONFIRM:The standings were edited by hand. Pulling from GLR HUB replaces the edits. Continue?"
+    try:
+        table = glrsite.fetch_standings(slug, cls)
+    except glrsite.SiteError as e:
+        if cmd == "link" and have:                  # no internet: the linked series still opens from its saved copy
+            ok, msg = command({"cmd": "switch", "id": have["id"]})
+            return ok, ("%s. Couldn't refresh from GLR HUB: %s" % (msg or "Loaded the saved copy", e)) if ok else msg
+        return False, str(e)
+    with LOCK:
+        idx = _index()
+        ids = {p["id"]: p for p in idx["list"]}
+        names = {p["id"]: p["name"] for p in idx["list"]}
+        act = idx.get("active")
+        have = next((p for p in idx["list"] if (p.get("site") or {}).get("slug") == slug), None)
+        link = {"slug": slug, "cls": table["cls"], "classes": table["classes"], "season": table["season"]}
+        if cmd != "link":
+            if not have or have["id"] != act:
+                return False, "Another series was loaded while GLR HUB was answering. Nothing was changed."
+            have["site"] = dict(have["site"], **link)
+            _apply_site(table)
+            _write(INDEX, idx)
+            return True, "Pulled %d drivers from GLR HUB" % len(table["rows"])
+        if have:                                    # linked before: switch to it, then bring its standings up to date
+            if have["id"] != act or _mixed:
+                if act in ids:
+                    _save(act)
+                problem = _switch(have["id"], act if act in ids and act != have["id"] else None, names)
+                if problem:
+                    return False, problem
+                idx["active"] = have["id"]
+            have["site"] = dict(have["site"], **link)
+            if standings.data_snapshot()["edited_at"]:      # hand edits stay until Refresh is pressed for this series
+                _write(INDEX, idx)
+                return True, ("Switched to %s. Its standings were edited by hand, so they weren't replaced: press "
+                              "Refresh from GLR HUB to pull." % have["name"])
+            _apply_site(table)
+            _write(INDEX, idx)
+            return True, "Switched to %s: %d drivers from GLR HUB" % (have["name"], len(table["rows"]))
+        listed = next((s for s in glrsite.list_snapshot()["series"] if s["slug"] == slug), None) or {"short": slug, "name": slug}
+        name = _unique_name(listed["short"], idx)
+        pid = _new_id(name, idx)
+        if act in ids:
+            _save(act)                              # keep the current one as it is
+        link.update(name=listed["name"], id=listed.get("id"), hidden=bool(listed.get("hidden")))
+        idx["list"].append({"id": pid, "name": name, "site": link})
+        os.makedirs(os.path.join(_pdir(pid), "standings"), exist_ok=True)
+        with _state.lock:
+            defaults = _state.defaults()
+        full = " ".join(str(listed["name"]).split()).upper()[:80]
+        # a fresh series: default points, no bracket; the ticker header and the standings title are the series' name
+        _write(os.path.join(_pdir(pid), "settings.json"),
+               {"settings": {"livePoints": defaults["livePoints"], "raceName": full[:60], "leagueLogo": _state.settings.get("leagueLogo", ""),
+                             "nextRace": defaults["nextRace"]},
+                "config": {"title": full}, "graphic": {"playoff": False, "cutoff": 16}})
+        problem = _switch(pid, act if act in ids else None, dict(names, **{pid: name}))
+        if problem:
+            idx["list"] = [p for p in idx["list"] if p["id"] != pid]     # not created after all
+            shutil.rmtree(_pdir(pid), ignore_errors=True)
+            return False, problem
+        idx["active"] = pid
+        _apply_site(table)
+        _write(INDEX, idx)
+        _save(pid)
+        return True, "%s added from GLR HUB: %d drivers" % (name, len(table["rows"]))
 
 
 def command(d):
-    """switch / new / rename / delete. Returns (ok, message)."""
+    """switch / new / rename / delete, and for GLR HUB series link / siteRefresh / siteClass / siteList.
+    Returns (ok, message)."""
     cmd = str(d.get("cmd") or "")
+    if cmd in ("link", "siteRefresh", "siteClass", "siteList"):
+        return _site_command(cmd, d)
     with LOCK:
         idx = _index()
         ids = {p["id"]: p for p in idx["list"]}

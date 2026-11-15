@@ -142,6 +142,10 @@ All on the **Standings** tab. The full walkthrough, including a race-by-race pla
 - **Getting the standings:** paste your Xtreme Scoring widget link and press **Pull standings now**, or load a CSV
   (columns Pos, #, Driver, Pts, Wins; **Example CSV** gives one to copy). It only pulls when you press the button;
   the last copy is saved with the series.
+- **From GLR HUB:** a series picked from the league site (see "Several series") gets its standings from the site.
+  **Refresh from GLR HUB** on the Standings tab pulls them again; a series with several classes has a **Class**
+  picker there. Live points then matches each car to its driver by iRacing ID, so a different name in iRacing
+  doesn't matter.
 - **Edit by hand** fixes a name, number or points.
 - **Add tonight's race** (once the checkered flag is out) puts tonight's live points into the standings: points and
   bonuses, a win for the winner, drivers new to the series, re-sorted. It asks first, and won't add the same race
@@ -168,6 +172,13 @@ The **Series** picker (top right) keeps each series separate. Picking one switch
 
 Shared by every series: race info, the broadcast team, sponsors, the layout and the announcer page.
 **⋯** next to the picker adds (a copy, or an empty one), renames or deletes a series.
+
+**Series from GLR HUB.** Under your own series the picker lists the series on the league site (glrhub.app). Pick one
+and the overlay makes a series for it here, marked **· GLR HUB**: its standings come from the site, and the standings
+title and ticker header start as the series' name (change them as you like). Picking it again later pulls its
+standings again. With no internet it opens from its saved copy. Everything else about it works like any other series,
+and your own series (Xtreme Scoring, CSV) are unchanged. The list is read when the overlay starts; **⋯ → Refresh the
+GLR HUB series list** reads it again. Nothing is pulled by itself during a broadcast.
 
 ---
 
