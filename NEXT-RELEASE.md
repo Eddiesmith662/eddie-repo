@@ -14,3 +14,5 @@ How it works (CLAUDE.md, "Three chats, one repo"):
 ## Notes
 
 A race name too long for the ticker's title bar is no longer cut off with "…": it is drawn smaller until it fits (down to about half size; a name longer than that still ends in "…").
+
+Layout tab: each graphic's size is now a box you type a percent into (40 to 180, the up and down arrow keys change it by 1) instead of a slider.

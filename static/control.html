@@ -393,9 +393,10 @@
   .lbox.sel { z-index: 5; border: 2px solid var(--red); background: rgba(255,13,64,.10); }
   .lbox.sel span { background: var(--red); }
   .lylist { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: 8px 18px; }
-  .lyrow { display: grid; grid-template-columns: 110px 1fr 48px auto; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 5px; cursor: pointer; }
+  .lyrow { display: grid; grid-template-columns: 110px 72px 1fr auto; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 5px; cursor: pointer; }
   .lyrow.sel { background: rgba(255,13,64,.18); }
-  .lyrow .v { text-align: right; font-variant-numeric: tabular-nums; color: var(--dim); font-size: 13px; }
+  .lyrow input { width: 72px; padding: 4px 6px; text-align: right; font-variant-numeric: tabular-nums; }
+  .lyrow .v { color: var(--dim); font-size: 13px; }
   .lyrow button { padding: 4px 8px; font-size: 12px; }
   /* sign-in screen (Nov 2026): the overlay needs a producer signed in to the league site with Discord */
   #gate { position: fixed; inset: 0; z-index: 100; background: var(--bg); display: flex; align-items: center; justify-content: center; padding: 16px; overflow: auto; }
@@ -802,7 +803,7 @@
   <section class="wide">
     <h2><span class="t">Size</span></h2>
     <div class="lylist" id="lyList"></div>
-    <p class="hint">Sizes are relative to the default for each graphic. While standings, race info or the team box are on air, any live graphic they overlap steps aside on its own.</p>
+    <p class="hint">Type a size for each graphic, in percent of its default (40 to 180); the up and down arrow keys change it by 1. While standings, race info or the team box are on air, any live graphic they overlap steps aside on its own.</p>
   </section>
 </main>
 
@@ -1801,24 +1802,47 @@ function lyTick() {
   }
   lyList();
 }
+/* Each graphic's size is a box to type into, in percent of its default (40 to 180). Nov 15, 2026: it was a slider,
+   and hard to use: every movement rebuilt this list, which threw away the slider being dragged. So the list is never
+   rebuilt while a size box is being typed in, and a size just typed is shown (lyWant) until the overlay reports it. */
 let lyListKey = '';
+const lyWant = {};          // { id: { v: size just typed, until: when to stop waiting for the overlay to report it } }
+function lyMult(id) {
+  const w = lyWant[id];
+  if (w && (Math.abs(ly[id].mult - w.v) < 0.001 || Date.now() > w.until)) delete lyWant[id];
+  return lyWant[id] ? lyWant[id].v : ly[id].mult;
+}
 function lyList() {
-  const key = Object.keys(ly).map(id => id + ly[id].mult).join('|') + lySel;
+  const at = document.activeElement;
+  if (at && at.dataset && at.dataset.size && $('lyList').contains(at)) return;      // being typed in
+  const key = Object.keys(ly).map(id => id + lyMult(id)).join('|') + lySel;
   if (key === lyListKey) return; lyListKey = key;
   $('lyList').innerHTML = Object.keys(ly).map(id => `<div class="lyrow ${id === lySel ? 'sel' : ''}" data-id="${id}">
-      <span>${esc(ly[id].name)}</span><input type="range" min="${LYMIN * 100}" max="${LYMAX * 100}" value="${Math.round(ly[id].mult * 100)}" data-size="${id}">
-      <span class="v">${Math.round(ly[id].mult * 100)}%</span><button data-reset="${id}">Reset</button></div>`).join('');
+      <span>${esc(ly[id].name)}</span><input type="number" min="${LYMIN * 100}" max="${LYMAX * 100}" step="1" value="${Math.round(lyMult(id) * 100)}" data-size="${id}" title="Size in percent of its default, ${LYMIN * 100} to ${LYMAX * 100}">
+      <span class="v">%</span><button data-reset="${id}">Reset</button></div>`).join('');
 }
-$('lyList').oninput = e => {
-  const id = e.target.dataset.size; if (!id) return;
-  const v = +e.target.value / 100;
-  e.target.nextElementSibling.textContent = Math.round(v * 100) + '%';
-  ly[id].mult = v; lyListKey = '';
+function lySize(id, pct) {
+  const v = Math.round(pct) / 100;
+  lyWant[id] = { v, until: Date.now() + 2000 };
   lySend(id, { s: v });
+}
+$('lyList').oninput = e => {          // as it's typed: only a whole size in range counts (1 and 12 on the way to 125 don't)
+  const id = e.target.dataset.size; if (!id) return;
+  const n = e.target.value.trim() === '' ? NaN : +e.target.value;
+  if (n >= LYMIN * 100 && n <= LYMAX * 100) lySize(id, n);
 };
+$('lyList').onchange = e => {         // Enter, or leaving the box: out of range is brought back into it, empty goes back to what it was
+  const id = e.target.dataset.size; if (!id) return;
+  const n = e.target.value.trim() === '' ? NaN : +e.target.value;
+  if (isNaN(n)) { e.target.value = Math.round(lyMult(id) * 100); return; }
+  const pct = Math.min(LYMAX * 100, Math.max(LYMIN * 100, Math.round(n)));
+  e.target.value = pct;
+  lySize(id, pct);
+};
+$('lyList').onkeydown = e => { if (e.key === 'Enter' && e.target.dataset.size) e.target.blur(); };
 $('lyList').onclick = e => {
   const r = e.target.closest('[data-reset]');
-  if (r) { set({ layout: { [r.dataset.reset]: null } }); lyListKey = ''; return; }
+  if (r) { delete lyWant[r.dataset.reset]; set({ layout: { [r.dataset.reset]: null } }); lyListKey = ''; return; }
   const row = e.target.closest('.lyrow'); if (row && !e.target.matches('input')) lySelect(row.dataset.id);
 };
 $('lyResetAll').onclick = () => { if (confirm('Put every graphic back in its default spot and size?')) { set({ layout: Object.fromEntries(Object.keys(ly || {}).map(id => [id, null])) }); lyListKey = ''; } };

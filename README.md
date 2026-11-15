@@ -64,7 +64,7 @@ the address to use.
 | **Prerace** | Getting started checklist, race info, broadcast team, Next broadcast, broadcast text (ticker header and league logo), track graphic, Results board title |
 | **Race** | Graphics tiles, Race off pit road, Podium, Live points, ticker and driver info settings, cameras, incident log, Grid and Pole Award, Sponsors, Announcer page link and notes |
 | **Standings** | Standings graphic on/off, title and logo, Xtreme Scoring link or CSV, the standings table (edit, exclude), playoff bracket |
-| **Layout** | Drag any graphic to move it, sliders to resize it. Changes show in vMix or OBS straight away and are saved |
+| **Layout** | Drag any graphic to move it, type a size in percent to resize it. Changes show in vMix or OBS straight away and are saved |
 | **Setup** | Live points scoring (points per place, bonuses), the overlay links for vMix or OBS, car renders, announcer page setup, diagnostics |
 
 At the top: the version, the **Series** picker, **Open live timing ↗** and **Producer codes ↗** (for the announcer page).
