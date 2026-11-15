@@ -180,7 +180,8 @@ title and ticker header start as the series' name (change them as you like). Wit
 table on the Setup tab), its **playoff cutoff**, and its **logo**, as the standings logo and the league logo at the
 top right. The **Next broadcast** box gets the series' next race from the site's schedule (track, date and time in
 Eastern time; a race starting within 12 hours counts as tonight's show, so the one after it is used). **In the
-playoffs** the bracket, live points' playoff mode and the cutoff for the round being run are set from the site, when
+playoffs** the standings' Wins column counts only a win in the round being run (so LOCKED IN means the driver has won
+in this round), and the bracket, live points' playoff mode and the cutoff for the round being run are set from the site, when
 the series' rounds are 12, 8 and 4 drivers; any other format leaves the bracket and playoff mode as you set them. The
 site's standings, scoring, cutoff, bracket and Next broadcast text replace what's here at each refresh; a logo you
 pick yourself is kept. Picking it again later pulls all of it again. With no internet it opens from its saved copy. Everything else about it works like any other series,

@@ -68,6 +68,11 @@ def playoff_trucks(sizes=(12, 8, 4), second_round=False, champion=False):
         return got
     # round 1 is listed in points order, not seed order: seed 5 leads it after winning a race in it, seed 9 missed one
     r1 = rows([field[4]] + field[:4] + field[5:], 1050, **{"910005": "won", "910009": "missed"})
+    # season wins, as the site sends them with every row: seeds 1 and 2 won in the regular season, seed 5 only in this
+    # round, and a driver who missed the playoffs won a race too
+    for r in r1:
+        r["wins"] = {910001: 5, 910002: 1, 910005: 1}.get(r["custId"], 0)
+    out[0]["wins"] = 1
     rounds = [dict(name=names[0], races=2, drivers=sizes[0], finale=False, complete=second_round, spots=sizes[1], ran=1, rows=r1)]
     if second_round:
         r2 = rows(field[:8], 2040)
@@ -425,6 +430,19 @@ class PlayoffTable(unittest.TestCase):
         self.assertEqual([e["seed"] for e in r12 if e["won"]], [5])
         self.assertEqual([e["seed"] for e in r12 if e["missed"]], [9])
         self.assertEqual(po["rounds"][1:], [[], [], []])
+
+    def test_in_the_playoffs_only_a_win_in_the_round_counts_as_a_win(self):
+        # Nov 14, 2026 (Grand National, Round of 12): the standings graphic showed the six regular-season winners as
+        # LOCKED IN, because the table carried their season wins and any driver with a win is locked in
+        t = glrsite.to_table(playoff_trucks())
+        wins = {r[2]: r[6] for r in t["rows"]}
+        self.assertEqual(wins["Test Playoff E"], "1")                       # won a race in this round
+        self.assertEqual((wins["Test Playoff A"], wins["Test Playoff B"]), ("0", "0"))      # regular-season wins don't count now
+        self.assertEqual(wins["Test Other 1"], "0")                         # not in the playoffs
+        self.assertEqual([n for n, w in wins.items() if w != "0"], ["Test Playoff E"])
+
+    def test_in_the_regular_season_the_wins_are_the_seasons(self):
+        self.assertEqual([r[6] for r in glrsite.to_table(TRUCKS)["rows"]], ["2", "1", "0", "0"])
 
     def test_later_rounds_and_the_champion(self):
         po = glrsite.to_table(playoff_trucks(second_round=True))["playoff"]

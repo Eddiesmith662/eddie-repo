@@ -233,7 +233,7 @@ def to_table(resp, cls=""):
     """One class's standings as the overlay's table. Returns a dict: header, rows, ids ({name key: iRacing ID}),
     classes (the class names, when the series has more than one), cls (the class used), season, playoffs (True when the
     playoffs have started: the drivers still in come first, on their playoff points, then the ones knocked out, then
-    everyone else)."""
+    everyone else, and Wins counts only a win in the round being run)."""
     groups = [g for g in (resp.get("groups") or []) if isinstance(g, dict)]
     season = (resp.get("season") or {}).get("name") or ""
     classes = [str(g.get("carClass") or "") for g in groups if g.get("carClass")]
@@ -244,12 +244,18 @@ def to_table(resp, cls=""):
     if po.get("started") and (po.get("current") or {}).get("rows"):
         people = list(po["current"]["rows"]) + list(po.get("eliminated") or []) + list(po.get("others") or [])
         shared = False
+        in_round = {id(p) for p in po["current"]["rows"]}
     else:
         people = list(g.get("regular") or [])
         shared = True
     people = [p for p in people if isinstance(p, dict) and str(p.get("name") or "").strip()][:MAX_ROWS]
     if not people:
         raise SiteError("%s has no drivers in its standings yet" % (resp.get("series") or "This series"))
+    # Wins: the season's in the regular season. In the playoffs only a win in the round being run counts (1), and
+    # everyone else has 0: the standings graphic and live points lock in any driver with a win, and a regular-season
+    # win doesn't move anyone on (Grand National, Round of 12, Nov 14, 2026: six regular-season winners showed as
+    # LOCKED IN on the standings graphic). The site sends the season's wins with every row, whatever the round.
+    wins = (lambda p: _fmt(p.get("wins"))) if shared else (lambda p: "1" if id(p) in in_round and p.get("won") else "0")
     rows, ids = [], {}
     top = float(people[0].get("points") or 0)
     for k, p in enumerate(people):
@@ -257,7 +263,7 @@ def to_table(resp, cls=""):
         prev = float(people[k - 1].get("points") or 0) if k else pts
         pos = p.get("pos") if shared and p.get("pos") else k + 1
         rows.append([str(pos), str(p.get("number") or "").strip(), str(p["name"]).strip(), _fmt(pts), _fmt(pts - top), _fmt(pts - prev),
-                     _fmt(p.get("wins")), _fmt(p.get("top5")), _fmt(p.get("top10")), _fmt(p.get("starts"))])
+                     wins(p), _fmt(p.get("top5")), _fmt(p.get("top10")), _fmt(p.get("starts"))])
         if p.get("custId") and _name_key(p["name"]):
             ids.setdefault(_name_key(p["name"]), str(p["custId"]))
     return {"header": list(HEADER), "rows": rows, "ids": ids, "classes": classes if len(classes) > 1 else [],
