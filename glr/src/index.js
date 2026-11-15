@@ -4,7 +4,7 @@
  * Pages:  /glr                    every series with its latest race, then the latest races
  *         /<series>           one series (its short address, e.g. /arca): seasons and races
  *         /<series>/standings  standings for a season (?season=<id>, newest by default), by class when multi-class
- *         /<series>/schedule  the series' races: upcoming, and completed ones linked to their results
+ *         /<series>/schedule  the series' races: the season in order, first race to last, completed ones linked to their results
  *         /schedule           the league calendar: every series' upcoming races
  *         /<series>/stats     driver stats for a season or all seasons (?season=<id>|all)
  *         /<series>/drivers   everyone who has raced in the series, plus drivers its officials have added
@@ -734,12 +734,11 @@ const rows=[...t.querySelectorAll('tr')].slice(1),v=r=>{const c=r.children[i],d=
 rows.sort((a,b)=>{const x=v(a),y=v(b);if(x===null)return 1;if(y===null)return -1;return (x<y?-1:x>y?1:0)*(asc?1:-1);});rows.forEach(r=>t.appendChild(r));});});
 document.querySelectorAll('input.search').forEach(s=>s.oninput=()=>{const q=s.value.trim().toLowerCase();document.querySelectorAll(s.dataset.rows).forEach(r=>r.hidden=q&&!r.textContent.toLowerCase().includes(q));});</script>`;
 
-function schedulePage(sr, rows, winners, user, msg = "") {
+function schedulePage(sr, rows, winners, user, msg = "", upName = "") {
   let body = seriesTabs(sr, "schedule", [], null, user);
   const edit = canEdit(user, sr), now = Date.now() - 4 * 3600e3;
   if (msg) body += `<div class="msg ${/^(Added|Removed|Saved)/.test(msg) ? "ok" : "bad"}">${esc(msg)}</div>`;
   const up = rows.filter(r => !r.subsession_id && Date.parse(r.starts_at) >= now);
-  const done = rows.filter(r => !up.includes(r)).reverse();
   const et = iso => { const p = Object.fromEntries(new Intl.DateTimeFormat("en-US", { timeZone: "America/New_York", hourCycle: "h23", year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" })
     .formatToParts(new Date(iso)).map(x => [x.type, x.value])); return { date: `${p.year}-${p.month}-${p.day}`, time: `${p.hour}:${p.minute}` }; };
   const del = r => edit ? `<td><button class="link" type="button" onclick="const t=this.closest('tr').nextElementSibling;t.hidden=!t.hidden">Edit</button>
@@ -750,19 +749,31 @@ function schedulePage(sr, rows, winners, user, msg = "") {
       <label>Length<input type="text" name="length" value="${esc(r.length)}" maxlength="40" placeholder="100 laps or 115 min"></label><label>Notes<input type="text" name="notes" value="${esc(r.notes)}" maxlength="120"></label>
       <button class="btn">Save</button></form></td></tr>` : "";
   const len = r => esc(r.length || (r.result_laps ? `${r.result_laps} laps` : ""));
-  body += `<h2>Upcoming</h2>` + (up.length ? `<div class="wrap"><table><tr><th>When</th><th>Track</th><th>Layout</th><th>Length</th><th>Notes</th>${edit ? "<th></th>" : ""}</tr>` +
-    up.map(r => `<tr><td>${when(r.starts_at)}</td><td>${esc(r.track)}</td><td>${esc(r.layout)}</td><td>${len(r)}</td><td style="white-space:normal">${esc(r.notes)}</td>${del(r)}</tr>${edRow(r, 6)}`).join("") + `</table></div>`
-    : `<p class="hint">No upcoming races on the schedule.${edit ? " Add them below." : ""}</p>`);
-  if (done.length) {
-    const table = list => `<div class="wrap"><table><tr><th>When</th><th>Track</th><th>Layout</th><th>Length</th><th>Winner</th><th>Notes</th>${edit ? "<th></th>" : ""}</tr>` + list.map(r => `<tr>
-      <td>${r.subsession_id ? `<a href="${BASE}/results/${r.subsession_id}">${when(r.starts_at)}</a>` : when(r.starts_at)}</td><td>${esc(r.track)}</td><td>${esc(r.layout)}</td><td>${len(r)}</td>
-      <td>${r.subsession_id ? winnersHtml(winners.get(r.subsession_id) || []) + prov(r) : `<span class="tag">Results not in yet</span>${edit ? `
-        <label class="up" title="The iRacing results file (JSON, or CSV with its original name)">Upload results<input type="file" accept=".json,.csv" data-sched="${r.id}" hidden></label><span class="ups"></span>` : ""}`}</td>
-      <td style="white-space:normal">${esc(r.notes)}</td>${del(r)}</tr>${edRow(r, 7)}`).join("") + `</table></div>`;
-    const recent = done.filter(r => Date.parse(r.starts_at) > Date.now() - 150 * 864e5), older = done.filter(r => !recent.includes(r));
-    if (recent.length) body += `<h2>Completed</h2>` + table(recent);
-    if (older.length) body += `<details><summary>Earlier races (${older.length})</summary>${table(older)}</details>`;
+  // The whole season in one table, first race to last (Nov 2026; before, upcoming races had their own section on top
+  // and completed ones were listed newest first). A race with results belongs to its season. Races still to come join
+  // the season being raced, unless they start more than SEASON_GAP days after its last race: then they're the next
+  // season's. Seasons that are over are folded away underneath, newest first.
+  const SEASON_GAP = 35 * 864e5, blocks = [];
+  for (const r of rows) {
+    const cur = blocks[blocks.length - 1], prev = cur && cur.rows[cur.rows.length - 1];
+    const fresh = !cur || (r.season_id ? cur.season && cur.season !== r.season_id
+      : !r.subsession_id && up.includes(r) && cur.season && Date.parse(r.starts_at) - Date.parse(prev.starts_at) > SEASON_GAP);
+    if (fresh) blocks.push({ season: r.season_id || 0, name: r.season_name || "", rows: [r] });
+    else { cur.rows.push(r); if (r.season_id && !cur.season) { cur.season = r.season_id; cur.name = r.season_name || ""; } }
   }
+  const next = up[0], firstLive = Math.max(0, blocks.findIndex(b => b.rows.some(r => up.includes(r))) >= 0 ? blocks.findIndex(b => b.rows.some(r => up.includes(r))) : blocks.length - 1);
+  const table = list => `<div class="wrap"><table><tr><th class="n">Race</th><th>When</th><th>Track</th><th>Layout</th><th>Length</th><th>Winner</th><th>Notes</th>${edit ? "<th></th>" : ""}</tr>` + list.map((r, i) => `<tr>
+      <td class="n">${i + 1}</td><td>${r.subsession_id ? `<a href="${BASE}/results/${r.subsession_id}">${when(r.starts_at)}</a>` : when(r.starts_at)}</td><td>${esc(r.track)}${r === next ? ` <span class="cls">Next race</span>` : ""}</td><td>${esc(r.layout)}</td><td>${len(r)}</td>
+      <td>${r.subsession_id ? winnersHtml(winners.get(r.subsession_id) || []) + prov(r) : up.includes(r) ? "" : `<span class="tag">Results not in yet</span>${edit ? `
+        <label class="up" title="The iRacing results file (JSON, or CSV with its original name)">Upload results<input type="file" accept=".json,.csv" data-sched="${r.id}" hidden></label><span class="ups"></span>` : ""}`}</td>
+      <td style="white-space:normal">${esc(r.notes)}</td>${del(r)}</tr>${edRow(r, 8)}`).join("") + `</table></div>`;
+  const title = (b, i) => b.name || (!b.season && upName) || (i > 0 && !b.season ? "Next season" : "");
+  const count = b => `${b.rows.length} race${b.rows.length === 1 ? "" : "s"}`;
+  if (!rows.length) body += `<p class="hint">No races on the schedule yet.${edit ? " Add them below." : ""}</p>`;
+  blocks.slice(firstLive).forEach((b, i) => { body += `<h2>${esc(title(b, firstLive + i) || "Schedule")} <span class="tag">${count(b)}</span></h2>` + table(b.rows); });
+  if (rows.length && !up.length) body += `<p class="hint">No upcoming races on the schedule.${edit ? " Add them below." : ""}</p>`;
+  const over = blocks.slice(0, firstLive).reverse();
+  if (over.length) body += `<details><summary>Earlier seasons (${count({ rows: over.flatMap(b => b.rows) })})</summary>${over.map(b => `<h2>${esc(b.name || "Earlier races")} <span class="tag">${count(b)}</span></h2>` + table(b.rows)).join("")}</details>`;
   if (edit) body += `<h2>Add races</h2><form method="post"><div class="grid"><label>Date<br><input type="date" name="date" required></label>
       <label>Start (Eastern)<br><input type="time" name="time" value="20:00" required></label></div>
       <label for="st">Track</label><input type="text" id="st" name="track" maxlength="100" required>
@@ -2505,7 +2516,7 @@ const site = {
         const rows = await listSchedule(db, sr.id);
         if (api) return json({ ok: true, series: sr.short_name, races: rows.map(r => ({ startsAt: r.starts_at, track: r.track, layout: r.layout, length: r.length, notes: r.notes, subsessionId: r.subsession_id || null })) });
         const w = new Map((await listEvents(db, { series: sr.id })).map(e => [e.subsession_id, e.winners]));
-        return schedulePage(sr, rows, w, user, msg);
+        return schedulePage(sr, rows, w, user, msg, ((await upcomingSeason(db, sr.id)) || {}).name || "");
       }
       if ((m = path.match(/^\/([a-z0-9-]+)\/widget\/(standings|teams|schedule|results)$/))) {
         const sr = await getSeries(db, m[1]);

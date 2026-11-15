@@ -306,3 +306,30 @@ test("a steward never decides a protest they're in, or about their own car; anot
   assert.match(text(r.html), /another steward decides it/);
   assert.equal(s.DB.raw.prepare("SELECT COUNT(*) AS n FROM decisions").get().n, 1);
 });
+
+test("the Schedule tab lists the season in order, first race to last, with past seasons folded away", async () => {
+  const s = makeSite(), day = n => new Date(Date.now() + n * 864e5).toISOString().slice(0, 10);
+  await s.signIn();
+  await s.addRace({ sub: 900, date: new Date(Date.now() - 200 * 864e5).toISOString(), season: 400, seasonName: "Test Cup Season 0", track: "Old Oval" });
+  await s.addRace({ sub: 1000, date: new Date(Date.now() - 14 * 864e5).toISOString(), track: "First Oval" });
+  await s.post("/test-cup/schedule", { bulk: [`${day(-200)}, 8:00 PM, Old Oval`, `${day(-14)}, 8:00 PM, First Oval`, `${day(-7)}, 8:00 PM, Missed Oval`, `${day(7)}, 8:00 PM, Next Oval`,
+    `${day(14)}, 8:00 PM, Last Oval`, `${day(90)}, 8:00 PM, New Season Oval`].join("\n") });
+  const html = (await s.page("/test-cup/schedule")).html, page = text(html);
+  assert.doesNotMatch(page, /Upcoming|Completed/);
+  // this season: one table, in date order, numbered, the next race marked, a missed one asking for results
+  const at = w => page.indexOf(w);
+  assert.match(page, /Test Cup Season 1 4 races Race When Track Layout Length Winner Notes/);
+  assert.ok(at("First Oval") < at("Missed Oval") && at("Missed Oval") < at("Next Oval") && at("Next Oval") < at("Last Oval"), page);
+  assert.match(page, /Missed Oval .{0,80}Results not in yet/);
+  assert.match(page, /Next Oval Next race/);
+  assert.equal((page.match(/Next race/g) || []).length, 1);
+  // races more than five weeks after the season's last one are the next season's
+  assert.match(page, /Next season 1 race Race When/);
+  assert.ok(at("Last Oval") < at("New Season Oval"));
+  // the season that's over is folded away underneath
+  assert.match(html, /<details><summary>Earlier seasons \(1 race\)<\/summary><h2>Test Cup Season 0/);
+  assert.ok(at("New Season Oval") < at("Old Oval"));
+  // a Series Director who added the next season sees its name
+  await s.post("/test-cup/rules", { action: "season_add", name: "2027 Season 1" });
+  assert.match(text((await s.page("/test-cup/schedule")).html), /2027 Season 1 1 race Race When/);
+});
