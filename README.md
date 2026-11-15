@@ -165,9 +165,11 @@ All on the **Standings** tab. The full walkthrough, including a race-by-race pla
 
 The **Series** picker (top right) keeps each series separate. Picking one switches all of these at once:
 
-- the standings (Xtreme link, the table, hand edits, excluded drivers), the standings title, logo and cutoff
+- the standings (Xtreme link, the table, hand edits, excluded drivers), the standings title and logo
+- the **season stage** (Standings tab): no playoffs, playoffs ahead, Round of 12, Round of 8 or Championship 4. It is
+  the one setting the standings graphic, live points and the bracket take the cutoff line and "locked in" from
 - the playoff bracket
-- live points settings (points table, bonuses, line, places, playoff mode)
+- live points settings (points table, bonuses, places)
 - the ticker header, the league logo and the Next broadcast text
 
 Shared by every series: race info, the broadcast team, sponsors, the layout and the announcer page.
@@ -177,13 +179,13 @@ Shared by every series: race info, the broadcast team, sponsors, the layout and 
 and the overlay makes a series for it here, marked **· GLR HUB**: its standings come from the site, and the standings
 title and ticker header start as the series' name (change them as you like). With the standings come the series'
 **live points scoring** (when the series has its own points table on the site; a series on iRacing points keeps the
-table on the Setup tab), its **playoff cutoff**, and its **logo**, as the standings logo and the league logo at the
+table on the Setup tab) and its **logo**, as the standings logo and the league logo at the
 top right. The **Next broadcast** box gets the series' next race from the site's schedule (track, date and time in
-Eastern time; a race starting within 12 hours counts as tonight's show, so the one after it is used). **In the
-playoffs** the standings' Wins column counts only a win in the round being run (so LOCKED IN means the driver has won
-in this round), and the bracket, live points' playoff mode and the cutoff for the round being run are set from the site, when
-the series' rounds are 12, 8 and 4 drivers; any other format leaves the bracket and playoff mode as you set them. The
-site's standings, scoring, cutoff, bracket and Next broadcast text replace what's here at each refresh; a logo you
+Eastern time; a race starting within 12 hours counts as tonight's show, so the one after it is used). The series'
+**season stage** is set from the site: no playoffs, playoffs ahead (the line after the playoff field), or the round
+being run with its bracket, wins in the round marked. That needs rounds of 12, 8 and 4 drivers; a series with any
+other playoff format gets a plain line after the drivers who go through, with nobody locked in. The
+site's standings, scoring, stage, bracket and Next broadcast text replace what's here at each refresh; a logo you
 pick yourself is kept. Picking it again later pulls all of it again. With no internet it opens from its saved copy. Everything else about it works like any other series,
 and your own series (Xtreme Scoring, CSV) are unchanged. The list is read when the overlay starts; **⋯ → Refresh the
 GLR HUB series list** reads it again. Nothing is pulled by itself during a broadcast.

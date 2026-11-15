@@ -28,7 +28,10 @@ PULL_ROWS = 60          # drivers kept from the website (the graphic shows the t
 MAX_CSV_ROWS = 50
 STALE_HOURS = 24        # data older than this is shown in red
 
+# lock, lockRound, lineLabel, hasLine: from the series' season stage (stage.py). lock = what locks a driver in on the
+# standings graphic: "season" a win in the Wins column, "round" a trophy mark in bracket round lockRound, "none".
 STATE = {"visible": False, "replay": 0, "reload": 0, "title": None, "playoff": False, "cutoff": 16,
+         "lock": "season", "lockRound": None, "lineLabel": "PLAYOFF CUTOFF LINE", "hasLine": True,
          "logo": 0, "view": "standings", "logoSize": 192, "dataVer": 0,
          "bracket": {"rounds": [[], [], [], []]},
          "analysis": {"visible": False, "replay": 0, "title": "RACE ANALYSIS", "lines": []},
@@ -616,6 +619,7 @@ def summary():
     """Everything the control panel and the main overlay need, in one JSON-friendly dict."""
     with STATE_LOCK:
         st = copy.deepcopy(STATE)
+    st["lockNames"] = lock_names(st)
     snap = data_snapshot()
     elig = eligible_data(snap)
     cfg = _CFG_CACHE
@@ -662,6 +666,8 @@ def command(cmd, d):
         set_state(title=text or None); update_config(title=text)
         return True, "Title updated"
     if cmd == "playoff":
+        if not STATE.get("hasLine") and not STATE["playoff"]:
+            return False, "This series has no cutoff line: set one under Season stage first."
         n = _int(d.get("cutoff", STATE["cutoff"]), 1, 20, 16)
         with STATE_LOCK:
             STATE["cutoff"] = n
@@ -837,6 +843,17 @@ def command(cmd, d):
     return False, "Unknown command: %s" % cmd
 
 
+def lock_names(st=None):
+    """The drivers locked in by a win in the round being run (the bracket's trophy marks), for the standings graphic:
+    [{"k": name key, "n": car number}]. Empty in any other stage."""
+    st = st or STATE
+    r = st.get("lockRound")
+    rounds = (st.get("bracket") or {}).get("rounds") or []
+    if st.get("lock") != "round" or r not in (0, 1, 2) or r >= len(rounds):
+        return []
+    return [{"k": name_key(e.get("name")), "n": str(e.get("num") or "").strip()} for e in rounds[r] if e.get("won") and name_key(e.get("name"))]
+
+
 def state_json():
     with STATE_LOCK:
-        return json.dumps(STATE)
+        return json.dumps(dict(STATE, lockNames=lock_names()))

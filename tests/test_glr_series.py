@@ -14,6 +14,7 @@ import glrsite
 import livepoints
 import profiles
 import server
+import stage
 import standings
 
 
@@ -84,6 +85,9 @@ def playoff_trucks(sizes=(12, 8, 4), second_round=False, champion=False):
     resp["groups"][0].update(regular=field + out, playoffs={"started": True, "rounds": rounds, "current": rounds[-1],
                                                             "eliminated": [], "others": out})
     return resp
+
+
+TRUCKS["rules"] = {"playoffs": {k: TRUCK_RULES["playoffs"][k] for k in ("enabled", "field", "rounds")}}
 
 
 class Site:
@@ -318,9 +322,10 @@ class RulesAndLogo(Linked):
 
     def test_the_playoff_field_sets_the_cutoff_and_nothing_goes_on_air(self):
         profiles.command({"cmd": "link", "slug": "test-trucks"})
+        self.assertEqual(server.STATE.settings["stage"], {"stage": "pre", "field": 10, "line": 0, "lineLabel": ""})
         self.assertEqual(self.lp()["cutoff"], 10)
         self.assertEqual((standings.STATE["cutoff"], standings.STATE["playoff"], standings.STATE["visible"]), (10, True, False))
-        self.assertFalse(self.lp().get("playoff"), "live points' playoff mode reads the bracket: left off")
+        self.assertFalse(self.lp().get("playoff"), "the regular season: not a playoff round")
 
     def test_a_series_on_iracing_points_keeps_the_overlays_own_table(self):
         ok, msg = profiles.command({"cmd": "link", "slug": "test-sports"})
@@ -431,15 +436,13 @@ class PlayoffTable(unittest.TestCase):
         self.assertEqual([e["seed"] for e in r12 if e["missed"]], [9])
         self.assertEqual(po["rounds"][1:], [[], [], []])
 
-    def test_in_the_playoffs_only_a_win_in_the_round_counts_as_a_win(self):
-        # Nov 14, 2026 (Grand National, Round of 12): the standings graphic showed the six regular-season winners as
-        # LOCKED IN, because the table carried their season wins and any driver with a win is locked in
+    def test_in_the_playoffs_the_wins_are_still_the_seasons(self):
+        # who is locked in during the playoffs comes from the stage and the bracket's marks (test_season_stage.py),
+        # not from this column, so it can say what it says all year: the season's wins
         t = glrsite.to_table(playoff_trucks())
         wins = {r[2]: r[6] for r in t["rows"]}
-        self.assertEqual(wins["Test Playoff E"], "1")                       # won a race in this round
-        self.assertEqual((wins["Test Playoff A"], wins["Test Playoff B"]), ("0", "0"))      # regular-season wins don't count now
-        self.assertEqual(wins["Test Other 1"], "0")                         # not in the playoffs
-        self.assertEqual([n for n, w in wins.items() if w != "0"], ["Test Playoff E"])
+        self.assertEqual((wins["Test Playoff A"], wins["Test Playoff B"], wins["Test Playoff E"], wins["Test Other 1"]), ("5", "1", "1", "1"))
+        self.assertEqual((t["playoff"]["round"], t["playoff"]["field"]), (0, 12))
 
     def test_in_the_regular_season_the_wins_are_the_seasons(self):
         self.assertEqual([r[6] for r in glrsite.to_table(TRUCKS)["rows"]], ["2", "1", "0", "0"])
@@ -461,7 +464,7 @@ class PlayoffTable(unittest.TestCase):
         resp["rules"] = {"playoffs": {"enabled": True, "field": 12, "rounds": [{"name": "Round of 12", "drivers": 12}, {"name": "Round of 8", "drivers": 8}]}}
         po = glrsite.to_table(resp)["playoff"]
         self.assertEqual((po["enabled"], po["fits"], po["started"], po["rounds"]), (True, True, False, None))
-        self.assertFalse(glrsite.to_table(TRUCKS)["playoff"]["enabled"])
+        self.assertFalse(glrsite.to_table(SPORTS)["playoff"]["enabled"])
 
 
 class PlayoffsAndNext(Linked):
@@ -494,8 +497,10 @@ class PlayoffsAndNext(Linked):
         rounds = standings.bracket_snapshot()
         self.assertEqual([len(r) for r in rounds], [12, 0, 0, 0])
         self.assertEqual([e["seed"] for e in rounds[0] if e["won"]], [5])
+        self.assertEqual(server.STATE.settings["stage"]["stage"], "r12")
         self.assertTrue(self.lp()["playoff"])
         self.assertEqual((self.lp()["cutoff"], standings.STATE["cutoff"], standings.STATE["playoff"]), (8, 8, True))    # 8 go through, not the field's 10
+        self.assertEqual(standings.lock_names(), [{"k": "testplayoffe", "n": "5"}], "locked in on the graphic: only the round's winner")
         self.assertEqual(self.linked()["site"]["playoffs"], "Round of 12")
         self.assertEqual(standings.STATE["view"], "standings", "the graphic's view is the producer's")
         self.assertFalse(standings.STATE["visible"])
@@ -510,33 +515,40 @@ class PlayoffsAndNext(Linked):
         self.assertTrue(out["ok"], out.get("why"))
         self.assertEqual((out["title"], len(out["rows"]) <= 15, out["unmatched"]), ("ROUND OF 12", True, []))
 
-    def test_the_regular_season_turns_playoff_mode_off_and_keeps_the_bracket(self):
+    def test_the_regular_season_is_playoffs_ahead_and_keeps_the_bracket(self):
         mine = [[{"seed": 1, "num": "1", "name": "Test Hand Made"}], [], [], []]
         self.site.standings["test-trucks"]["rules"] = {"playoffs": {"enabled": True, "field": 12, "rounds": [{"name": "Round of 12", "drivers": 12}]}}
         profiles.command({"cmd": "link", "slug": "test-trucks"})
         standings.set_bracket(mine)
-        server.STATE.update_settings({"livePoints": {"playoff": True}})
+        server.STATE.update_settings({"stage": {"stage": "r8"}})          # changed by hand: lasts until the next refresh
+        stage.apply(server.STATE)
         ok, msg = profiles.command({"cmd": "siteRefresh"})
         self.assertTrue(ok, msg)
+        self.assertEqual((server.STATE.settings["stage"]["stage"], server.STATE.settings["stage"]["field"]), ("pre", 12))
         self.assertFalse(self.lp()["playoff"])
         self.assertEqual(standings.bracket_snapshot()[0][0]["name"], "Test Hand Made")
         self.assertEqual(self.linked()["site"]["playoffs"], "regular")
 
-    def test_another_playoff_format_leaves_the_bracket_and_mode_alone(self):
+    def test_another_playoff_format_gets_a_plain_line_and_nobody_locked_in(self):
         self.site.standings["test-trucks"] = playoff_trucks(sizes=(10, 6, 4))
         profiles.command({"cmd": "link", "slug": "test-trucks"})
         self.assertEqual(standings.bracket_snapshot(), [[], [], [], []])
+        self.assertEqual(server.STATE.settings["stage"], {"stage": "regular", "field": 12, "line": 6, "lineLabel": "PLAYOFF CUTOFF LINE"})
         self.assertFalse(self.lp().get("playoff"))
-        self.assertEqual(self.lp()["cutoff"], 6, "the round's cutoff still comes from the site")
+        self.assertEqual((self.lp()["cutoff"], self.lp()["lock"], standings.STATE["lock"]), (6, "none", "none"), "the line after the 6 who go through")
         self.assertEqual(self.linked()["site"]["playoffs"], "other")
 
-    def test_a_series_without_playoffs_leaves_a_hand_made_bracket_and_mode_alone(self):
+    def test_a_series_without_playoffs_is_a_regular_season_with_no_line(self):
         ok, msg = profiles.command({"cmd": "link", "slug": "test-sports"})
         self.assertTrue(ok, msg)
+        self.assertEqual(server.STATE.settings["stage"]["stage"], "regular")
+        self.assertEqual((self.lp()["playoff"], self.lp()["lock"], self.lp()["noLine"], standings.STATE["playoff"]), (False, "none", True, False))
+        # a plain line the producer adds is kept through a refresh, and so is a hand-made bracket
         standings.set_bracket([[{"seed": 1, "num": "1", "name": "Test Hand Made"}], [], [], []])
-        server.STATE.update_settings({"livePoints": {"playoff": True}})
+        server.STATE.update_settings({"stage": {"stage": "regular", "line": 10, "lineLabel": "Top ten award"}})
+        stage.apply(server.STATE)
         profiles.command({"cmd": "siteRefresh"})
-        self.assertTrue(self.lp()["playoff"])
+        self.assertEqual((server.STATE.settings["stage"]["line"], server.STATE.settings["stage"]["lineLabel"]), (10, "Top ten award"))
         self.assertEqual(standings.bracket_snapshot()[0][0]["name"], "Test Hand Made")
 
     def test_the_series_before_keeps_its_own_bracket_and_next_broadcast(self):

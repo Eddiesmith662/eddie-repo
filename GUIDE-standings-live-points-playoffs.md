@@ -35,12 +35,26 @@ The championship table from the pulled standings, run from the Standings tab (or
 | **Replay animation** | Plays the intro again while it's up |
 | **Reload data** | Re-reads the saved standings into the graphic |
 | **View: Standings / Playoff bracket** | Switches between the points table and the bracket (with an animation if it's on air) |
-| **Playoff cutoff** | Turns on the green "in" block and red cutline: drivers with a win (Wins column) are LOCKED IN, the rest of the spots go on points, and the gap column becomes TO CUTOFF |
+| **Playoff cutoff** | Turns on the cutoff picture: the green "in" block and red cutline, locked-in drivers first, the rest of the spots on points, and the gap column becomes TO CUTOFF. Where the line goes and who is LOCKED IN come from the **Season stage** (below) |
 | **Edit by hand** | Fix a name, number or points in the table; **Save edits** keeps them until the next pull |
 | **⊘ / Include** | Leaves a driver out, or puts them back (see *Excluding a driver*) |
 | **Add tonight's race** | After the checkered flag: adds tonight's points to the table (see *Adding tonight's race*) |
 
-The standings graphic's playoff cutoff is its own setting: changing it doesn't move the live points line, and the other way round.
+## Season stage
+
+One setting on the Standings tab says where the series is in its season. The standings graphic, live points and the bracket all work from it, so they can't disagree.
+
+| Stage | Who is in the fight | The line goes after | What locks a driver in |
+| --- | --- | --- | --- |
+| **Regular season, no playoffs** | everyone | nowhere (or a plain line you set, with your own words on it) | nothing |
+| **Regular season, playoffs ahead** | everyone | the playoff field (you set it: 12, 16…) | a win this season (the Wins column) |
+| **Playoffs: Round of 12** | the 12 in the bracket | 8th | a win in this round (🏆 in the bracket) |
+| **Playoffs: Round of 8** | the 8 in the bracket | 4th | a win in this round (🏆 in the bracket) |
+| **Playoffs: Championship 4** | the four in the bracket | the four | nothing: the best finisher of the four takes it |
+
+- A series linked to **GLR HUB** has its stage set from the site at each refresh. A change you make lasts until the next refresh.
+- A series set up before stages existed keeps what it showed: it starts as "playoffs ahead" with the line it had, or as the round its bracket was in.
+- The line of text under the heading (and on the Race tab's Live points box) always says what is in force, e.g. *Round of 12 · 8 advance · a win in the round locks a driver in*.
 
 ## Excluding a driver
 
@@ -73,10 +87,10 @@ Live points shows the championship as it would stand if the race ended right now
 | --- | --- |
 | **Show / Hide** | On or off air. Show is refused (with the reason) if there's nothing to show, e.g. no standings loaded |
 | **Places [1] – [15]** | Which places to show: 3 – 16 shows 3rd to 16th. Up to 15 drivers; a wider range keeps the first 15 |
-| **Line after [12]** | Where the red cutoff line goes (12 = between 12th and 13th). Greyed out in playoff mode, where the round sets it |
+| **The line of text beside Places** | What is in force for the line and who is locked in: the series' **Season stage** (Standings tab) |
 | **Hide all (Graphics box)** | Hide all also hides live points |
 
-**On the graphic:** green rows are above the line. **IN** = locked in: a driver with a win in the standings' Wins column, or the race leader (only a driver who is in the standings: someone who isn't can't take a spot by leading). The right-hand column is each driver's points to the cutline (red when they're below it). A greyed name is in the standings but not in this race.
+**On the graphic:** green rows are above the line. **IN** = locked in. With playoffs ahead that is a driver with a win in the standings' Wins column, or the race leader (only a driver who is in the standings: someone who isn't can't take a spot by leading). A series with no playoffs has no IN and, unless you set a plain line, no line: just the championship order. The right-hand column is each driver's points to the cutline (red when they're below it). A greyed name is in the standings but not in this race.
 
 **The status line** (under the Live points title):
 
@@ -102,11 +116,11 @@ The bracket holds who is in each round: Round of 12, Round of 8, Championship 4 
 
 ## Playoff live points
 
-Switch it on once, on the Standings tab above the bracket: **Live points (Race tab) → Playoffs: use this bracket**. Live points then follows the bracket.
+Set the **Season stage** (Standings tab) to the round being run. Live points and the standings graphic then follow that round of the bracket.
 
-**What changes in playoff mode:**
+**What changes in a playoff round:**
 
-- Only the drivers in the current round are listed (the latest bracket round with drivers in it). Everyone else still races, but isn't shown.
+- Only the drivers in that round of the bracket are listed. Everyone else still races, but isn't shown.
 - The title shows the round: ROUND OF 12, ROUND OF 8 or CHAMPIONSHIP 4.
 - The line sets itself: after 8th in the Round of 12, after 4th in the Round of 8.
 - Regular-season wins no longer count. **IN** = a driver marked 🏆 for a win in this round, or a playoff driver leading the race. A non-playoff driver leading locks nobody.
@@ -118,12 +132,12 @@ Switch it on once, on the Standings tab above the bracket: **Live points (Race t
 
 | Race | Round | Before the race | After the race |
 | --- | --- | --- | --- |
-| Last regular-season race | — | Normal race night | Once Xtreme has the final regular-season standings: pull, **⊘** anyone not eligible, **Load top 12**, switch Live points to **Playoffs** |
+| Last regular-season race | — | Normal race night | Once Xtreme has the final regular-season standings: pull, **⊘** anyone not eligible, **Load top 12**, set the Season stage to **Round of 12** |
 | 1 | Round of 12, race 1 | Pull standings (everyone level after the reset) | If a playoff driver won: 🏆 on them. Anyone who missed it: **MISS** on them |
-| 2 | Round of 12, race 2 | Pull standings (now includes race 1) | Advance the 8 who made it with **→** (round winners first, then the best on points, as Xtreme shows) |
+| 2 | Round of 12, race 2 | Pull standings (now includes race 1) | Advance the 8 who made it with **→** (round winners first, then the best on points, as Xtreme shows), then set the Season stage to **Round of 8** |
 | 3 | Round of 8, race 1 | Pull standings (reset again) | If a playoff driver won: 🏆 on them. Anyone who missed it: **MISS** on them |
-| 4 | Round of 8, race 2 | Pull standings (includes race 3) | Advance the 4 who made it with **→** |
-| 5 | Championship 4 | Nothing extra (it runs on finishing order) | **→** on the champion; switch Live points back to **Regular season** for next season |
+| 4 | Round of 8, race 2 | Pull standings (includes race 3) | Advance the 4 who made it with **→**, then set the Season stage to **Championship 4** |
+| 5 | Championship 4 | Nothing extra (it runs on finishing order) | **→** on the champion; set the Season stage back to **Regular season, playoffs ahead** for next season |
 
 Ties on points use Xtreme's order, which applies the league's tiebreaker. During a race, a tie goes to whoever is running ahead.
 
@@ -131,7 +145,7 @@ Ties on points use Xtreme's order, which applies the league's tiebreaker. During
 
 Each series you broadcast is saved separately. Pick it in the **Series** picker, top right of the control panel, next to Open live timing.
 
-**What switches with the series:** the standings (Xtreme link, the pulled table, any hand edits and excluded drivers), the standings graphic's title, logo and playoff cutoff, the playoff bracket (with its 🏆 marks), the live points table, bonuses, line, places and playoff mode, the ticker header, the league logo, and the Next broadcast text and logo.
+**What switches with the series:** the standings (Xtreme link, the pulled table, any hand edits and excluded drivers), the standings graphic's title and logo, the season stage, the playoff bracket (with its 🏆 marks), the live points table, bonuses and places, the ticker header, the league logo, and the Next broadcast text and logo.
 
 **What every series shares:** race info, the broadcast team, the sponsor images, the layout and the announcer page.
 

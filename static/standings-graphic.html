@@ -262,14 +262,14 @@ function render(table) {
     const chgHtml = chg > 0 ? `<span class="up">▲${chg}</span>` : chg < 0 ? `<span class="down">▼${-chg}</span>` : '';
     const gap = g(r, 'to ldr');
     const gapTxt = (idx === 0 || gap === '0' || gap === '') ? '—' : gap;
-    return `<div class="grid row${idx < 3 ? ' top3' : ''}" data-i="${idx}" data-wins="${esc(g(r, 'wins'))}" data-pos="${esc(g(r, 'pos'))}">
+    return `<div class="grid row${idx < 3 ? ' top3' : ''}" data-i="${idx}" data-wins="${esc(g(r, 'wins'))}" data-pos="${esc(g(r, 'pos'))}" data-key="${esc(nameKey(g(r, 'driver')))}" data-num="${esc(g(r, '#'))}">
       <div class="pos">${esc(g(r, 'pos'))}</div>
       <div class="num">${esc(g(r, '#'))}</div>
       <div class="name">${esc(g(r, 'driver'))}</div>
       <div class="r pts" data-v="${esc(g(r, 'pts'))}">${esc(g(r, 'pts'))}</div>
       <div class="r gap" data-orig="${esc(gapTxt)}">${esc(gapTxt)}</div>
       <div class="r">${esc(g(r, 'wins'))}</div>
-      <div class="chg">${chgHtml}</div><div class="cutline"></div><div class="cutlabel">PLAYOFF CUTOFF LINE</div></div>`;
+      <div class="chg">${chgHtml}</div><div class="cutline"></div><div class="cutlabel">${esc(lineLabel)}</div></div>`;
   };
   rowsL.innerHTML = data.slice(0, CONFIG.perColumn).map((r, i) => mk(r, i)).join('');
   rowsR.innerHTML = data.slice(CONFIG.perColumn).map((r, i) => mk(r, CONFIG.perColumn + i)).join('');
@@ -279,12 +279,26 @@ function render(table) {
 }
 
 let playoffOn = false, playoffCut = 16, dramaticTimer;
-// Playoff field: every driver with a win is locked in; the remaining spots (cutoff minus winners)
-// go to the highest non-winners on points. The cutoff line sits under the last non-winner who is in.
+// What locks a driver in comes from the series' season stage (the control app's stage.py), not from this page:
+//   'season'  a win this season (the Wins column): the regular season with playoffs ahead
+//   'round'   a win in the playoff round being run: the drivers the app names (lockNames, the bracket's trophy marks)
+//   'none'    nobody: a series with no playoffs, or the Championship 4
+// Grand National, Round of 12, Nov 14 2026: going by the Wins column in the playoffs showed the six regular-season
+// winners as LOCKED IN. Without the app (the page on its own) it is 'season', as before.
+let lockMode = 'season', lockNames = [], lineLabel = 'PLAYOFF CUTOFF LINE';
+const nameKey = s => String(s || '').toLowerCase().replace(/[^a-z]/g, '');   // the app's rule for matching a name
+function isLocked(r) {
+  if (lockMode === 'none') return false;
+  if (lockMode === 'round') return lockNames.some(e => e.k === r.dataset.key && (!e.n || !r.dataset.num || e.n === r.dataset.num));
+  return (parseInt(r.dataset.wins, 10) || 0) > 0;
+}
+// Playoff field: every locked-in driver is in; the remaining spots (cutoff minus those)
+// go to the highest of the rest on points. The cutoff line sits under the last of them who is in.
 function applyPlayoff(stagger) {
   panel.classList.toggle('playoff', playoffOn);
   const rows = [...document.querySelectorAll('.row')].sort((a, b) => a.dataset.i - b.dataset.i);
-  const wins = rows.map(r => (parseInt(r.dataset.wins, 10) || 0) > 0);
+  const wins = rows.map(isLocked);
+  rows.forEach(r => { const l = r.querySelector('.cutlabel'); if (l && l.textContent !== lineLabel) l.textContent = lineLabel; });
   const spots = Math.max(0, playoffCut - wins.filter(Boolean).length);
   let taken = 0, lastIn = null, firstOut = null;
   const status = rows.map((r, k) => {
@@ -551,9 +565,12 @@ async function pollControl() {
       document.getElementById('title').textContent = s.title;
       document.getElementById('btitle').textContent = s.title;
     }
-    if (!!s.playoff !== lastCtl.playoff || s.cutoff !== lastCtl.cutoff) {
-      lastCtl.playoff = !!s.playoff; lastCtl.cutoff = s.cutoff;
+    // the season stage's rule for who is locked in, and the words on the line (an older app sends neither: as before)
+    const lockKey = JSON.stringify([s.lock || 'season', s.lockNames || [], s.lineLabel || 'PLAYOFF CUTOFF LINE']);
+    if (!!s.playoff !== lastCtl.playoff || s.cutoff !== lastCtl.cutoff || lockKey !== lastCtl.lockKey) {
+      lastCtl.playoff = !!s.playoff; lastCtl.cutoff = s.cutoff; lastCtl.lockKey = lockKey;
       playoffOn = !!s.playoff; playoffCut = s.cutoff || 16;
+      lockMode = s.lock || 'season'; lockNames = s.lockNames || []; lineLabel = s.lineLabel || 'PLAYOFF CUTOFF LINE';
       applyPlayoff(true);
     }
     if (s.reload !== lastCtl.reload) { lastCtl.reload = s.reload; refresh(); }

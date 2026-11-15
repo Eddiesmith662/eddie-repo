@@ -22,8 +22,8 @@ playoff cutoff, and the series' logo. The site wins for standings, points and th
 to change: the standings logo is only set when there is none or it is still the site's, and the league logo (top
 right of the broadcast) the first time and after that only while it is still the site's.
 Also from the site: the Next broadcast box's event, date and time (the series' next race on the site's schedule), and
-in the playoffs the bracket, live points' playoff mode and the cutoff for the round being run, when the series'
-rounds are the 12 / 8 / 4 the overlay's bracket shows.
+the series' season stage (stage.py): no playoffs, playoffs ahead, or the round being run with its bracket, when the
+series' rounds are the 12 / 8 / 4 the overlay's bracket shows.
 """
 import json
 import os
@@ -34,11 +34,12 @@ import time
 
 import datafiles
 import glrsite
+import stage
 import standings
 
 DIR = os.path.join(datafiles.DATA, "profiles")
 INDEX = os.path.join(DIR, "index.json")
-SETTINGS_KEYS = ("livePoints", "raceName", "leagueLogo", "nextRace")       # settings.json keys that belong to a series
+SETTINGS_KEYS = ("livePoints", "raceName", "leagueLogo", "nextRace", "stage")       # settings.json keys that belong to a series
 CONFIG_KEYS = ("xtreme", "title", "cutoff", "logo", "logo_name", "logo_size", "excluded")   # standings/config.json keys that do
 STANDINGS_FILES = ("standings.json", "bracket.json")
 LOCK = threading.Lock()
@@ -171,6 +172,8 @@ def _load(pid):
     except (TypeError, ValueError):
         size = 192
     standings.set_state(title=cfg_saved.get("title") or None, cutoff=cut, playoff=bool(g.get("playoff")), logoSize=size, visible=False)
+    # the season stage: the series' own, or for one saved before stages, worked out from its settings as they were
+    stage.ensure(_state, saved=isinstance(patch.get("stage"), dict))
     standings.bump("reload")                         # the standings graphic re-reads its data
 
 
@@ -271,23 +274,30 @@ def _write_image(path, body):
 
 
 def _apply_playoff(entry, po):
-    """The playoffs as the site has them, with the standings just pulled: the bracket, live points' playoff mode and
-    the cutoff for the round being run. Only for a series whose rounds are the overlay's 12 / 8 / 4; any other
-    format leaves the bracket and playoff mode as the producer set them."""
+    """The series' season stage as the site has it, with the standings just pulled (stage.py):
+      no playoffs on the site               regular season, no playoffs (a plain line the producer set is kept)
+      playoffs, not started                 playoffs ahead, the line after the playoff field
+      started, rounds of 12 / 8 / 4         the round being run, with the bracket from the site
+      started, any other rounds             regular season with a plain line after the drivers who go through: the
+                                            overlay's bracket and round rules don't fit, so nobody is locked in"""
     link = entry["site"]
-    link["playoffs"] = ("" if not po["enabled"] else "other" if not po["fits"] else po["name"] or "started" if po["started"] else "regular")
+    link["playoffs"] = ("" if not po["enabled"] else "other" if po["started"] and not po["fits"] else po["name"] or "started" if po["started"] else "regular")
+    with _state.lock:
+        cur = stage.clean(_state.settings.get("stage"))
     if not po["enabled"]:
-        return
-    if po["started"] and po["spots"]:              # e.g. 8 go through from the Round of 12
-        n = max(1, min(20, po["spots"]))
-        _state.update_settings({"livePoints": {"cutoff": n}})
-        standings.set_state(playoff=True, cutoff=n)
-        standings.update_config(cutoff=n)
-    if not po["fits"]:
-        return
-    _state.update_settings({"livePoints": {"playoff": bool(po["started"])}})
-    if po["started"] and po["rounds"]:
-        standings.set_bracket(po["rounds"])
+        new = dict(cur, stage="regular")
+    elif not po["started"]:
+        new = dict(cur, stage="pre", field=po["field"] or cur["field"])
+    elif po["fits"]:
+        new = dict(cur, stage=stage.ROUND_KEYS[po["round"]])
+        if po["rounds"]:
+            standings.set_bracket(po["rounds"])
+    else:
+        new = dict(cur, stage="regular", line=po["spots"] or 0, lineLabel=stage.PLAYOFF_LABEL)
+    _state.update_settings({"stage": new})
+    r = stage.rules(stage.apply(_state))
+    if po["enabled"] and r["cutoff"]:
+        standings.set_state(playoff=True)          # a series with playoffs: its cutoff picture is ready (not on air)
 
 
 def _apply_extras(entry, ex, table=None):
@@ -305,11 +315,6 @@ def _apply_extras(entry, ex, table=None):
             _state.update_settings({"livePoints": rules["livePoints"]})
             for what in rules["skipped"]:
                 notes.append("Live points doesn't count %s" % what)
-        if rules["field"]:
-            n = max(1, min(60, rules["field"]))
-            _state.update_settings({"livePoints": {"cutoff": n}})
-            standings.set_state(playoff=True, cutoff=min(20, n))
-            standings.update_config(cutoff=min(20, n))
     if ex["logo"]:
         body, ext = ex["logo"]
         try:

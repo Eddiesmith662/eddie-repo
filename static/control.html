@@ -559,9 +559,9 @@
     <div class="row"><button class="vis" data-vis="lpAir" data-vrole="show" id="lpShow">Show</button><button class="vis" data-vis="lpAir" data-vrole="hide" id="lpHide">Hide</button></div>
     <div class="lpset">
       <span class="lprow" title="Which places in the championship to show, e.g. 3 to 16 = 3rd to 16th (up to 15 drivers)"><span class="s">Places</span><input type="number" id="lpFrom" min="1" max="60"><span class="s">–</span><input type="number" id="lpTo" min="1" max="74"></span>
-      <span class="lprow" title="The red cutoff line goes under this place in the championship (12 = between 12th and 13th)"><span class="s">Line after</span><input type="number" id="lpCut" min="1" max="60"></span>
+      <span class="lprow" title="Where the cutoff line goes and who is locked in: the series' Season stage (Standings tab)"><span class="s" id="lpStage" style="text-transform:none;letter-spacing:0"></span></span>
     </div>
-    <p class="hint tip">Standings points (Standings tab: pull or load them before the race) plus the points each driver would score for where they're running now, plus bonuses (led a lap, most laps led, pole). Drivers with a win, and the race leader, are locked in at the top; the rest of the spots up to the cutoff go on points, like the playoff standings. It sits over the ticker like Race off pit road (showing one hides the other). The points table and bonuses are on the Setup tab.</p>
+    <p class="hint tip">Standings points (Standings tab: pull or load them before the race) plus the points each driver would score for where they're running now, plus bonuses (led a lap, most laps led, pole). Where the cutoff line goes and who is locked in come from the series' Season stage (Standings tab): with playoffs ahead, drivers with a win and the race leader are locked in at the top and the rest of the spots go on points; in a playoff round only that round's drivers are listed; a series with no playoffs has no line and nobody locked in. It sits over the ticker like Race off pit road (showing one hides the other). The points table and bonuses are on the Setup tab.</p>
   </section>
 
   <section>
@@ -691,12 +691,36 @@
     </div>
     <label>View (switches with an animation if showing)</label>
     <div class="seg" id="viewSeg"><button data-v="standings">Standings</button><button data-v="bracket">Playoff bracket</button></div>
-    <label>Playoff cutoff</label>
+    <label>Cutoff picture</label>
     <div class="row" style="margin:0">
       <button id="playoffBtn">Playoff cutoff: OFF</button>
-      <div style="flex:0 0 120px"><input type="number" id="cutoff" min="1" max="20" title="Cutoff position"></div>
     </div>
-    <p class="hint">Winners lock in first, the remaining spots go to the best non-winners on points, and the cutoff line draws under the last one in.</p>
+    <p class="hint">Switches the standings graphic to the cutoff picture: locked-in drivers first, then the rest on points, with the line under the last one in. Where the line goes and who is locked in come from the <b>Season stage</b>.</p>
+  </section>
+
+  <section id="stageSec">
+    <h2><span class="t">Season stage</span></h2>
+    <div class="note" id="stageText" style="margin-bottom:8px"></div>
+    <label>Where this series is in its season</label>
+    <select id="stageSel">
+      <option value="regular">Regular season, no playoffs</option>
+      <option value="pre">Regular season, playoffs ahead</option>
+      <option value="r12">Playoffs: Round of 12</option>
+      <option value="r8">Playoffs: Round of 8</option>
+      <option value="c4">Playoffs: Championship 4</option>
+    </select>
+    <div id="stagePre" hidden>
+      <label>Playoff field: the line goes after this place</label>
+      <input type="number" id="stageField" min="1" max="60">
+    </div>
+    <div id="stageReg" hidden>
+      <label>A plain line after place (0 = no line)</label>
+      <input type="number" id="stageLine" min="0" max="60">
+      <label>Words on the line</label>
+      <input id="stageLabel" maxlength="40" placeholder="CUTOFF LINE">
+    </div>
+    <p class="hint">One setting for the standings graphic, live points and the bracket: where the cutoff line goes and what locks a driver in. In a playoff round only the drivers in that round of the bracket are in the fight, and a win in the round (🏆 in the bracket) locks a driver in.</p>
+    <p class="hint" id="stageSite" hidden>This series is linked to GLR HUB: its stage, and in the playoffs its bracket, are set from the site at each refresh. A change made here lasts until the next refresh.</p>
   </section>
 
   <section>
@@ -754,11 +778,9 @@
   <section class="wide">
     <h2><span class="t">Playoff bracket</span>
       <button id="bLoad" style="flex:0 0 auto">Load top 12</button><button id="bClear" style="flex:0 0 auto">Clear</button></h2>
-    <label>Live points (Race tab)</label>
-    <div class="seg" id="lpModeSeg"><button data-v="season">Regular season</button><button data-v="playoff">Playoffs: use this bracket</button></div>
     <div class="bracket" id="bracket" style="margin-top:10px"></div>
-    <p class="hint">→ advances a driver to the next round. × takes them out of that round and later ones. ✎ fixes a name or car number everywhere. 🏆 marks a driver who won a race in that round: in playoff mode live points shows them locked in (a win only counts in its own round, so it's not carried into the next one). The bracket is filled by hand and never changed by a standings pull.</p>
-    <p class="hint">Playoff mode: live points lists only the drivers in the current round (the latest round with drivers in it), with its own cutline (8 go through from the Round of 12, 4 from the Round of 8). Regular-season wins don't count; round winners (🏆) and a playoff driver leading the race are locked in. The Championship 4 shows the four in running order: highest finisher takes it. Pull the standings before each race so the reset playoff points are in.</p>
+    <p class="hint">→ advances a driver to the next round. × takes them out of that round and later ones. ✎ fixes a name or car number everywhere. 🏆 marks a driver who won a race in that round: in that round the standings graphic and live points show them locked in (a win only counts in its own round, so it's not carried into the next one). The bracket is filled by hand, except for a series linked to GLR HUB, where each refresh sets it from the site.</p>
+    <p class="hint">In a playoff round (Season stage, above): live points lists only the drivers in that round of the bracket, with its cutline (8 go through from the Round of 12, 4 from the Round of 8). Regular-season wins don't count; round winners (🏆) and a playoff driver leading the race are locked in. The Championship 4 shows the four in running order: highest finisher takes it. Pull the standings before each race so the reset playoff points are in.</p>
   </section>
 
   <section class="wide">
@@ -1052,8 +1074,33 @@ document.querySelectorAll('[data-save]').forEach(b => b.onclick = async () => {
 // ---------- standings tab ----------
 document.querySelectorAll('[data-s]').forEach(b => b.onclick = () => std(b.dataset.s));
 $('viewSeg').onclick = e => { const b = e.target.closest('button'); if (b) std('view', { view: b.dataset.v }); };
-$('playoffBtn').onclick = () => std('playoff', { cutoff: +$('cutoff').value || 16 });
-$('cutoff').onchange = () => std('cutoff', { cutoff: +$('cutoff').value });
+$('playoffBtn').onclick = () => std('playoff', {});
+/* ---------- season stage: one setting the standings graphic, live points and the bracket work from ---------- */
+const STAGE_NAMES = { regular: 'Regular season', pre: 'Regular season', r12: 'Round of 12', r8: 'Round of 8', c4: 'Championship 4' };
+function stageText(v) {
+  v = v || {};
+  if (v.stage === 'regular') return 'Regular season · ' + (v.line ? `line after ${v.line}${v.lineLabel ? ' (' + v.lineLabel + ')' : ''}` : 'no cutoff line') + ' · nobody is locked in';
+  if (v.stage === 'r12') return 'Round of 12 · 8 advance · a win in the round locks a driver in';
+  if (v.stage === 'r8') return 'Round of 8 · 4 advance · a win in the round locks a driver in';
+  if (v.stage === 'c4') return 'Championship 4 · the best finisher of the four takes it';
+  return `Regular season · top ${v.field || 12} make the playoffs · a win locks a driver in`;
+}
+const setStage = patch => set({ stage: patch });      // only what changed: the app keeps the rest (two quick changes can't undo each other)
+$('stageSel').onchange = () => setStage({ stage: $('stageSel').value });
+$('stageField').onchange = () => setStage({ field: Math.max(1, Math.min(60, +$('stageField').value || 12)) });
+$('stageLine').onchange = () => setStage({ line: Math.max(0, Math.min(60, +$('stageLine').value || 0)) });
+$('stageLabel').onchange = () => setStage({ lineLabel: $('stageLabel').value });
+function stageRender() {
+  const v = S.stage || {}, cur = (SERIES.list.find(p => p.id === SERIES.active) || {});
+  const txt = stageText(v);
+  $('stageText').textContent = txt; $('lpStage').textContent = txt;
+  if (document.activeElement !== $('stageSel')) $('stageSel').value = v.stage || 'pre';
+  $('stagePre').hidden = v.stage !== 'pre'; $('stageReg').hidden = v.stage !== 'regular';
+  if (document.activeElement !== $('stageField')) $('stageField').value = v.field ?? 12;
+  if (document.activeElement !== $('stageLine')) $('stageLine').value = v.line ?? 0;
+  if (document.activeElement !== $('stageLabel')) $('stageLabel').value = v.lineLabel || '';
+  $('stageSite').hidden = !cur.site;
+}
 $('sTitleBtn').onclick = () => std('title', { text: $('sTitle').value });
 $('logoSize').oninput = () => { $('logoSizeV').textContent = $('logoSize').value; clearTimeout($('logoSize')._t); $('logoSize')._t = setTimeout(() => std('logoSize', { size: +$('logoSize').value }), 120); };
 $('logoRemove').onclick = () => { if (confirm('Remove the standings logo?')) std('logoRemove'); };
@@ -1083,7 +1130,10 @@ function cutoffIndex() {
   if (!SD || !SD.state.playoff) return -1;
   const low = SD.header.map(h => h.toLowerCase()), wi = low.indexOf('wins');
   const rows = SD.rows.slice(0, 20), n = SD.state.cutoff || 16;
-  const wins = rows.map(r => wi >= 0 && (parseInt(r[wi], 10) || 0) > 0);
+  const st = SD.state, di = low.indexOf('driver'), ni = low.indexOf('#'), key = x => String(x || '').toLowerCase().replace(/[^a-z]/g, '');
+  const wins = rows.map(r => st.lock === 'none' ? false
+    : st.lock === 'round' ? (st.lockNames || []).some(e => e.k === key(r[di]) && (!e.n || ni < 0 || !r[ni] || e.n === String(r[ni]).trim()))
+    : wi >= 0 && (parseInt(r[wi], 10) || 0) > 0);
   let spots = Math.max(0, n - wins.filter(Boolean).length), last = -1;
   rows.forEach((r, k) => { if (!wins[k] && spots > 0) { spots--; last = k; } });
   return last;
@@ -1159,7 +1209,6 @@ $('bracket').onclick = e => {
   if (b.dataset.b === 'bracketMissed') return std('bracketMissed', { r, idx: i, on: !SD.state.bracket.rounds[r][i].missed });
   std(b.dataset.b, { r, idx: i });
 };
-$('lpModeSeg').onclick = e => { const b = e.target.closest('button'); if (b) set({ livePoints: { playoff: b.dataset.v === 'playoff' } }); };
 $('bLoad').onclick = () => std('bracketLoad');
 $('bClear').onclick = () => std('bracketClear');
 
@@ -1399,7 +1448,6 @@ $('lpShow').onclick = () => {
   set({ show: { livepoints: true, pitrace: false } });
 };
 $('lpHide').onclick = () => set({ show: { livepoints: false } });
-$('lpCut').onchange = () => set({ livePoints: { cutoff: Math.max(1, Math.min(60, +$('lpCut').value || 12)) } });
 // places shown: from..to, at most 15 drivers (a wider range keeps the first 15 from "from")
 function lpRange(changed) {
   let a = Math.max(1, Math.min(60, Math.round(+$('lpFrom').value || 1))), b = Math.round(+$('lpTo').value || a + 14);
@@ -1427,13 +1475,10 @@ let lpFilled = false;
 function livePointsRender() {
   const P = (L && L.livePoints) || {}, lp = S.livePoints || {};
   air('lpAir', !!(S.show && S.show.livepoints) && !!P.ok);
-  if (document.activeElement !== $('lpCut')) $('lpCut').value = lp.cutoff ?? 12;
   if (document.activeElement !== $('lpFrom')) $('lpFrom').value = lp.from ?? 1;
   if (document.activeElement !== $('lpTo')) $('lpTo').value = lp.to ?? 15;
   if (!lpFilled && lp.table) { lpFilled = true; lpFill(lp.table, lp); }
   const po = !!lp.playoff;
-  segOn('lpModeSeg', po ? 'playoff' : 'season');
-  $('lpCut').disabled = po; $('lpCut').title = po ? 'Playoff mode: the cutline is set by the round (8 go through from the Round of 12, 4 from the Round of 8)' : '';
   if (!P.ok || P.champ4) $('lpMiss').hidden = true;
   if (!P.ok) { $('lpInfo').textContent = P.why || 'The championship if the race ended now.'; return; }
   if (P.champ4) { const a = (P.rows || [])[0]; $('lpInfo').textContent = 'Championship 4' + (a && a.status === 'champ' ? ` · ahead: #${a.num} ${a.name}` : ''); $('lpInfo').title = 'Playoffs: the highest finisher of the four takes the championship'; return; }
@@ -1970,7 +2015,6 @@ function fillInputs() {
     sFilled = true;
     $('sTitle').value = SD.state.title || '';
     $('xtreme').value = SD.xtreme || '';
-    $('cutoff').value = SD.state.cutoff;
     fillA(SD.state.analysis); fillT(SD.state.team);
   }
 }
@@ -2125,7 +2169,7 @@ function render() {
     segOn('viewSeg', st.view);
     $('playoffBtn').textContent = 'Playoff cutoff: ' + (st.playoff ? 'ON' : 'OFF');
     $('playoffBtn').classList.toggle('go', !!st.playoff);
-    if (document.activeElement !== $('cutoff')) $('cutoff').value = st.cutoff;
+    $('playoffBtn').disabled = !st.hasLine && !st.playoff; $('playoffBtn').title = st.hasLine ? '' : 'This series has no cutoff line: set one under Season stage';
     if (document.activeElement !== $('logoSize')) { $('logoSize').value = st.logoSize; $('logoSizeV').textContent = st.logoSize; }
     $('logoName').textContent = SD.logoName ? 'Current: ' + SD.logoName : 'No logo set';
     $('sAge').textContent = SD.age; $('sAge').classList.toggle('stale', SD.stale);
@@ -2138,6 +2182,7 @@ function render() {
     const lg = SD.log.join('\n'); if ($('sLog')._v !== lg) { $('sLog')._v = lg; $('sLog').textContent = lg; $('sLog').scrollTop = 1e6; }
     renderTable(); renderBracket();
   }
+  stageRender();
 }
 
 /* ---------- series profiles: one set of standings, bracket, points and branding per series ---------- */
@@ -2190,7 +2235,7 @@ function glrBox() {
   $('glrName').textContent = link.name || cur.name;
   $('glrSeason').textContent = link.season ? '· ' + link.season : '';
   const classes = link.classes || [];
-  $('glrClassRow').hidden = classes.length < 2;
+  $('glrClassRow').hidden = false; $('glrClassRow').style.display = classes.length < 2 ? 'none' : '';     // (a .row ignores the hidden attribute)
   const html = classes.map(c => `<option ${c === link.cls ? 'selected' : ''}>${esc(c)}</option>`).join('');
   if ($('glrClass')._h !== html) { $('glrClass')._h = html; $('glrClass').innerHTML = html; }
 }

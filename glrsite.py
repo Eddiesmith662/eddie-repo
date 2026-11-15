@@ -233,7 +233,7 @@ def to_table(resp, cls=""):
     """One class's standings as the overlay's table. Returns a dict: header, rows, ids ({name key: iRacing ID}),
     classes (the class names, when the series has more than one), cls (the class used), season, playoffs (True when the
     playoffs have started: the drivers still in come first, on their playoff points, then the ones knocked out, then
-    everyone else, and Wins counts only a win in the round being run)."""
+    everyone else), playoff (where the playoffs stand, for the series' stage and the bracket)."""
     groups = [g for g in (resp.get("groups") or []) if isinstance(g, dict)]
     season = (resp.get("season") or {}).get("name") or ""
     classes = [str(g.get("carClass") or "") for g in groups if g.get("carClass")]
@@ -244,18 +244,16 @@ def to_table(resp, cls=""):
     if po.get("started") and (po.get("current") or {}).get("rows"):
         people = list(po["current"]["rows"]) + list(po.get("eliminated") or []) + list(po.get("others") or [])
         shared = False
-        in_round = {id(p) for p in po["current"]["rows"]}
     else:
         people = list(g.get("regular") or [])
         shared = True
     people = [p for p in people if isinstance(p, dict) and str(p.get("name") or "").strip()][:MAX_ROWS]
     if not people:
         raise SiteError("%s has no drivers in its standings yet" % (resp.get("series") or "This series"))
-    # Wins: the season's in the regular season. In the playoffs only a win in the round being run counts (1), and
-    # everyone else has 0: the standings graphic and live points lock in any driver with a win, and a regular-season
-    # win doesn't move anyone on (Grand National, Round of 12, Nov 14, 2026: six regular-season winners showed as
-    # LOCKED IN on the standings graphic). The site sends the season's wins with every row, whatever the round.
-    wins = (lambda p: _fmt(p.get("wins"))) if shared else (lambda p: "1" if id(p) in in_round and p.get("won") else "0")
+    # Wins: the season's, all year. Who is locked in during the playoffs comes from the series' stage and the
+    # bracket's trophy marks (stage.py), not from this column (Grand National, Round of 12, Nov 14, 2026: six
+    # regular-season winners showed as LOCKED IN on the standings graphic when it went by this column).
+    wins = lambda p: _fmt(p.get("wins"))
     rows, ids = [], {}
     top = float(people[0].get("points") or 0)
     for k, p in enumerate(people):
@@ -277,19 +275,21 @@ def _playoff(resp, g):
       fits     its rounds are the 12 / 8 / 4 the overlay's bracket shows (anything else: the bracket and playoff mode
                stay as the producer set them)
       started  the regular season is over and the playoffs are under way
-      name     the round being run now; spots = how many go through from it (None in the last round)
+      name     the round being run now; spots = how many go through from it (None in the last round);
+               round = which one it is (0 the first); field = the size of the playoff field
       rounds   the bracket: who is in each round so far, seeded in the order they made the field, with a win or a
                missed race in the round marked, and the champion once the last round is complete"""
     rules = ((resp.get("rules") or {}).get("playoffs") or {})
     sizes = [int(_n(r.get("drivers"))) for r in (rules.get("rounds") or []) if isinstance(r, dict)]
     out = {"enabled": bool(rules.get("enabled")), "fits": bool(sizes) and sizes == BRACKET_SIZES[:len(sizes)], "started": False,
-           "name": "", "spots": None, "rounds": None}
+           "name": "", "spots": None, "rounds": None, "round": None,
+           "field": int(_n(rules.get("field"))) if _n(rules.get("field")) >= 1 else None}
     po = g.get("playoffs") or {}
     done = [r for r in (po.get("rounds") or []) if isinstance(r, dict)]
     if not po.get("started") or not done:
         return out
     cur = done[-1]
-    out.update(enabled=True, started=True, name=str(cur.get("name") or ""))
+    out.update(enabled=True, started=True, name=str(cur.get("name") or ""), round=min(2, len(done) - 1))
     if not cur.get("finale") and _n(cur.get("spots")) >= 1:
         out["spots"] = int(_n(cur["spots"]))
     if not out["fits"]:

@@ -38,6 +38,7 @@ import recap      # race recap: cautions and lead changes so far
 import pitrace
 import livepoints
 import profiles
+import stage      # the season stage: one setting the standings graphic, live points and the bracket work from
 import glrsite    # the series on GLR HUB, for the Series list
 import raceresults
 import announcer
@@ -2307,6 +2308,8 @@ class Handler(BaseHTTPRequestHandler):
                         re.sub(r"[^A-Za-z ]", "", self.headers.get("X-VS-From") or "")[:30])   # which window / tab
         if path == "/api/settings":
             STATE.update_settings(data)
+            if "stage" in data:              # the season stage changed: tell the graphics that work from it
+                stage.apply(STATE)
             return self.send_json({"ok": True})
         if path == "/api/gfx":
             return self.send_json(gfx_command(data))
@@ -3151,6 +3154,10 @@ def main():
         profiles.init(STATE)          # series profiles: the first time, the current setup becomes the first series
     except Exception as e:
         diag.error("Series profiles could not start: %r" % (e,), e)
+    try:
+        stage.ensure(STATE, saved=isinstance(STATE.settings.get("stage"), dict))     # the first start after stages came in
+    except Exception as e:
+        diag.error("The season stage could not be set: %r" % (e,), e)
     glrsite.refresh_list_in_background()     # the series on GLR HUB, for the Series list (read once; the site may be down)
     threading.Thread(target=update_watch, daemon=True).start()
     if RC["on"]:

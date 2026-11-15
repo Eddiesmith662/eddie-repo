@@ -27,8 +27,11 @@ DEFAULT_TABLE = [46] + [44 - p for p in range(2, 44)] + [0] * 17      # 60 place
 # bonusWin, others and zeroLaps (Nov 2026) are GLR HUB's other scoring rules, so live points adds up the way the site
 # will: a bonus for the win, the points for places past the end of the table, and "a car with 0 laps scores nothing"
 # (Phoenix, Nov 8, 2026: cars that never took the green scored points until the Grand National turned this on).
+# round, lock and noLine come from the series' season stage (stage.py): round = the bracket round being run in playoff
+# mode (None: the latest one with drivers, as before stages); lock "none" = a win doesn't lock anyone in (a series
+# with no playoffs); noLine = no cutoff line at all.
 DEFAULTS = {"cutoff": 12, "from": 1, "to": 15, "table": DEFAULT_TABLE, "bonusLed": 1, "bonusMost": 1, "bonusPole": 1, "playoff": False,
-            "bonusWin": 0, "others": 0, "zeroLaps": False}
+            "bonusWin": 0, "others": 0, "zeroLaps": False, "round": None, "lock": "season", "noLine": False}
 ROUNDS = ["ROUND OF 12", "ROUND OF 8", "CHAMPIONSHIP 4"]
 ADVANCE = [8, 4]             # drivers who go through from the Round of 12 and the Round of 8
 MAX_ROWS = 15
@@ -206,9 +209,12 @@ def compute(live, cfg, standings_data, bracket=None, excluded=None):
     cut = max(1, int(cfg.get("cutoff") or 12))
     if playoff:
         rounds = (bracket or [[], [], [], []]) + [[]] * 4
-        r = max((k for k in range(3) if rounds[k]), default=None)
-        if r is None:
+        r = cfg.get("round") if cfg.get("round") in (0, 1, 2) else max((k for k in range(3) if rounds[k]), default=None)
+        if r is None or (r == 0 and not rounds[0]):
             out["why"] = "Playoff mode: the bracket is empty (Standings tab: Load top 12)"
+            return out
+        if not rounds[r]:
+            out["why"] = "Playoffs: nobody is in the bracket's %s yet (Standings tab: advance the drivers who went through)" % ROUNDS[r].title()
             return out
         field = []
         for e in rounds[r]:            # the drivers in this round, with their standings points
@@ -250,9 +256,14 @@ def compute(live, cfg, standings_data, bracket=None, excluded=None):
         p["ptsPos"] = k + 1
     # playoff order: everyone locked in first (keeping points order), then the rest; a playoff driver who missed a
     # race in the round without a win goes to the bottom and takes no spot
+    if not playoff and cfg.get("lock") == "none":           # a series with no playoffs: a win locks nobody in
+        for p in people:
+            p["lock"] = False
     locked = [p for p in people if p["lock"]]
     rest = [p for p in people if not p["lock"] and not p.get("forceOut")] + [p for p in people if p.get("forceOut")]
     spots = max(0, cut - len(locked))
+    if not playoff and cfg.get("noLine"):                   # ... and no cutoff line: the points order, nothing else
+        spots = 0
     for k, p in enumerate(rest):
         p["status"] = "in" if k < spots and not p.get("forceOut") else "out"
     for p in locked:
