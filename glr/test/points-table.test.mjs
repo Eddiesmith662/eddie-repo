@@ -53,3 +53,25 @@ test("the rules form saves the box, the Rules tab says so, and the overlay can r
   assert.equal(/Withdrew|"out"|101/.test(JSON.stringify(full)), false);
   assert.equal((await s.go("/api/series/nope/points")).status, 404);
 });
+
+test("the Rules form starts our own points table with the GLR table, and keeps a table that was saved", async () => {
+  const s = makeSite();
+  await s.addRace({ sub: 1000, date: new Date(Date.now() - 7 * 864e5).toISOString() });
+  await s.signIn();
+  const glr = "46, 42, 41, 40, 39, 38, 37, 36, 35, 34, 33, 32, 31, 30, 29, 28, 27, 26, 25, 24, 23, 22, 21, 20, 19, 18, 17, 16, 15, 14, 13, 12, 11, 10, 9, 8, 7, 6, 5, 4, 3, 2, 1";
+  let html = (await s.page("/test-cup/rules")).html;
+  assert.ok(html.includes(`name="table" value="${glr}"`), "the form starts with the GLR table");
+  assert.match(text(html), /Filled in with the GLR table/);
+  // it's only a starting value: the series still scores with iRacing's points until someone saves it
+  assert.equal((await s.json("/api/series/test-cup/points")).source, "iracing");
+  assert.deepEqual((await s.json("/api/series/test-cup/points")).table, []);
+  // saved as it stands: the series scores with it
+  await s.post("/test-cup/rules", { source: "table", table: glr, others: "0" });
+  const api = await s.json("/api/series/test-cup/points");
+  assert.deepEqual([api.source, api.table.length, api.table[0], api.table[1], api.table[42]], ["table", 43, 46, 42, 1]);
+  // a table someone changed stays as they left it, with no note
+  await s.post("/test-cup/rules", { source: "table", table: "50, 40, 30", others: "5" });
+  html = (await s.page("/test-cup/rules")).html;
+  assert.ok(html.includes(`name="table" value="50, 40, 30"`));
+  assert.doesNotMatch(text(html), /Filled in with the GLR table/);
+});

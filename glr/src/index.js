@@ -57,7 +57,7 @@ import { listEvents, listSeries, getSeries, updateSeries, getEvent, getDriver, i
   saveRaceCalls, raceCalls } from "./db.js";
 import { KINDS, AMOUNT, CHANGES_ORDER, decisionText } from "./stewards.js";
 import { resultsPost, standingsPost, teamStandingsPost, penaltyPost, fixPost, decisionPost, penaltyReportPost, enqueue, processQueue, queueFor, retryQueued, discardQueued, isRecent } from "./discord.js";
-import { computeStandings, cleanRules, DEFAULT_RULES, GLR_PLAYOFFS } from "./standings.js";
+import { computeStandings, cleanRules, DEFAULT_RULES, GLR_PLAYOFFS, GLR_TABLE } from "./standings.js";
 import { computeStats, leaders, COLUMNS } from "./stats.js";
 import { THEMES, themeOf } from "./themes.js";
 import { ASSETS } from "./assets.js";
@@ -1127,7 +1127,8 @@ function rulesForm(rules, events) {
     <label class="chk"><input type="radio" name="source" value="iracing"${p.source === "iracing" ? " checked" : ""}> iRacing's league points (as set in the iRacing league)</label>
     <label class="chk"><input type="radio" name="source" value="table"${p.source === "table" ? " checked" : ""}> Our own points table</label>
     <label class="chk"><input type="radio" name="source" value="field"${p.source === "field" ? " checked" : ""}> By the size of the field: one point per car that completed a lap for 1st, one less for each place after, down to 1 for the last of them; a car with 0 laps scores nothing (the Warrior way)</label>
-    <label for="tbl">Points for 1st, 2nd, 3rd… (commas)</label><input type="text" id="tbl" name="table" value="${esc(p.table.join(", "))}" style="max-width:100%">
+    <label for="tbl">Points for 1st, 2nd, 3rd… (commas)</label><input type="text" id="tbl" name="table" value="${esc((p.table.length ? p.table : GLR_TABLE).join(", "))}" style="max-width:100%">${p.table.length ? "" : `
+    <p class="tag">Filled in with the GLR table (46 for the win, then 42, 41, 40 and one less per place). Change it if this series scores differently. It's used once you pick "Our own points table" and save.</p>`}
     <div class="grid">${n("others", p.others, "Every other finisher")}</div>
     <label class="chk"><input type="checkbox" name="zero_laps"${p.zeroLaps ? " checked" : ""}> A car with 0 laps scores nothing (as iRacing does: a car that never started)</label>
     <p class="tag">With our own table, every race is scored as soon as its results arrive, from the overlay, race control or an uploaded file. The overlay reads this table for its live points.</p>

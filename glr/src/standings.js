@@ -30,6 +30,11 @@ export const DEFAULT_RULES = {
   playoffs: { enabled: false, regularRaces: 10, minStarts: 0, field: 12, seedBonus: [], winBonus: 0, winIn: true, out: [], rounds: [] },
 };
 
+// The GLR points table: 46 for the win, 42, 41, 40 and one less for each place down to 1 for 43rd. The Rules form
+// starts "Our own points table" with it for a season that has no table yet (Nov 2026), so nobody types it per series.
+// It's only a starting value in the form: nothing is scored with it until someone saves the rules with it.
+export const GLR_TABLE = [46, 42, 41, ...Array.from({ length: 40 }, (_, i) => 40 - i)];
+
 export const GLR_PLAYOFFS = {
   enabled: true, regularRaces: 10, minStarts: 7, field: 12, seedBonus: [5, 3, 1], winBonus: 3, winIn: true,
   rounds: [
