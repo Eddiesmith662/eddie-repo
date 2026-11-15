@@ -1487,7 +1487,9 @@ window.addEventListener('message',e=>{if(e.data&&e.data.glrWidget&&e.source===$(
 // what the public series API sends: only the fields named here. Nov 9 2026: the old version removed three webhook
 // fields by name, so hook_teams (added later) went out to everyone. A new column is private until it's added here.
 const PUB_SERIES = ["id", "name", "short_name", "slug", "teams", "hidden", "past", "races", "latest", "latestEvent"];
-const pub = sr => Object.fromEntries(PUB_SERIES.filter(k => k in sr).map(k => [k, sr[k]]));
+// "logo": the address of the series' logo on this site, as the pages use it (an uploaded one changes address when it's
+// replaced), or "" when it has none. The overlay downloads it for its Series list (Nov 2026).
+const pub = sr => ({ ...Object.fromEntries(PUB_SERIES.filter(k => k in sr).map(k => [k, sr[k]])), logo: logoUrl(sr) });
 const sameOrigin = (request, url) => request.headers.get("origin") === url.origin;
 const bearer = request => (/^Bearer\s+(\S+)$/i.exec(request.headers.get("authorization") || "") || [])[1] || "";
 
@@ -2553,9 +2555,13 @@ const site = {
         const sr = await getSeries(db, m[1]);
         if (!sr) return json({ ok: false, error: "No such series" }, 404);
         const season = pickSeason(await seasonsOf(db, sr.id), url);
-        const rules = cleanRules((season && (await getRules(db, season.id, sr.id)).rules) || DEFAULT_RULES);
+        const rules = cleanRules((season && (await getRules(db, season.id, sr.id)).rules) || DEFAULT_RULES), po = rules.playoffs;
         return json({ ok: true, series: sr.short_name, season: season && { id: season.id, name: season.name },
-          source: rules.points.source, table: rules.points.table, others: rules.points.others, zeroLaps: rules.points.zeroLaps, bonus: rules.bonus });
+          source: rules.points.source, table: rules.points.table, others: rules.points.others, zeroLaps: rules.points.zeroLaps, bonus: rules.bonus,
+          // for the overlay's live points and playoff cut line (Nov 2026). Not playoffs.out: it names drivers.
+          drops: rules.drops, byClass: rules.byClass, ties: rules.ties,
+          playoffs: { enabled: po.enabled, field: po.field, regularRaces: po.regularRaces, minStarts: po.minStarts, winIn: po.winIn, seedBonus: po.seedBonus, winBonus: po.winBonus,
+            rounds: po.rounds.map(r => ({ name: r.name, races: r.races, drivers: r.drivers })) } });
       }
       if ((m = path.match(/^\/(?:api\/series\/)?([a-z0-9-]+)\/(stats|drivers)$/))) {
         const sr = await getSeries(db, m[1]), api = path.startsWith(`${BASE}/api/`);

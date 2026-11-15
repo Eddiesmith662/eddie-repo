@@ -102,8 +102,12 @@ test("logo upload: PNG, JPG or WebP under 500 KB; shown on the list and the seri
   s.cookie = "";
   assert.match((await s.page("/")).html, /class="slogo"><img src="\/logo\/7777/);
   assert.match((await s.page("/trucks")).html, /class="shlogo" src="\/logo\/7777/);
+  // the public API gives the logo's address (the overlay's Series list downloads it), on the list and for one series
+  assert.equal((await s.json("/api/series/trucks")).series.logo, src);
+  assert.equal((await s.json("/api/series")).series.find(x => x.slug === "trucks").logo, src);
   await s.signIn(ADMIN);
   await s.file("/trucks/edit", null, "", { remove: "1" });
+  assert.equal((await s.json("/api/series/trucks")).series.logo, "");             // none: an empty address
   assert.doesNotMatch((await s.page("/trucks")).html, /\/logo\/7777/);
   assert.equal((await s.go("/logo/7777")).status, 404);
   await s.signIn({ id: "9", roles: [], nick: "Racer Ray" });

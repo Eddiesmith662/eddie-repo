@@ -34,5 +34,22 @@ test("the rules form saves the box, the Rules tab says so, and the overlay can r
   assert.deepEqual(api.table.slice(0, 4), [46, 42, 41, 40]);
   assert.equal(api.zeroLaps, true);
   assert.deepEqual(api.bonus, { win: 0, pole: 0, led: 1, mostLed: 1, fastLap: 0 });
+  // the rest of the rules the overlay scores with: drop weeks, classes, ties and the playoff format (no driver names)
+  assert.deepEqual([api.drops, api.byClass, api.ties], [0, false, "share"]);
+  assert.equal(api.playoffs.enabled, false);
+  await s.post("/test-cup/rules", { source: "table", table: "40, 35", others: "1", drops: "2", byClass: "on", ties: "wins", po: "on", regularRaces: "20", field: "10", minStarts: "3",
+    winIn: "on", seedBonus: "15, 10, 8", winBonus: "5", r0_name: "Round of 10", r0_races: "3", r0_drivers: "10", r1_name: "Final 4", r1_races: "1", r1_drivers: "4", r1_final: "on" });
+  // a driver the stewards took out of the playoffs: named in the rules, never in this answer
+  const row = s.DB.raw.prepare("SELECT season_id, rules FROM season_rules").get(), rules = JSON.parse(row.rules);
+  rules.playoffs.out = [{ cust: 101, reason: "Withdrew" }];
+  s.DB.raw.prepare("UPDATE season_rules SET rules = ? WHERE season_id = ?").run(JSON.stringify(rules), row.season_id);
+  const full = await s.json("/api/series/test-cup/points");
+  assert.deepEqual([full.drops, full.byClass, full.ties], [2, true, "wins"]);
+  assert.deepEqual([full.playoffs.enabled, full.playoffs.field, full.playoffs.regularRaces, full.playoffs.minStarts, full.playoffs.winIn, full.playoffs.winBonus], [true, 10, 20, 3, true, 5]);
+  assert.deepEqual(full.playoffs.seedBonus, [15, 10, 8]);
+  assert.deepEqual(full.playoffs.rounds, [{ name: "Round of 10", races: 3, drivers: 10 }, { name: "Final 4", races: 1, drivers: 4 }]);
+  assert.deepEqual(Object.keys(full.playoffs).sort(), ["enabled", "field", "minStarts", "regularRaces", "rounds", "seedBonus", "winBonus", "winIn"]);
+  for (const r of full.playoffs.rounds) assert.deepEqual(Object.keys(r).sort(), ["drivers", "name", "races"]);
+  assert.equal(/Withdrew|"out"|101/.test(JSON.stringify(full)), false);
   assert.equal((await s.go("/api/series/nope/points")).status, 404);
 });
