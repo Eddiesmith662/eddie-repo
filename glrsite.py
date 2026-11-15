@@ -6,6 +6,7 @@ overlay sends it. This reads the site's public data, with no sign-in:
   /api/series               the series on the site (a series' number is its iRacing league ID), each with its logo
   /api/standings/<series>   the current season's standings, one group per class when classes race together
   /api/series/<series>/points   the season's scoring rules: points table, bonuses, playoff field
+  /api/schedule             the races still to come, for the Next broadcast box
 
 and turns a series' standings into the table the standings graphic, the bracket and live points already use (a header
 row and driver rows, the same shape as an Xtreme pull or a CSV), plus each driver's iRacing ID, so live points can
@@ -14,6 +15,7 @@ match a car to its row by ID when the name in iRacing isn't the one on the site.
 Nothing here runs by itself during a broadcast: the list is read at start-up and when asked, and standings only when the
 producer picks a series or presses Refresh (profiles.py).
 """
+import datetime
 import json
 import re
 import threading
@@ -27,6 +29,8 @@ import net
 HEADER = ["Pos", "#", "Driver", "Pts", "To Ldr", "To Nxt", "Wins", "Top 5", "Top 10", "Starts"]
 TABLE_PLACES = 60        # the live points table in the control panel has this many places
 LOGO_MAX = 3 * 1024 * 1024
+BRACKET_SIZES = [12, 8, 4]   # the overlay's bracket and live points' playoff mode: Round of 12, Round of 8, Championship 4
+NEXT_AFTER_H = 12            # Next broadcast skips a race starting within this many hours: that's tonight's show
 LOGO_EXT = {"image/png": ".png", "image/jpeg": ".jpg", "image/gif": ".gif", "image/webp": ".webp", "image/svg+xml": ".svg"}
 MAX_ROWS = 200           # more than any field: live points needs everyone who races
 
@@ -133,6 +137,49 @@ def to_rules(resp):
     return out
 
 
+def _eastern(utc):
+    """A UTC time as US Eastern time (the league's clock): daylight time from the second Sunday of March to the first
+    Sunday of November. Worked out here because Windows' Python has no time zone data of its own."""
+    def sunday(month, nth):
+        d = datetime.datetime(utc.year, month, 1)
+        return d + datetime.timedelta(days=(6 - d.weekday()) % 7 + 7 * (nth - 1))
+    summer = sunday(3, 2) + datetime.timedelta(hours=7) <= utc < sunday(11, 1) + datetime.timedelta(hours=6)
+    return utc - datetime.timedelta(hours=4 if summer else 5)
+
+
+def _ordinal(n):
+    return "%d%s" % (n, "TH" if 10 <= n % 100 <= 20 else {1: "ST", 2: "ND", 3: "RD"}.get(n % 10, "TH"))
+
+
+def next_race(races, slug, now=None):
+    """The series' next broadcast from the site's schedule, as the Next broadcast box's text: {event, date, time}, or
+    None when nothing is scheduled. A race starting in the next 12 hours (or already started) is tonight's show, so
+    the one after it is the next broadcast."""
+    now = now or datetime.datetime.now(datetime.timezone.utc).replace(tzinfo=None)
+    best = None
+    for r in races or []:
+        if not isinstance(r, dict) or _slug(r.get("slug")) != _slug(slug):
+            continue
+        try:
+            t = datetime.datetime.strptime(str(r.get("startsAt"))[:19], "%Y-%m-%dT%H:%M:%S")
+        except ValueError:
+            continue
+        if t - now >= datetime.timedelta(hours=NEXT_AFTER_H) and (best is None or t < best[0]):
+            best = (t, r)
+    if not best:
+        return None
+    et = _eastern(best[0])
+    hour = et.hour % 12 or 12
+    return {"event": " ".join(str(best[1].get("track") or "").split()).upper()[:40],
+            "date": "%s %s" % (et.strftime("%b").upper(), _ordinal(et.day)),
+            "time": "%d:%02d %s ET" % (hour, et.minute, "AM" if et.hour < 12 else "PM")}
+
+
+def fetch_next(slug):
+    d = _get("/api/schedule")
+    return next_race(d.get("races") or [], slug)
+
+
 def fetch_rules(slug):
     resp = _get("/api/series/%s/points" % _slug(slug))
     if not resp.get("ok", True):
@@ -214,7 +261,49 @@ def to_table(resp, cls=""):
         if p.get("custId") and _name_key(p["name"]):
             ids.setdefault(_name_key(p["name"]), str(p["custId"]))
     return {"header": list(HEADER), "rows": rows, "ids": ids, "classes": classes if len(classes) > 1 else [],
-            "cls": str(g.get("carClass") or "") if len(classes) > 1 else "", "season": season, "playoffs": not shared}
+            "cls": str(g.get("carClass") or "") if len(classes) > 1 else "", "season": season, "playoffs": not shared,
+            "playoff": _playoff(resp, g)}
+
+
+def _playoff(resp, g):
+    """Where the series' playoffs stand, for the overlay's bracket and live points' playoff mode:
+      enabled  the series has playoffs on the site
+      fits     its rounds are the 12 / 8 / 4 the overlay's bracket shows (anything else: the bracket and playoff mode
+               stay as the producer set them)
+      started  the regular season is over and the playoffs are under way
+      name     the round being run now; spots = how many go through from it (None in the last round)
+      rounds   the bracket: who is in each round so far, seeded in the order they made the field, with a win or a
+               missed race in the round marked, and the champion once the last round is complete"""
+    rules = ((resp.get("rules") or {}).get("playoffs") or {})
+    sizes = [int(_n(r.get("drivers"))) for r in (rules.get("rounds") or []) if isinstance(r, dict)]
+    out = {"enabled": bool(rules.get("enabled")), "fits": bool(sizes) and sizes == BRACKET_SIZES[:len(sizes)], "started": False,
+           "name": "", "spots": None, "rounds": None}
+    po = g.get("playoffs") or {}
+    done = [r for r in (po.get("rounds") or []) if isinstance(r, dict)]
+    if not po.get("started") or not done:
+        return out
+    cur = done[-1]
+    out.update(enabled=True, started=True, name=str(cur.get("name") or ""))
+    if not cur.get("finale") and _n(cur.get("spots")) >= 1:
+        out["spots"] = int(_n(cur["spots"]))
+    if not out["fits"]:
+        return out
+    field = [s.get("custId") for s in (g.get("regular") or []) if s.get("inField")] or [r.get("custId") for r in done[0].get("rows") or []]
+    seed = {cust: k + 1 for k, cust in enumerate(field)}
+    rounds = [[], [], [], []]
+    for k, rd in enumerate(done[:3]):
+        for r in rd.get("rows") or []:
+            if r.get("custId") in seed:
+                rounds[k].append({"seed": seed[r["custId"]], "num": str(r.get("number") or "").strip(), "name": str(r.get("name") or "").strip(),
+                                  "won": bool(r.get("won")), "missed": bool(r.get("missed"))})
+        rounds[k].sort(key=lambda e: e["seed"])
+    if cur.get("finale") and cur.get("complete"):
+        champ = next((r for r in cur.get("rows") or [] if r.get("status") == "Champion" and r.get("custId") in seed), None)
+        if champ:
+            rounds[3] = [{"seed": seed[champ["custId"]], "num": str(champ.get("number") or "").strip(), "name": str(champ.get("name") or "").strip(),
+                          "won": False, "missed": False}]
+    out["rounds"] = rounds
+    return out
 
 
 def fetch_standings(slug, cls=""):

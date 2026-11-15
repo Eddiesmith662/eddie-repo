@@ -21,4 +21,6 @@ Series from GLR HUB: the Series picker (top right of the control panel) now also
 
 Series from GLR HUB also bring their scoring, cutoff and logo: when the series has its own points table on the site, live points uses that table and its bonuses, so "points as they run" match what the site will publish; the playoff cutoff is set to the series' playoff field; and the series logo becomes the standings logo and the league logo (top right). These are replaced at each refresh, except a logo you picked yourself. A series that takes its points from iRacing keeps the points table on the Setup tab.
 
+Series from GLR HUB in the playoffs: when the series' rounds are 12, 8 and 4 drivers, the playoff bracket, live points' playoff mode and the cutoff for the round being run (8 from the Round of 12, 4 from the Round of 8) are set from the site at each refresh, with wins and missed races in the round marked. The **Next broadcast** box is filled in with the series' next race from the site's schedule (track, date, time in Eastern time).
+
 Live points scoring (Setup tab) has two new rules, both off unless you set them: a **Win** bonus, and **A car with 0 laps scores no points for its place**.

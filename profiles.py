@@ -21,6 +21,9 @@ With the standings come the site's scoring rules for live points (when the serie
 playoff cutoff, and the series' logo. The site wins for standings, points and the cutoff. The logos are the producer's
 to change: the standings logo is only set when there is none or it is still the site's, and the league logo (top
 right of the broadcast) the first time and after that only while it is still the site's.
+Also from the site: the Next broadcast box's event, date and time (the series' next race on the site's schedule), and
+in the playoffs the bracket, live points' playoff mode and the cutoff for the round being run, when the series'
+rounds are the 12 / 8 / 4 the overlay's bracket shows.
 """
 import json
 import os
@@ -241,7 +244,11 @@ SITE_LOGO_NAME = "GLR HUB series logo"       # the standings logo's name when it
 def _fetch_extras(slug, link):
     """The scoring rules and the logo from the site, read before anything changes. A problem with either is a note for
     the producer, never a reason to stop: the standings still load."""
-    ex = {"rules": None, "logoAddr": None, "logo": None, "notes": []}
+    ex = {"rules": None, "logoAddr": None, "logo": None, "next": None, "notes": []}
+    try:
+        ex["next"] = glrsite.fetch_next(slug) or {}
+    except glrsite.SiteError as e:
+        ex["notes"].append("Next broadcast not read (%s)" % e)
     try:
         ex["rules"] = glrsite.fetch_rules(slug)
     except glrsite.SiteError as e:
@@ -263,9 +270,34 @@ def _write_image(path, body):
     os.replace(tmp, path)
 
 
-def _apply_extras(entry, ex):
-    """Put the site's scoring rules, cutoff and logo live for the loaded series `entry`. Returns notes for the producer."""
+def _apply_playoff(entry, po):
+    """The playoffs as the site has them, with the standings just pulled: the bracket, live points' playoff mode and
+    the cutoff for the round being run. Only for a series whose rounds are the overlay's 12 / 8 / 4; any other
+    format leaves the bracket and playoff mode as the producer set them."""
+    link = entry["site"]
+    link["playoffs"] = ("" if not po["enabled"] else "other" if not po["fits"] else po["name"] or "started" if po["started"] else "regular")
+    if not po["enabled"]:
+        return
+    if po["started"] and po["spots"]:              # e.g. 8 go through from the Round of 12
+        n = max(1, min(20, po["spots"]))
+        _state.update_settings({"livePoints": {"cutoff": n}})
+        standings.set_state(playoff=True, cutoff=n)
+        standings.update_config(cutoff=n)
+    if not po["fits"]:
+        return
+    _state.update_settings({"livePoints": {"playoff": bool(po["started"])}})
+    if po["started"] and po["rounds"]:
+        standings.set_bracket(po["rounds"])
+
+
+def _apply_extras(entry, ex, table=None):
+    """Put the site's scoring rules, cutoff, logo and Next broadcast live for the loaded series `entry`, and with a
+    standings table just pulled, the playoffs. Returns notes for the producer."""
     link, notes = entry["site"], list(ex["notes"])
+    if ex["next"]:
+        _state.update_settings({"nextRace": ex["next"]})
+    if ex["next"] is not None:
+        link["next"] = bool(ex["next"])
     rules = ex["rules"]
     if rules:
         link["points"] = rules["source"]
@@ -301,6 +333,12 @@ def _apply_extras(entry, ex):
             return notes
     if ex["logoAddr"] is not None:
         link["logo"] = ex["logoAddr"]
+    with _state.lock:
+        nr_logo = (_state.settings.get("nextRace") or {}).get("logo") or ""
+    if link.get("logoFile") and not nr_logo and os.path.exists(os.path.join(datafiles.LOGO_DIR, link["logoFile"])):
+        _state.update_settings({"nextRace": {"logo": link["logoFile"]}})      # the Next broadcast box had no logo
+    if table is not None:
+        _apply_playoff(entry, table["playoff"])      # after the rules: the round's cutoff, not the whole field's
     return notes
 
 
@@ -356,7 +394,7 @@ def _site_command(cmd, d):
                 return False, "Another series was loaded while GLR HUB was answering. Nothing was changed."
             have["site"] = dict(have["site"], **link)
             _apply_site(table)
-            notes = _apply_extras(have, extras)
+            notes = _apply_extras(have, extras, table)
             _write(INDEX, idx)
             return True, "Pulled %d drivers from GLR HUB%s" % (len(table["rows"]), more(notes))
         if have:                                    # linked before: switch to it, then bring its standings up to date
@@ -368,8 +406,9 @@ def _site_command(cmd, d):
                     return False, problem
                 idx["active"] = have["id"]
             have["site"] = dict(have["site"], **link)
-            notes = _apply_extras(have, extras)
-            if standings.data_snapshot()["edited_at"]:      # hand edits stay until Refresh is pressed for this series
+            edited = bool(standings.data_snapshot()["edited_at"])
+            notes = _apply_extras(have, extras, None if edited else table)
+            if edited:                                      # hand edits stay until Refresh is pressed for this series
                 _write(INDEX, idx)
                 return True, ("Switched to %s. Its standings were edited by hand, so they weren't replaced: press "
                               "Refresh from GLR HUB to pull%s" % (have["name"], more(notes)))
@@ -399,7 +438,7 @@ def _site_command(cmd, d):
             return False, problem
         idx["active"] = pid
         _apply_site(table)
-        notes = _apply_extras(idx["list"][-1], extras)
+        notes = _apply_extras(idx["list"][-1], extras, table)
         _write(INDEX, idx)
         _save(pid)
         return True, "%s added from GLR HUB: %d drivers%s" % (name, len(table["rows"]), more(notes))

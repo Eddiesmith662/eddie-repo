@@ -720,6 +720,7 @@
       <div class="row" id="glrClassRow" hidden style="margin:8px 0 0;align-items:center"><label style="margin:0;flex:0 0 auto">Class</label><select id="glrClass" style="width:auto"></select></div>
       <button class="save" id="glrRefresh" style="margin-top:8px">Refresh from GLR HUB</button>
       <p class="hint" id="glrPoints" hidden></p>
+      <p class="hint" id="glrMore" hidden></p>
       <p class="hint" style="margin-bottom:0">This series' standings come from the league site. They are pulled when you pick the series and when you press <b>Refresh from GLR HUB</b>, never by themselves. Edits made here last until the next refresh.</p>
     </div>
     <label>Xtreme Scoring widget link</label>
@@ -2165,7 +2166,7 @@ async function seriesCmd(body) {
     r = await post('/api/profile', Object.assign({ force: true }, body));
   }
   toast(r.msg || (r.ok ? 'Done' : 'Could not do that'));
-  if (r.ok) lpFilled = false;       // a pull from GLR HUB may have brought new points rules: show them on the Setup tab
+  if (r.ok) { lpFilled = false; filled = false; }   // a pull from GLR HUB may have brought new points rules and Next broadcast text: show them
   return r.ok;
 }
 // Standings tab: the box for a series that is linked to GLR HUB (its name there, its class when it has several, Refresh)
@@ -2176,6 +2177,12 @@ function glrBox() {
   const pts = !link || !link.points ? '' : link.points === 'table'
     ? 'Live points scoring, the playoff cutoff and the series logo come from GLR HUB too, and are replaced at each refresh (the logos only while you haven\'t picked your own).'
     : 'On GLR HUB this series takes its points from iRacing, so the site has no points table to give: live points uses the table on the Setup tab.';
+  // the playoffs and the Next broadcast box
+  const po = !link ? '' : link.playoffs === 'other' ? 'This series\' playoff rounds aren\'t the 12 / 8 / 4 the bracket and live points\' playoff mode use, so those stay as you set them.'
+    : link.playoffs === 'regular' ? 'Regular season: live points\' playoff mode is off until the playoffs start on GLR HUB.'
+    : link.playoffs ? `Playoffs, ${link.playoffs}: the bracket, live points' playoff mode and the cutoff are set from GLR HUB at each refresh.` : '';
+  const nx = !link || link.next == null ? '' : link.next ? ' The Next broadcast box (Prerace tab) has the series\' next race from the site\'s schedule.' : ' Nothing is on the site\'s schedule for this series, so the Next broadcast box is as you left it.';
+  $('glrMore').textContent = (po + nx).trim(); $('glrMore').hidden = !(po + nx).trim();
   $('glrPoints').textContent = pts; $('glrPoints').hidden = !pts;
   $('lpFromSite').hidden = !(link && link.points === 'table');
   $('lpFromSite').textContent = link && link.points === 'table' ? `These are ${link.name || cur.name}'s rules from GLR HUB. A change saved here lasts until the next Refresh from GLR HUB; to change them for good, change the series' rules on the site.` : '';

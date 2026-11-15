@@ -178,8 +178,12 @@ and the overlay makes a series for it here, marked **· GLR HUB**: its standings
 title and ticker header start as the series' name (change them as you like). With the standings come the series'
 **live points scoring** (when the series has its own points table on the site; a series on iRacing points keeps the
 table on the Setup tab), its **playoff cutoff**, and its **logo**, as the standings logo and the league logo at the
-top right. The site's standings, scoring and cutoff replace what's here at each refresh; a logo you pick yourself is
-kept. Picking it again later pulls all of it again. With no internet it opens from its saved copy. Everything else about it works like any other series,
+top right. The **Next broadcast** box gets the series' next race from the site's schedule (track, date and time in
+Eastern time; a race starting within 12 hours counts as tonight's show, so the one after it is used). **In the
+playoffs** the bracket, live points' playoff mode and the cutoff for the round being run are set from the site, when
+the series' rounds are 12, 8 and 4 drivers; any other format leaves the bracket and playoff mode as you set them. The
+site's standings, scoring, cutoff, bracket and Next broadcast text replace what's here at each refresh; a logo you
+pick yourself is kept. Picking it again later pulls all of it again. With no internet it opens from its saved copy. Everything else about it works like any other series,
 and your own series (Xtreme Scoring, CSV) are unchanged. The list is read when the overlay starts; **⋯ → Refresh the
 GLR HUB series list** reads it again. Nothing is pulled by itself during a broadcast.
 

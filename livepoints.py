@@ -110,13 +110,18 @@ def _score(live, cfg, header, srows, excluded, counted=False, ids=None):
         if cust:
             by_id.setdefault(str(cust), p)
 
-    # match each car in the race to a standings row
-    for c in cars:
+    # match each car in the race to a standings row: every car with an iRacing ID in the standings first, so a car
+    # matched by name or number can't take a row that is another driver's by ID
+    by_car = {}
+    for k, c in enumerate(cars):
         p = by_id.get(str(c.get("custId") or "")) if by_id else None
-        if p is not None and p["car"] is not None:
-            p = None
-        if p is None:
-            p = by_name.get(_key(c.get("name")))
+        if p is not None and p["car"] is None:
+            p["car"] = c
+            by_car[k] = p
+    for k, c in enumerate(cars):
+        if k in by_car:
+            continue
+        p = by_name.get(_key(c.get("name")))
         if p is None or p["car"] is not None:
             p = by_num.get(str(c.get("num") or ""))
             if p is not None and p["car"] is not None:
