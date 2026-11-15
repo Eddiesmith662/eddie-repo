@@ -12,3 +12,5 @@ How it works (CLAUDE.md, "Three chats, one repo"):
   VERSION bump).
 
 ## Notes
+
+A race name too long for the ticker's title bar is no longer cut off with "…": it is drawn smaller until it fits (down to about half size; a name longer than that still ends in "…").

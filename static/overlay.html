@@ -557,6 +557,23 @@ function fitNames(els) {
     Object.assign(el.style, { flex: `0 0 ${w}px`, marginRight: `${room - w}px`, transform: `scaleX(${k})`, transformOrigin: 'left center' });
   });
 }
+/* The ticker's title (the race name) is drawn smaller until it fits its bar, instead of being cut off with "…"
+   (Nov 15, 2026: F.O.E. GRAND NATIONAL SERIES didn't fit at 21 px). Down to 12 px; a name too long even for that ends
+   in "…" as before. The bar keeps the height it has at full size, so the rows under it don't move. Worked out once per
+   title (the bar remembers it), and again once the page's fonts have loaded. */
+const TITLE_MIN = 12;
+function fitTitle(el) {
+  if (el.dataset.fit === el.textContent) return;
+  el.style.fontSize = el.style.lineHeight = '';
+  if (!el.clientWidth) return;                 // not laid out yet: try again next time
+  el.dataset.fit = el.textContent;
+  if (el.scrollWidth <= el.clientWidth) return;
+  const cs = getComputedStyle(el);
+  let size = parseFloat(cs.fontSize);
+  el.style.lineHeight = (el.clientHeight - parseFloat(cs.paddingTop) - parseFloat(cs.paddingBottom)) + 'px';
+  while (el.scrollWidth > el.clientWidth && size > TITLE_MIN) { size -= 0.5; el.style.fontSize = size + 'px'; }
+}
+if (document.fonts && document.fonts.ready) document.fonts.ready.then(() => { delete $('tHead').dataset.fit; });
 /* ---------- in / out animations ----------
    show(id, on) plays the widget's intro or exit once per change (like the standings,
    race info and team boxes): headers wipe in with a red accent and a light sweep,
@@ -891,6 +908,7 @@ function renderTower() {
   show('tower', on);
   if (!on) return;
   $('tHead').textContent = S.raceName || L.track || 'VSPEED';
+  fitTitle($('tHead'));
   let sub;
   if (L.isRace && L.sessionState >= 5) sub = 'FINISHED';   // checkered flag is out (and cool-down after it)
   else if (L.isRace && L.totalLaps) {

@@ -100,5 +100,70 @@ class TickerComesBack(unittest.TestCase):
         self.assertEqual(self.page.evaluate("document.querySelector('#tower .sub').getAttribute('style') || ''"), "")
 
 
+@unittest.skipUnless(__import__("importlib").util.find_spec("playwright"), "Playwright isn't installed here")
+class TitleFits(unittest.TestCase):
+    """Nov 15, 2026: a race name too long for the ticker's title bar was cut off with "…" (F.O.E. GRAND NATIONAL
+    SERIES). The title is drawn smaller until it fits instead."""
+    LONG = "F.O.E. GRAND NATIONAL SERIES"
+
+    @classmethod
+    def setUpClass(cls):
+        live = None
+        for r, lv in replay.replay("talladega-2026-10-24-caution"):
+            live = lv
+            if lv.get("flag") == "green" and (lv.get("lap") or 0) >= 20:
+                break
+        cls.was = server.STATE.live, server.STATE.settings.get("show"), server.STATE.settings.get("raceName")
+        server.STATE.set_live(live)
+        server.STATE.update_settings({"show": {"tower": True}, "raceName": "Test League"})
+        cls.httpd = server.QuietServer(("127.0.0.1", 0), server.Handler)   # port 0: a free one, never 8765/8766
+        cls.port = cls.httpd.server_address[1]
+        threading.Thread(target=cls.httpd.serve_forever, daemon=True).start()
+        from playwright.sync_api import sync_playwright
+        cls.pw = sync_playwright().start()
+        cls.browser = cls.pw.chromium.launch()
+        cls.page = cls.browser.new_page(viewport={"width": 1920, "height": 1080})
+        cls.page.goto("http://127.0.0.1:%d/overlay?preview" % cls.port)    # ?preview: not the broadcast copy
+        cls.page.wait_for_function("!document.getElementById('tower').classList.contains('off')", timeout=5000)
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.browser.close()
+        cls.pw.stop()
+        cls.httpd.shutdown()
+        cls.httpd.server_close()
+        server.STATE.set_live(cls.was[0])
+        server.STATE.settings["show"] = cls.was[1]
+        server.STATE.settings["raceName"] = cls.was[2]
+
+    def title(self, text):
+        """Set the race name, and read the title bar once it shows it: its text room, the width the text needs, the
+        size it's drawn at and the bar's height."""
+        server.STATE.update_settings({"raceName": text})
+        self.page.wait_for_function("t => document.getElementById('tHead').textContent === t.toUpperCase() || "
+                                    "document.getElementById('tHead').textContent === t", arg=text, timeout=5000)
+        time.sleep(0.3)
+        return self.page.evaluate("""() => { const h = document.getElementById('tHead'), cs = getComputedStyle(h);
+            return { room: h.clientWidth, need: h.scrollWidth, size: parseFloat(cs.fontSize), height: h.offsetHeight }; }""")
+
+    def test_a_long_race_name_is_drawn_smaller_until_it_fits(self):
+        short = self.title("Test League")
+        self.assertEqual(short["size"], 21)
+        long = self.title(self.LONG)
+        self.assertLessEqual(long["need"], long["room"], "the whole title is on the bar, nothing cut off")
+        self.assertLess(long["size"], 21)
+        self.assertGreaterEqual(long["size"], 12)
+        self.assertEqual(long["height"], short["height"], "the bar keeps its height, so the rows under it don't move")
+
+    def test_a_short_race_name_is_back_at_full_size(self):
+        self.title(self.LONG)
+        again = self.title("Test League")
+        self.assertEqual(again["size"], 21)
+
+    def test_a_name_too_long_for_the_smallest_size_stops_there(self):
+        huge = self.title("Test League Of Very Long Names Championship Series Presented By Test Sponsor")
+        self.assertEqual(huge["size"], 12)          # past that it ends in "…" as before
+
+
 if __name__ == "__main__":
     unittest.main()
