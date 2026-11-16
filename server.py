@@ -2630,11 +2630,18 @@ def hex_color(v):
         return ""
     if isinstance(v, (int, float)):
         return "%06x" % (int(v) & 0xFFFFFF)
+    # A colour that can't be read is left out (the renderer then uses its own). Nov 14, 2026: one driver's licence
+    # colour came as "0xundefined"; reading it failed on every telemetry update and the overlay showed nothing for
+    # the whole session.
     v = str(v).strip().lower().replace("#", "")
-    if v.startswith("0x"):
-        return "%06x" % (int(v, 16) & 0xFFFFFF)
-    if v.isdigit() and len(v) != 6:
-        return "%06x" % (int(v) & 0xFFFFFF)
+    try:
+        if v.startswith("0x"):
+            return "%06x" % (int(v, 16) & 0xFFFFFF)
+        if v.isdigit() and len(v) != 6:
+            return "%06x" % (int(v) & 0xFFFFFF)
+        int(v, 16)
+    except ValueError:
+        return ""
     return v
 
 
